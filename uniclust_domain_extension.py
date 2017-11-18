@@ -21,6 +21,69 @@ def findMiddle(input_list):             # https://stackoverflow.com/questions/38
     else:
         return [input_list[int(middle)], input_list[int(middle-1)]]
 
+def domain_ovl_resolver(ovlCutoff, seqHits):
+        overlapping = 'y'
+        while True:
+                if len(seqHits) == 1 or overlapping == 'n':
+                        break
+                for y in range(len(seqHits)-1):
+                        overlapping = 'y'
+                        if seqHits[y+1][1] > seqHits[y][2] and y != len(seqHits)-2:
+                                continue
+                        elif seqHits[y+1][1] == seqHits[y][2]:
+                                seqHits[y+1][1] =  seqHits[y+1][1] + 1    # Consistent design choice: the most N-proximal domain gets the extra AA position for no particular reason, we just need to handle this
+                                continue
+                        elif seqHits[y+1][1] < seqHits[y][2]:
+                                # Handle identical E-values
+                                if seqHits[y][3] == seqHits[y+1][3]:
+                                        len1 = seqHits[y][2] - seqHits[y][1]
+                                        len2 = seqHits[y+1][2] - seqHits[y+1][1]
+                                        # Handle identical lengths [just pick the first one, follows the consistent design decision we've made thus far and may result in less overlaps]
+                                        if len1 == len2:
+                                                del seqHits[y+1]
+                                                break
+                                        # Handle differing lengths
+                                        else:
+                                                if len1 > len2:
+                                                        del seqHits[y+1]
+                                                        break
+                                                else:
+                                                        del seqHits[y]
+                                                        break
+                                # Get best E-value sequence
+                                else:
+                                        bestEval = min(seqHits[y][3], seqHits[y+1][3])
+                                        if bestEval == seqHits[y][3]:
+                                                # Figure out how much the worse E-value overlaps the best E-value
+                                                worseRange = range(seqHits[y+1][1], seqHits[y+1][2]+1)
+                                                betterRange = range(seqHits[y][1], seqHits[y][2]+1)
+                                                sharedPos = set(worseRange) & set(betterRange)
+                                                worseOvl = (len(worseRange) - len(set(worseRange) - sharedPos))
+                                                worsePerc = worseOvl / len(worseRange)
+                                                if worsePerc > ovlCutoff:
+                                                        del seqHits[y+1]
+                                                        break
+                                                else:
+                                                        overlapping = 'n'       # We need to put this in here as an exit condition if we're looking at the last two entries and they don't overlap past our cutoff point. If we aren't looking at the last two entries, overlapping will == 'y' again when it goes back to the 'for y'... loop. If it IS the last two entries, when we continue we exit the 'for y' loop and immediately check if overlapping == 'n', which it does.
+                                                        continue
+                                        else:
+                                                # Figure out how much the worse E-value overlaps the best E-value
+                                                worseRange = range(seqHits[y][1], seqHits[y][2]+1)
+                                                betterRange = range(seqHits[y+1][1], seqHits[y+1][2]+1)
+                                                sharedPos = set(worseRange) & set(betterRange)
+                                                worseOvl = (len(worseRange) - len(set(worseRange) - sharedPos)) 
+                                                worsePerc = worseOvl / len(worseRange)
+                                                if worsePerc > ovlCutoff:
+                                                        del seqHits[y]
+                                                        break
+                                                else:
+                                                        overlapping = 'n'
+                                                        continue
+                        else:
+                                overlapping = 'n'
+                                break
+        return seqHits
+
 
 #### USER INPUT SECTION
 usage = """This program will read in an input BLAST-tab format file and ID list (either formatted as a newline-separated list of all IDs or as a tab-delimited list of old:new ID pairs)
@@ -273,66 +336,7 @@ for key, value in domDict.items():
                 else:
                         collapsedIdentical.sort(key = lambda x: (x[1], x[2]))
                         overlapping = 'y'
-                        while True:
-                                if len(collapsedIdentical) == 1 or overlapping == 'n':
-                                        break
-                                for y in range(len(collapsedIdentical)-1):
-                                        overlapping = 'y'
-                                        if collapsedIdentical[y+1][1] > collapsedIdentical[y][2] and y != len(collapsedIdentical)-2:
-                                                continue
-                                        elif collapsedIdentical[y+1][1] == collapsedIdentical[y][2]:
-                                                collapsedIdentical[y+1][1] =  collapsedIdentical[y+1][1] + 1    # Consistent design choice: the most N-proximal domain gets the extra AA position for no particular reason, we just need to handle this
-                                                continue
-                                        elif collapsedIdentical[y+1][1] < collapsedIdentical[y][2]:
-                                                # Handle identical E-values
-                                                if collapsedIdentical[y][3] == collapsedIdentical[y+1][3]:
-                                                        len1 = collapsedIdentical[y][2] - collapsedIdentical[y][1]
-                                                        len2 = collapsedIdentical[y+1][2] - collapsedIdentical[y+1][1]
-                                                        # Handle identical lengths [just pick the first one, follows the consistent design decision we've made thus far and may result in less overlaps]
-                                                        if len1 == len2:
-                                                                del collapsedIdentical[y+1]
-                                                                break
-                                                        # Handle differing lengths
-                                                        else:
-                                                                if len1 > len2:
-                                                                        del collapsedIdentical[y+1]
-                                                                        break
-                                                                else:
-                                                                        del collapsedIdentical[y]
-                                                                        break
-                                                # Get best E-value sequence
-                                                else:
-                                                        bestEval = min(collapsedIdentical[y][3], collapsedIdentical[y+1][3])
-                                                        if bestEval == collapsedIdentical[y][3]:
-                                                                # Figure out how much the worse E-value overlaps the best E-value
-                                                                worseRange = range(collapsedIdentical[y+1][1], collapsedIdentical[y+1][2]+1)
-                                                                betterRange = range(collapsedIdentical[y][1], collapsedIdentical[y][2]+1)
-                                                                sharedPos = set(worseRange) & set(betterRange)
-                                                                worseOvl = (len(worseRange) - len(set(worseRange) - sharedPos))
-                                                                worsePerc = worseOvl / len(worseRange)
-                                                                if worsePerc > ovlCutoff:
-                                                                        del collapsedIdentical[y+1]
-                                                                        break
-                                                                else:
-                                                                        overlapping = 'n'       # We need to put this in here as an exit condition if we're looking at the last two entries and they don't overlap past our cutoff point. If we aren't looking at the last two entries, overlapping will == 'y' again when it goes back to the 'for y'... loop. If it IS the last two entries, when we continue we exit the 'for y' loop and immediately check if overlapping == 'n', which it does.
-                                                                        continue
-                                                        else:
-                                                                # Figure out how much the worse E-value overlaps the best E-value
-                                                                worseRange = range(collapsedIdentical[y][1], collapsedIdentical[y][2]+1)
-                                                                betterRange = range(collapsedIdentical[y+1][1], collapsedIdentical[y+1][2]+1)
-                                                                sharedPos = set(worseRange) & set(betterRange)
-                                                                worseOvl = (len(worseRange) - len(set(worseRange) - sharedPos)) 
-                                                                worsePerc = worseOvl / len(worseRange)
-                                                                if worsePerc > ovlCutoff:
-                                                                        del collapsedIdentical[y]
-                                                                        break
-                                                                else:
-                                                                        overlapping = 'n'
-                                                                        continue
-                                        else:
-                                                overlapping = 'n'
-                                                break
-
+                        collapsedIdentical = domain_ovl_resolver(ovlCutoff, collapsedIdentical)
                         if key not in finalDict:
                                 finalDict[key] = [collapsedIdentical]
                         else:
@@ -342,16 +346,16 @@ for key, value in domDict.items():
 with open(blastTab, 'r') as fileIn, open(outfile, 'w') as fileOut:
         for line in fileIn:
                 if line.startswith('Query\tSource'):
-                        fileOut.write('Query\tSource\tTarget_accession\tUniProtKB_represenative\tUniProtKB_description\tPercentage_identity\tAlignment_length\tMismatches\tGap_opens\tQuery_start\tQuery_end\tTarget_start\tTarget_end\tExpect_value\tBit_score\tUniProtKB_GO')
+                        fileOut.write('Query\tSource\tTarget_accession\tUniProtKB_represenative\tUniProtKB_description\tPercentage_identity\tAlignment_length\tMismatches\tGap_opens\tQuery_start\tQuery_end\tTarget_start\tTarget_end\tExpect_value\tBit_score\tUniProtKB_GO\tDomain_summary')
                         for prefix in dom_prefixes:
                                 fileOut.write('\t' + prefix + '_domains')
                         fileOut.write('\n')
                 else:
                         line = line.rstrip('\n').rstrip('\r').split('\t')
-                        newL = [*line[0:16]]
+                        newL = line[0:16]
                         # Handle no domain hits
                         if line[0] not in finalDict:
-                                newL += ['.']*len(dom_prefixes)
+                                newL += ['.']*(len(dom_prefixes) + 1)     # +1 for summary column
                                 fileOut.write('\t'.join(newL) + '\n')
                         # Place the database results in their respective columns
                         else:
@@ -366,11 +370,24 @@ with open(blastTab, 'r') as fileIn, open(outfile, 'w') as fileOut:
                                                 for hitList in dbHits:
                                                         if hitList[0][0].isdigit():
                                                                 hitReceptacle[i] = hitList
+                                # Place hits into receptacles
                                 for i in range(len(hitReceptacle)):
                                         if hitReceptacle[i] == '':
                                                 hitReceptacle[i] = '.'
                                         else:
                                                 hitReceptacle[i] = '; '.join(list(map(str, hitReceptacle[i])))
+                                # Create a single column entry summarising all the different databases
+                                seqHits = []
+                                for hitList in dbHits:
+                                        seqHits += hitList
+                                seqHits.sort(key = lambda x: (x[1], x[2], x[3]))
+                                ovlCutoff = 0.20        # This is also arbitrary; can test its effects
+                                if len(seqHits) == 1:
+                                        summaryCol = seqHits
+                                else:
+                                        seqHits = domain_ovl_resolver(ovlCutoff, seqHits)
+                                hitReceptacle.insert(0, '; '.join(list(map(str, seqHits))))
+                                # Format output
                                 newL += hitReceptacle
                                 fileOut.write('\t'.join(newL) + '\n')
                                         
