@@ -2,7 +2,7 @@
 # genome_stats.py
 # A simple python program which reads a genome fasta file and calculates a handful of assembly statistics
 
-import re, os, argparse, sys, locale
+import os, argparse, locale
 from Bio import SeqIO
 from statistics import median, mean
 
@@ -29,7 +29,6 @@ def N50(numlist):
       return l
 
 # Set up global expressions for later use
-lenReg = re.compile(r'len=(\d{0,10})')
 locale.setlocale(locale.LC_ALL, '')
 
 ##### USER INPUT SECTION
@@ -72,12 +71,6 @@ for record in records:
         genomeSize += int(length)
 
 # Calculate additional statistics
-#shortest = str(min(statsList))
-#longest = str(max(statsList))
-#n50 = str(N50(statsList))
-#medianStat = str(median(statsList))
-#meanStat = str(mean(statsList))
-
 genomeSize = locale.format("%d", genomeSize, grouping=True)
 numSeqs = locale.format("%d", numSeqs, grouping=True)
 shortest = locale.format("%d", min(statsList), grouping=True)
@@ -87,7 +80,6 @@ medianStat = locale.format("%d", median(statsList), grouping=True)
 meanStat = locale.format("%d", mean(statsList), grouping=True)
 
 # Print statistics
-
 print('Genome size: ' + genomeSize)
 print('Number of contigs: ' + numSeqs)
 print('Shortest contig: ' + shortest)
