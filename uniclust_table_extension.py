@@ -2,7 +2,7 @@
 # uniclust_table_extension
 # Extends upon a basic uniclust table to provide the UniProtKB accession of the representative sequence,
 # as well as the gene name and GO terms associated with said representative. This table can be 
-# extended further with domain annotations by the domain_table_extension.py script
+# extended further with domain annotations by the uniclust_domain_extension.py script
 
 import os, argparse, re
 from itertools import groupby
