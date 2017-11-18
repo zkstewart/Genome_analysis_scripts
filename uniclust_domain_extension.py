@@ -86,9 +86,9 @@ def domain_ovl_resolver(ovlCutoff, seqHits):
 
 
 #### USER INPUT SECTION
-usage = """This program will read in an input BLAST-tab format file and ID list (either formatted as a newline-separated list of all IDs or as a tab-delimited list of old:new ID pairs)
-and, using an E-value cut-off, produce an abbreviated BLAST-tab-like file with basic reformatting of results to enable further expansion such as the incorporation of a Hit_description column, as well as the addition
-of new columns to list GO terms and other functional annotations
+usage = """This program will read in an input BLAST-tab format file and optionally an ID list (formatted as a tab-delimited list of old:new ID pairs) if the HMMER3 result IDs don't match those in the uniclust table,
+and, using an E-value cut-off, produce a BLAST-tab-like file with a 'Domain_summary' column containing the best-matching models with minimal overlaps, followed by columns representing each individual database's model hits.
+Note that the HMMER3 result should have been generated using the hmm_db_download.py script (stable link to be placed HERE)
 """
 
 # Reqs
