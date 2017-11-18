@@ -348,35 +348,31 @@ with open(blastTab, 'r') as fileIn, open(outfile, 'w') as fileOut:
                         fileOut.write('\n')
                 else:
                         line = line.rstrip('\n').rstrip('\r').split('\t')
-                        if line[2] == '.':
-                                newL = [*line[0:16], *['.']*len(dom_prefixes)]
+                        newL = [*line[0:16]]
+                        # Handle no domain hits
+                        if line[0] not in finalDict:
+                                newL += ['.']*len(dom_prefixes)
                                 fileOut.write('\t'.join(newL) + '\n')
+                        # Place the database results in their respective columns
                         else:
-                                newL = [*line[0:16]]
-                                # Handle no domain hits
-                                if line[0] not in finalDict:
-                                        newL += ['.']*len(dom_prefixes)
-                                        fileOut.write('\t'.join(newL) + '\n')
-                                # Place the database results in their respective columns
-                                else:
-                                        dbHits = finalDict[line[0]]
-                                        hitReceptacle = ['']*len(dom_prefixes)
-                                        for i in range(len(dom_prefixes)):
-                                                if dom_prefixes[i] != 'SUPERFAMILY':
-                                                        for hitList in dbHits:
-                                                                if hitList[0][0].startswith(dom_prefixes[i]):
-                                                                        hitReceptacle[i] = hitList
-                                                else:
-                                                        for hitList in dbHits:
-                                                                if hitList[0][0].isdigit():
-                                                                        hitReceptacle[i] = hitList
-                                        for i in range(len(hitReceptacle)):
-                                                if hitReceptacle[i] == '':
-                                                        hitReceptacle[i] = '.'
-                                                else:
-                                                        hitReceptacle[i] = '; '.join(list(map(str, hitReceptacle[i])))
-                                        newL += hitReceptacle
-                                        fileOut.write('\t'.join(newL) + '\n')
+                                dbHits = finalDict[line[0]]
+                                hitReceptacle = ['']*len(dom_prefixes)
+                                for i in range(len(dom_prefixes)):
+                                        if dom_prefixes[i] != 'SUPERFAMILY':
+                                                for hitList in dbHits:
+                                                        if hitList[0][0].startswith(dom_prefixes[i]):
+                                                                hitReceptacle[i] = hitList
+                                        else:
+                                                for hitList in dbHits:
+                                                        if hitList[0][0].isdigit():
+                                                                hitReceptacle[i] = hitList
+                                for i in range(len(hitReceptacle)):
+                                        if hitReceptacle[i] == '':
+                                                hitReceptacle[i] = '.'
+                                        else:
+                                                hitReceptacle[i] = '; '.join(list(map(str, hitReceptacle[i])))
+                                newL += hitReceptacle
+                                fileOut.write('\t'.join(newL) + '\n')
                                         
 # Done!
 print('Done!')
