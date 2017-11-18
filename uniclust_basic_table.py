@@ -2,6 +2,7 @@
 # uniclust_basic_table
 # Simple program to parse a BLAST-tab file and 1: reassociate new IDs (if applicable) and
 # 2: Return only the most significant hit, leaving gaps where sequences did not obtain hits
+# This table can be extended further by the uniclust_table_extension.py script
 
 import os, argparse
 from itertools import groupby

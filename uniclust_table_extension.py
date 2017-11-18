@@ -1,14 +1,15 @@
 #! python3
-# uniclust_basic_table
-# Simple program to parse a BLAST-tab file and 1: reassociate new IDs (if applicable) and
-# 2: Return only the most significant hit, leaving gaps where sequences did not obtain hits
+# uniclust_table_extension
+# Extends upon a basic uniclust table to provide the UniProtKB accession of the representative sequence,
+# as well as the gene name and GO terms associated with said representative. This table can be 
+# extended further with domain annotations by the domain_table_extension.py script
 
 import os, argparse, re
 from itertools import groupby
 #### USER INPUT SECTION
-usage = """This program will read in an input BLAST-tab format file and ID list (either formatted as a newline-separated list of all IDs or as a tab-delimited list of old:new ID pairs)
-and, using an E-value cut-off, produce an abbreviated BLAST-tab-like file with basic reformatting of results to enable further expansion such as the incorporation of a Hit_description column, as well as the addition
-of new columns to list GO terms and other functional annotations
+usage = """This program will read in an input BLAST-tab format file, the uniclust consensus fasta file, and the idmapping_selected.tab file
+provided by UniProtKB to produce an output file with additional columns ('UniProtKB_accession', 'UniProtKB_description', and 'UniProtKB_GO')
+to assist in the identification of genes of interest by their name or by their GO terms
 """
 
 # Reqs
