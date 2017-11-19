@@ -1,7 +1,7 @@
 #! python3
 # Fasta file scanner
-# A simple python program which reads a .fasta file as per user entry, looks for a list of transcript IDs as per the text file specified, and puts these sequences into
-# your clipboard.
+# A simple python program which reads a .fasta file as per user entry, looks for a list of transcript IDs as per the text file specified,
+# and puts everything BUT those transcripts into a new output .fasta file.
 
 import os, argparse
 from Bio import SeqIO
@@ -15,7 +15,7 @@ p = argparse.ArgumentParser(description=usage)
 p.add_argument("--fasta", "-f", dest="fasta",
                    help="Input fasta file name")
 p.add_argument("--idfile", "-i", dest="idfile",
-                   help="Specify the file containing line-separated sequence IDs to extract from fasta")
+                   help="Specify the file containing line-separated sequence IDs to ignore in the fasta file")
 p.add_argument("--outfile", "-o", dest="outfile",
                    help="Output fasta file name")
 p.add_argument("--force", "-fo", dest="force", choices = ['y', 'n', 'Y', 'N'],
