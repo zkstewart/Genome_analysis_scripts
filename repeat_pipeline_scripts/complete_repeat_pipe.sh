@@ -89,8 +89,8 @@ cd $PARENTDIR
 # Curate repeat library
 ### Make sure you have run makeblastdb on the non-TE DB file and run hmmpress on the TE models files prior to this step ###
 #python $PROTEXCLDIR/repeat_lib_only_potentials.py -i ${PREFIX}.complete.repeats.lib -o ${PREFIX}.unconfident.repeats.lib
-#python $PROTEXCLDIR/biopython_orf_find_repeatlib.py -i ${PREFIX}.unconfident.repeats.lib -o act_illum.unconfident.repeatsPROT.lib -min 25 -max 0 -num 1 -alt 19 -no 39 -st prot -u 5
-#hmmsearch --cpu $CPUS -E 1 --domtblout ${PREFIX}.repeatsLibTEModels.results $PROTEXCLDIR/$TEMODELDB act_illum.unconfident.repeatsPROT.lib
+#python $PROTEXCLDIR/biopython_orf_find_repeatlib.py -i ${PREFIX}.unconfident.repeats.lib -o ${PREFIX}.unconfident.repeatsPROT.lib -min 25 -max 0 -num 1 -alt 19 -no 39 -st prot -u 5
+#hmmsearch --cpu $CPUS -E 1 --domtblout ${PREFIX}.repeatsLibTEModels.results $PROTEXCLDIR/$TEMODELDB ${PREFIX}.unconfident.repeatsPROT.lib
 #python $PROTEXCLDIR/prot_excl_hmmparse.py -i ${PREFIX}.repeatsLibTEModels.results -t $PROTEXCLDIR/transposon_models.txt -e 1 -o ${PREFIX}.verifiedRepeats.txt
 #python $PROTEXCLDIR/contigSeqFromFasta_Txt_everythingBut_exactMatching.py -f ${PREFIX}.unconfident.repeats.lib -i ${PREFIX}.verifiedRepeats.txt -o ${PREFIX}.unverified.lib
 #blastx -query ${PREFIX}.unverified.lib -db $NONTEDBDIR/$NONTEDB -outfmt 6 -evalue 10 -num_threads $CPUS -out ${PREFIX}.repeatBlast.outfmt6
