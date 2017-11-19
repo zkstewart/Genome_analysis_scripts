@@ -2,11 +2,9 @@
 
 # Load packages
 import argparse, os, re
-from itertools import groupby
-from collections import Counter
 
 ### USER INPUT
-usage = """%(prog)s reads in a hmmer domtblout file and a text file containing a list of PFAM/equivalent HMM model IDs
+usage = """%(prog)s reads in a hmmer domtblout file and a text file containing a list of Pfam/other HMM model IDs
 and, based upon user-specified E-value parameter, produces a list of sequences that contain the HMM models provided
 """
 # Reqs
@@ -33,7 +31,7 @@ outputFileName = args.outputFileName
 models = {}
 with open(modelIDs, 'r') as fileIn:
     for line in fileIn:
-        models[line.rstrip('\n')] = 0
+        models[line.rstrip('\n')] = 0        # Note that this value doesn't matter, I'm just using a dictionary because they're fast
 
 # Loop through hmmerFile
 sigHits = []
@@ -53,7 +51,7 @@ with open(hmmerFile, 'r') as fileIn:
         query = sl[0]
         #desc = ' '.join(sl[22:])
         #if desc != '-':
-        #    query = query + ' ' + desc      # Need to get the full sequence ID because of how HMMER parses these values
+        #    query = query + ' ' + desc      # Removed this since it did not appear to be necessary. For some datasets perhaps it will be? Can add option for this to occur if necessary.
         # Save hit
         sigHits.append(query)
 
