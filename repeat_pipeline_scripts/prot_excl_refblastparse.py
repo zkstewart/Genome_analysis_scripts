@@ -2,8 +2,6 @@
 
 # Load packages
 import argparse, os, re
-from itertools import groupby
-from collections import Counter
 
 ### USER INPUT
 usage = """%(prog)s reads in a blastx output file resulting from curated repeat library nucleotides vs. reference gene model proteins
