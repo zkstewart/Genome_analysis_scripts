@@ -58,8 +58,24 @@ with open(fastaFile, 'r') as fastaIn:
                         # Pull out details if this is in clustHits
                         line = line.rstrip('\n').rstrip('\r')
                         details = lineRegex.match(line).groups()
-                        description = details[2].split('|')[0]          # Get the first description if more than one
-                        clustHits[details[0]] = [details[1], description]
+                        # New: pull out main description, then put synonyms in square brackets
+                        descriptions = details[2].split('|')
+                        mainDescript = descriptions[0]
+                        nrDescripts = list(set(descriptions))
+                        mainIndex = nrDescripts.index(mainDescript)
+                        del nrDescripts[mainIndex]
+                        # Fix weird issues
+                        while '' in nrDescripts:
+                                blank = nrDescripts.index('')
+                                del nrDescripts[blank]
+                        while ' ' in nrDescripts:
+                                blank = nrDescripts.index(' ')
+                                del nrDescripts[blank]
+                        if len(nrDescripts) > 0:
+                                descriptionLine = mainDescript + ' [Alt names: ' + ','.join(nrDescripts) + ']'
+                        else:
+                                descriptionLine = mainDescript
+                        clustHits[details[0]] = [details[1], descriptionLine]
                         idMap[details[1]] = ''                          # Use this for parsing the idmapping_selected.tab file. Should reduce memory usage.
                 else:
                         continue
