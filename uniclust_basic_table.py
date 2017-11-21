@@ -35,14 +35,28 @@ outDict = {}
 with open(blastTab, 'r') as fileIn:
         for key, value in groupby(fileIn, grouper):
                 #newId = idDict[key]
+                # MMseqs2 output is NOT ordered: we need to check every value and get the best E-value/bit score!
+                bestHit = []
                 for entry in value:
-                        line = entry
-                        break
+                        line = entry.rstrip('\n').rstrip('\r').split('\t')
+                        if bestHit == []:
+                                bestHit = line
+                        else:
+                                # Check E-value
+                                if float(line[10]) < float(bestHit[10]):
+                                        bestHit = line
+                                # If E-value is equivalent, check bit score
+                                elif float(line[10]) == float(bestHit[10]):
+                                        if int(line[11]) > int(bestHit[11]):
+                                                bestHit = line
+                                        # If bit score is equivalent, check alignment length [this is arbitrary, if E-value and bit score are identical, then the possible scenarios are that one hit is longer with lower identity, and the other hit is shorter with higher identity. I'm inclined to think that the first hit is better than the second if E-value/bit score are equivalent...]
+                                        elif int(line[11]) == int(bestHit[11]):
+                                                if int(line[3]) > int(bestHit[3]):
+                                                        bestHit = line
                 # Process line to format it for output
-                sl = line.rstrip('\n').split('\t')
-                if float(sl[10]) > evalue:
+                if float(bestHit[10]) > evalue:
                         continue
-                outDict[sl[0]] = [sl[0], 'uc' + sl[1], *sl[2:]]         # Add 'uc' to the front of the target accession to correspond to the actual accession rather than using the abbreviated one
+                outDict[bestHit[0]] = [bestHit[0], 'uc' + bestHit[1], *bestHit[2:]]         # Add 'uc' to the front of the target accession to correspond to the actual accession rather than using the abbreviated one
 
 # Loop through ID file to rename the genes (if applicable), order the output appropriately, and identify gaps in the BLAST-tab file
 with open(idFile, 'r') as fileIn, open(outfile, 'w') as fileOut:
