@@ -49,11 +49,11 @@ with open(blastTab, 'r') as fileIn, open(outfile, 'w') as fileOut:
                                 fileOut.write('\t'.join(newL) + '\n')
                         else:
                                 goTerms = line[goIndex].split('; ')
-                                goSet = set(goTerms)
                                 for i in range(len(goTerms)):
                                         if goTerms[i] == 'GO:1901487':  # At the time of running this program (06-Dec-17) this term has been made obsolete. It is causing problems with the program, so we can just replace it with the not-obsolete version of the term now
                                                 print(goTerms[i] + ' not in go. Replacing...')
-                                                goTerms[i] = 'GO:0038175'       
+                                                goTerms[i] = 'GO:0038175'
+                                goSet = set(goTerms)
                                 for term in goTerms:
                                         goSet = goSet.union(go[term].get_all_parents())
                                 newL = [*line[0:goIndex], '; '.join(goTerms), '; '.join(goSet), *line[goIndex+1:]]
