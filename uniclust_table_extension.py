@@ -4,7 +4,7 @@
 # as well as the gene name and GO terms associated with said representative. This table can be 
 # extended further with domain annotations by the uniclust_domain_extension.py script
 
-import os, argparse, re
+import os, argparse, re, urllib.request
 from itertools import groupby
 #### USER INPUT SECTION
 usage = """This program will read in an input BLAST-tab format file, the uniclust consensus fasta file, and the idmapping_selected.tab file
@@ -93,6 +93,7 @@ with open(idmapFile, 'r') as idIn:
                         idMap[acc] = '.'
 
 # Update annotations file
+versRegex = re.compile(r'name="version"><option value="(\d{1,10})">\d{1,10}<\/option><option selected="selected" value="(\d{1,10})"')     # Uniclust contains obsolete entries, which is slightly annoying for getting GO terms. We'll query UniProtKB directly in these cases
 with open(blastTab, 'r') as fileIn, open(outfile, 'w') as fileOut:
         for line in fileIn:
                 if line.startswith('Query\tSource'):
@@ -106,9 +107,33 @@ with open(blastTab, 'r') as fileIn, open(outfile, 'w') as fileOut:
                                 rep = clustHits[line[2]][0]
                                 desc = clustHits[line[2]][1]
                                 go = idMap[rep]
+                                if go == '':    # go will == '' if we didn\'t find the entry in the idmapping file since we initialise the dictionary above with clustHits[line[2]] = ''
+                                        go = []
+                                        print(rep + ' was made redundant. We\'ll find the details from UniProtKB query...')
+                                        # Find latest version of entry
+                                        if '_' in rep:
+                                                rep = rep.split('_')[0] # Some of the uniclust sequences have '_#' suffix which is annoying and results in the wrong url...
+                                        address = 'http://www.uniprot.org/uniprot/' + rep + '?version=*'
+                                        browserText = urllib.request.urlopen(address).read().decode('utf-8')
+                                        latestVers = versRegex.search(browserText).groups()
+                                        latestVers = str(max(list(map(int, latestVers))))                               # UniProtKB's versions don't appear to have a consistent 'latest version' box, so we check the variable region for the highest number which should be the latest version
+                                        # Get the .txt entry
+                                        address = 'http://www.uniprot.org/uniprot/' + rep + '.txt?version=' + latestVers
+                                        browserText = urllib.request.urlopen(address).read().decode('utf-8').split('\n')
+                                        # Parse .txt entry and extract GOs if present
+                                        for browserLine in browserText:
+                                                if browserLine.startswith('//') or browserLine == '':
+                                                        continue
+                                                sl = browserLine.split()
+                                                if sl[0] == 'DR' and sl[1] == 'GO;':
+                                                        go.append(sl[2].rstrip(';'))
+                                        # Format GOs
+                                        if go != []:
+                                                go = '; '.join(go)
+                                        else:
+                                                go = '.'
                                 newL = [*line[0:3], rep, desc, *line[3:], go]
                                 fileOut.write('\t'.join(newL) + '\n')
                         
 # Done!
 print('Done!')
-
