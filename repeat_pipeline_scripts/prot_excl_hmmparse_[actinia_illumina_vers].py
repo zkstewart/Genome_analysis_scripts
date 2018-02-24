@@ -48,7 +48,7 @@ with open(hmmerFile, 'r') as fileIn:
         if evalHit > evalue or modID not in models:     # i.e., if the evalue isn't significant or if it's a model we're not interested in
             continue
         # Get the full sequence ID
-        query = sl[0].rsplit('_', maxsplit=1)[0]    # We need to split off the frame suffix attached to each translation
+        query = sl[0]
         #desc = ' '.join(sl[22:])
         #if desc != '-':
         #    query = query + ' ' + desc      # Need to get the full sequence ID because of how HMMER parses these values
