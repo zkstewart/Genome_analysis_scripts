@@ -12,11 +12,32 @@ p.add_argument("-i", "-input", dest="file", type=str,
                   help="Input .out file")
 p.add_argument("-o", "-output", type=str, dest="output",
              help="Output file name")
+p.add_argument("-f", "-force", choices=['Y', 'y', 'N', 'n'], dest="force",
+             help="Optionally specify whether script should be allowed to overwrite existing files (default = 'n')", default = 'n')
 
 args = p.parse_args()
 
 rmFile = args.file      # Maybe rmfile sounds a little like linux "rm file", but it is what is is
 outfile = args.output
+force = args.force
+
+# Check if output repeatmasker file exists
+if os.path.isfile(outfile):
+    if force.lower() == 'n':
+        print('Output repeatmasker file already exists (' + outfile + ').')
+        print('Either change the output file name, specify \'force\' argument == \'y\', or delete the file yourself - then try again.')
+        quit()
+    else:
+        os.remove(outfile)
+
+# Check if MITE id map file exists
+if os.path.isfile(outfile + '.MITEids'):
+    if force.lower() == 'n':
+        print('Output MITEids file already exists (' + outfile + '.MITEids).')
+        print('Either change the output file name, specify \'force\' argument == \'y\', or delete the file yourself - then try again.')
+        quit()
+    else:
+        os.remove(outfile + '.MITEids')
 
 # Parse .out file and make replacements
 miteDict = {}           # This dictionary will hold the association between original MITE names: their new names, and is also used for identifying new MITE family names
@@ -47,4 +68,4 @@ with open(rmFile, 'r') as fileIn, open(outfile, 'w') as fileOut:
 # Output MITE family IDs. This is for if we need to find the original MITE names/sequences from the MITE lib .fasta file
 with open(outfile + '.MITEids', 'w') as fileOut:
     for key, value in miteDict.items():
-fileOut.write(key + ': ' + value + '\n')
+        fileOut.write(key + '\t' + value + '\n')
