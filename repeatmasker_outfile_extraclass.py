@@ -1,6 +1,6 @@
 #! python3
-# parse_domtblout.py
-# Parses a dombtblout format file from HMMER 3.1+ and produces a sensible domain annotation report
+# repeatmasker_outfile_extraclass.py
+# Script to modify a RepeatMasker .out file to properly handle MITEs
 
 import os, argparse, re
 
@@ -15,11 +15,11 @@ p.add_argument("-o", "-output", type=str, dest="output",
 
 args = p.parse_args()
 
-rmFile = args.file
+rmFile = args.file      # Maybe rmfile sounds a little like linux "rm file", but it is what is is
 outfile = args.output
 
 # Parse .out file and make replacements
-miteDict = {}
+miteDict = {}           # This dictionary will hold the association between original MITE names: their new names, and is also used for identifying new MITE family names
 miteCount = 1
 with open(rmFile, 'r') as fileIn, open(outfile, 'w') as fileOut:
     for line in fileIn:
@@ -44,7 +44,7 @@ with open(rmFile, 'r') as fileIn, open(outfile, 'w') as fileOut:
         else:
             fileOut.write(line)
 
-# Output MITE family IDs
+# Output MITE family IDs. This is for if we need to find the original MITE names/sequences from the MITE lib .fasta file
 with open(outfile + '.MITEids', 'w') as fileOut:
     for key, value in miteDict.items():
-        fileOut.write(key + ': ' + value + '\n')
+fileOut.write(key + ': ' + value + '\n')
