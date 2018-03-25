@@ -3,6 +3,7 @@
 # Script to parse a gff3 file and remove entries which hit against a provided list of
 # sequences. Made with fixing the BLAT alignment file for PASA if problem sequences were
 # removed after the BLAT alignment was completed.
+# NOTE: I did not need to use this since PASA handles this issue on its own
 
 import os, argparse, re
 from Bio import SeqIO
