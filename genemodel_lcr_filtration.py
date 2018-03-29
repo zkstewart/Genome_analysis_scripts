@@ -341,7 +341,6 @@ with open(tmpFasta, 'w') as fileOut:
 tmpSeg = temp_file_name_gen('lcr_seg_output.tmp')
 run_seg(segDir, tmpFasta, tmpSeg)
 
-
 # Parse seg output and produce final output
 segFile = SeqIO.parse(open(tmpSeg, 'rU'), 'fasta')
 segProportions = {}
@@ -355,7 +354,7 @@ with open(outputFileName, 'w') as fileOut:
                 fileOut.write(seqid + '\t' + protDict[seqid] + '\t' + str(lowerProp) + '\n')
                 # Optional integration
                 if tableFile != None:
-                        segDict[seqid] = str(lowerProp)
+                        segDict[seqid] = [str(lowerProp), seq]
 
 os.remove(tmpFasta)
 os.remove(tmpSeg)
@@ -364,7 +363,7 @@ os.remove(tmpSeg)
 if tableFile != None:
         if os.path.isfile(tableFile):
                 print('You provided an argument to specify a table file and I was able to find it. Will begin integration now.')
-                newTable = ['gene_id\ttranscript_id\tnucl\tbest_prot\torf_len\toverlap_perc\tlcr_perc']
+                newTable = ['gene_id\ttranscript_id\tnucl\tbest_prot\tseg_masked_prot\torf_len\toverlap_perc\tlcr_perc']
                 newTableName = temp_file_name_gen(tableFile + '.integrated')
                 with open(tableFile, 'r') as fileIn, open(newTableName, 'w') as fileOut:
                         ongoingCount = 0
@@ -372,7 +371,8 @@ if tableFile != None:
                                 sl = line.rstrip('\n').split('\t')
                                 nucl = str(records[ongoingCount].seq)
                                 ongoingCount += 1                       # the records list is ordered, so we can just use an index that increases by 1 each loop to retrieve contents
-                                new_sl = '\t'.join(sl[0:2]) + '\t' + nucl + '\t' + protDict[sl[1] + '_ORF1'] + '\t' + str(len(protDict[sl[1] + '_ORF1'])) + '\t' +  sl[2] + '\t' + segDict[sl[1] + '_ORF1']
+                                new_sl = '\t'.join(['\t'.join(sl[0:2]), nucl, protDict[sl[1] + '_ORF1'], segDict[sl[1] + '_ORF1'][1], str(len(protDict[sl[1] + '_ORF1'])), sl[2], segDict[sl[1] + '_ORF1'][0]])
+                                #'\t'.join(sl[0:2]) + '\t' + nucl + '\t' + protDict[sl[1] + '_ORF1'] + '\t' + segDict[sl[1] + '_ORF1'][0][1] + '\t' + str(len(protDict[sl[1] + '_ORF1'])) + '\t' +  sl[2] + '\t' + segDict[sl[1] + '_ORF1'][0]
                                 newTable.append(new_sl)
                         fileOut.write('\n'.join(newTable))
         else:
