@@ -280,12 +280,10 @@ Output is a list of provided sequence IDs and the proportion of which they are m
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-fa", "-fasta", dest="fastaFile",
                   help="Specify gene model fasta file")
-p.add_argument("-i", "-ids", dest="idsFile",
-                  help="Specify ID list text file")
-p.add_argument("-s", "-segdir", dest="segDir",
-                  help="Specify the directory where seg executables are located. If this is already in your PATH, you can leave this blank.")
 p.add_argument("-t", "-table", dest="tableFile",
                   help="Optionally specify the location of the tab-delimited file produced by repeat_genemodel_overlaps.py to integrate this script's output into that one.")
+p.add_argument("-s", "-segdir", dest="segDir",
+                  help="Specify the directory where seg executables are located. If this is already in your PATH, you can leave this blank.")
 p.add_argument("-o", "-output", dest="outputFile",
                help="Output file name")
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
@@ -295,7 +293,6 @@ args = p.parse_args()
 
 # Obtain data from arguments
 fastaFile = args.fastaFile
-idsFile = args.idsFile
 segDir = args.segDir
 tableFile = args.tableFile
 outputFileName = args.outputFile
@@ -315,7 +312,7 @@ recordDict = SeqIO.to_dict(SeqIO.parse(open(fastaFile, 'rU'), 'fasta'))
 
 # Parse the ID file
 idsList = []
-with open(idsFile, 'r') as fileIn:
+with open(tableFile, 'r') as fileIn:
         for line in fileIn:
                 if line == '\n':
                         continue
@@ -359,23 +356,15 @@ with open(outputFileName, 'w') as fileOut:
 os.remove(tmpFasta)
 os.remove(tmpSeg)
 
-# Optionally integrate this script's output into previous one
-if tableFile != None:
-        if os.path.isfile(tableFile):
-                print('You provided an argument to specify a table file and I was able to find it. Will begin integration now.')
-                newTable = ['gene_id\ttranscript_id\tnucl\tbest_prot\tseg_masked_prot\torf_len\toverlap_perc\tlcr_perc']
-                newTableName = temp_file_name_gen(tableFile + '.integrated')
-                with open(tableFile, 'r') as fileIn, open(newTableName, 'w') as fileOut:
-                        ongoingCount = 0
-                        for line in fileIn:
-                                sl = line.rstrip('\n').split('\t')
-                                nucl = str(records[ongoingCount].seq)
-                                ongoingCount += 1                       # the records list is ordered, so we can just use an index that increases by 1 each loop to retrieve contents
-                                new_sl = '\t'.join(['\t'.join(sl[0:2]), nucl, protDict[sl[1] + '_ORF1'], segDict[sl[1] + '_ORF1'][1], str(len(protDict[sl[1] + '_ORF1'])), sl[2], segDict[sl[1] + '_ORF1'][0]])
-                                #'\t'.join(sl[0:2]) + '\t' + nucl + '\t' + protDict[sl[1] + '_ORF1'] + '\t' + segDict[sl[1] + '_ORF1'][0][1] + '\t' + str(len(protDict[sl[1] + '_ORF1'])) + '\t' +  sl[2] + '\t' + segDict[sl[1] + '_ORF1'][0]
-                                newTable.append(new_sl)
-                        fileOut.write('\n'.join(newTable))
-        else:
-                print('You provided an argument to specify a table file but I wasn\'t able to find it. Did you type it correctly? I\'ve still produced output from this script, but if you want it integrated, re-run this script with this file name fixed.')
-else:
-        print('You haven\'t provided a table file argument, so I won\'t integrate the results from this into that table.')
+# Integrate this script's output into previous one
+newTable = ['gene_id\ttranscript_id\tnucl\tbest_prot\tseg_masked_prot\torf_len\toverlap_perc\tlcr_perc']
+newTableName = temp_file_name_gen(tableFile + '.integrated')
+with open(tableFile, 'r') as fileIn, open(newTableName, 'w') as fileOut:
+        ongoingCount = 0
+        for line in fileIn:
+                sl = line.rstrip('\n').split('\t')
+                nucl = str(records[ongoingCount].seq)
+                ongoingCount += 1                       # the records list is ordered, so we can just use an index that increases by 1 each loop to retrieve contents
+                new_sl = '\t'.join(['\t'.join(sl[0:2]), nucl, protDict[sl[1] + '_ORF1'], segDict[sl[1] + '_ORF1'][1], str(len(protDict[sl[1] + '_ORF1'])), sl[2], segDict[sl[1] + '_ORF1'][0]])
+                newTable.append(new_sl)
+        fileOut.write('\n'.join(newTable))
