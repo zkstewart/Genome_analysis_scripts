@@ -230,7 +230,13 @@ def orf_find(records, minProLen, maxProLen, hitsToPull, altCodonStringency, noCo
                                                 break                                   # Break out of this loop once we've fasta formatted all relevant ORF hits
                                         outputNucl[record.id + '_ORF' + str(i+1)] = tempOverallProt[i]
                 else:
-                        doNothing = ''                # We don't need to do anything if no hits were found that pass the minimum length threshold
+                        # Contingency for 0 hits
+                        if sequenceType.lower() == 'prot' or sequenceType.lower() == 'both':
+                                if record.id + '_ORF' + str(i+1) not in outputProt:
+                                        outputProt[record.id + '_ORF' + str(i+1)] = 'nohit'
+                        if sequenceType.lower() == 'nucl' or sequenceType.lower() == 'both':
+                                if record.id + '_ORF' + str(i+1) not in outputNucl:
+                                        outputNucl[record.id + '_ORF' + str(i+1)] = 'nohit'
 
                 ongoingCount += 1
                 
