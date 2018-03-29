@@ -2,7 +2,8 @@
 # genemodel_lcr_filtration.py
 # Script to process a list of sequence IDs and find gene models that contain
 # large proportions of low-complexity sequence which are likely candidates
-# for being crappy gene models
+# for being crappy gene models. Integrates into the output from
+# repeat_genemodel_overlaps.py
 
 import os, argparse, re
 from Bio import SeqIO
@@ -232,11 +233,11 @@ def orf_find(records, minProLen, maxProLen, hitsToPull, altCodonStringency, noCo
                 else:
                         # Contingency for 0 hits
                         if sequenceType.lower() == 'prot' or sequenceType.lower() == 'both':
-                                if record.id + '_ORF' + str(i+1) not in outputProt:
-                                        outputProt[record.id + '_ORF' + str(i+1)] = 'nohit'
+                                if record.id + '_ORF1' not in outputProt:
+                                        outputProt[record.id + '_ORF1'] = 'nohit'
                         if sequenceType.lower() == 'nucl' or sequenceType.lower() == 'both':
-                                if record.id + '_ORF' + str(i+1) not in outputNucl:
-                                        outputNucl[record.id + '_ORF' + str(i+1)] = 'nohit'
+                                if record.id + '_ORF1' not in outputNucl:
+                                        outputNucl[record.id + '_ORF1'] = 'nohit'
 
                 ongoingCount += 1
                 
@@ -253,7 +254,9 @@ def temp_file_name_gen(prefix):
         import os
         ongoingCount = 1
         while True:
-                if os.path.isfile(prefix + str(ongoingCount)):
+                if not os.path.isfile(prefix):
+                        return prefix
+                elif os.path.isfile(prefix + str(ongoingCount)):
                         ongoingCount += 1
                 else:
                         return prefix + str(ongoingCount)
@@ -279,8 +282,10 @@ p.add_argument("-fa", "-fasta", dest="fastaFile",
                   help="Specify gene model fasta file")
 p.add_argument("-i", "-ids", dest="idsFile",
                   help="Specify ID list text file")
-p.add_argument("-s", "-segdir", dest="segDir", type = str,
+p.add_argument("-s", "-segdir", dest="segDir",
                   help="Specify the directory where seg executables are located. If this is already in your PATH, you can leave this blank.")
+p.add_argument("-t", "-table", dest="tableFile",
+                  help="Optionally specify the location of the tab-delimited file produced by repeat_genemodel_overlaps.py to integrate this script's output into that one.")
 p.add_argument("-o", "-output", dest="outputFile",
                help="Output file name")
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
@@ -292,6 +297,7 @@ args = p.parse_args()
 fastaFile = args.fastaFile
 idsFile = args.idsFile
 segDir = args.segDir
+tableFile = args.tableFile
 outputFileName = args.outputFile
 force = args.force
 
@@ -331,7 +337,6 @@ with open(tmpFasta, 'w') as fileOut:
         for key, value in protDict.items():
                 fileOut.write('>' + key + '\n' + value + '\n')
 
-
 # Call seg with a temporary file
 tmpSeg = temp_file_name_gen('lcr_seg_output.tmp')
 run_seg(segDir, tmpFasta, tmpSeg)
@@ -340,6 +345,7 @@ run_seg(segDir, tmpFasta, tmpSeg)
 # Parse seg output and produce final output
 segFile = SeqIO.parse(open(tmpSeg, 'rU'), 'fasta')
 segProportions = {}
+segDict = {}            # Use this for integrating into previous table if specified
 with open(outputFileName, 'w') as fileOut:
         for record in segFile:
                 seqid = record.id
@@ -347,6 +353,29 @@ with open(outputFileName, 'w') as fileOut:
                 numLowercase = sum(1 for c in seq if c.islower())
                 lowerProp = (numLowercase/len(seq))*100
                 fileOut.write(seqid + '\t' + protDict[seqid] + '\t' + str(lowerProp) + '\n')
+                # Optional integration
+                if tableFile != None:
+                        segDict[seqid] = str(lowerProp)
 
 os.remove(tmpFasta)
 os.remove(tmpSeg)
+
+# Optionally integrate this script's output into previous one
+if tableFile != None:
+        if os.path.isfile(tableFile):
+                print('You provided an argument to specify a table file and I was able to find it. Will begin integration now.')
+                newTable = ['gene_id\ttranscript_id\tnucl\tbest_prot\torf_len\toverlap_perc\tlcr_perc']
+                newTableName = temp_file_name_gen(tableFile + '.integrated')
+                with open(tableFile, 'r') as fileIn, open(newTableName, 'w') as fileOut:
+                        ongoingCount = 0
+                        for line in fileIn:
+                                sl = line.rstrip('\n').split('\t')
+                                nucl = str(records[ongoingCount].seq)
+                                ongoingCount += 1                       # the records list is ordered, so we can just use an index that increases by 1 each loop to retrieve contents
+                                new_sl = '\t'.join(sl[0:2]) + '\t' + nucl + '\t' + protDict[sl[1] + '_ORF1'] + '\t' + str(len(protDict[sl[1] + '_ORF1'])) + '\t' +  sl[2] + '\t' + segDict[sl[1] + '_ORF1']
+                                newTable.append(new_sl)
+                        fileOut.write('\n'.join(newTable))
+        else:
+                print('You provided an argument to specify a table file but I wasn\'t able to find it. Did you type it correctly? I\'ve still produced output from this script, but if you want it integrated, re-run this script with this file name fixed.')
+else:
+        print('You haven\'t provided a table file argument, so I won\'t integrate the results from this into that table.')
