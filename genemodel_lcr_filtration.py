@@ -356,8 +356,7 @@ os.remove(tmpSeg)
 
 # Integrate this script's output into previous one
 newTable = ['gene_id\ttranscript_id\tnucl\tbest_prot\tseg_masked_prot\torf_len\toverlap_perc\tlcr_perc']
-newTableName = temp_file_name_gen(tableFile + '.integrated')
-with open(tableFile, 'r') as fileIn, open(newTableName, 'w') as fileOut:
+with open(tableFile, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
         ongoingCount = 0
         for line in fileIn:
                 sl = line.rstrip('\n').split('\t')
