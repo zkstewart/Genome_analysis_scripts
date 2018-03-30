@@ -340,18 +340,16 @@ run_seg(segDir, tmpFasta, tmpSeg)
 
 # Parse seg output and produce final output
 segFile = SeqIO.parse(open(tmpSeg, 'rU'), 'fasta')
-segProportions = {}
 segDict = {}            # Use this for integrating into previous table if specified
-with open(outputFileName, 'w') as fileOut:
-        for record in segFile:
-                seqid = record.id
-                seq = str(record.seq)
-                numLowercase = sum(1 for c in seq if c.islower())
-                lowerProp = (numLowercase/len(seq))*100
-                fileOut.write(seqid + '\t' + protDict[seqid] + '\t' + str(lowerProp) + '\n')
-                # Optional integration
-                if tableFile != None:
-                        segDict[seqid] = [str(lowerProp), seq]
+for record in segFile:
+        seqid = record.id
+        seq = str(record.seq)
+        numLowercase = sum(1 for c in seq if c.islower())
+        lowerProp = (numLowercase/len(seq))*100
+        fileOut.write(seqid + '\t' + protDict[seqid] + '\t' + str(lowerProp) + '\n')
+        # Optional integration
+        if tableFile != None:
+                segDict[seqid] = [str(lowerProp), seq]
 
 os.remove(tmpFasta)
 os.remove(tmpSeg)
