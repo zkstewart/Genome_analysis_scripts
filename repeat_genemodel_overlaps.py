@@ -1,6 +1,6 @@
 #! python3
-# repeat_genemodel_remover.py
-# Program to curate a gff3 format genome gene model annotation file and remove
+# repeat_genemodel_overlaps.py
+# Program to curate a gff3 format genome gene model annotation file and identify
 # models that are part of repeat masked regions. Should constitute the last major
 # filtration step in the genome annotation process
 
@@ -10,16 +10,16 @@ from Bio import SeqIO
 ##### USER INPUT SECTION
 
 usage = """%(prog)s reads in a gff3 file and its corresponding genome sequence and, according to user-specified cut-off,
-removes gene models that are covered by >= specified percentage repeat masked regions. The intention is to remove gene models that derive from
+identifies gene models that are covered by >= specified percentage repeat masked regions. The intention is to remove gene models that derive from
 transposons. The input genome file should be soft masked such that lower case characters refer specifically to repeat regions.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-gff", "-gff3", dest="gffFile",
                   help="Specify gff file")
 p.add_argument("-gen", "-genome", dest="genomeFile",
-                  help="Specify genome fasta file associated with gff file")
+                  help="Specify the masked genome fasta file associated with gff file")
 p.add_argument("-p", "-percent", dest="percentageOverlap", type = float,
-                  help="Specify the amount of overlap needed to remove a gene model (this should be from 1-100)")
+                  help="Specify the amount of overlap needed to identify a gene model for curation (default == 20, has been tested to work well with rest of workflow)", default = 20)
 p.add_argument("-o", "-output", dest="outputFile",
                help="Output file name [text file containing the sequence IDs that match overlap criteria")
 p.add_argument("-f", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
