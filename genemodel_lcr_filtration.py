@@ -346,7 +346,6 @@ for record in segFile:
         seq = str(record.seq)
         numLowercase = sum(1 for c in seq if c.islower())
         lowerProp = (numLowercase/len(seq))*100
-        fileOut.write(seqid + '\t' + protDict[seqid] + '\t' + str(lowerProp) + '\n')
         # Optional integration
         if tableFile != None:
                 segDict[seqid] = [str(lowerProp), seq]
