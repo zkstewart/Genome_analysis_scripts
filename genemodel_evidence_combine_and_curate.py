@@ -22,7 +22,7 @@ p.add_argument("-i", "-t", "-table", dest="integratedTable",
 p.add_argument("-ovl", "-overlap", dest="maskOverlap", type=float,
                help="Percentage value that the sequence must be overlapped by to consider it for curation (default == 50)", default = 50.0)
 p.add_argument("-lcr50e", "-lcr50evalue", dest="lcr50evalue", type=float,
-               help="Evalue cut-off to enforce for 20<x<50 LCR sequences (default == 1e-10)", default = 1e-10)
+               help="Evalue cut-off to enforce for 50<x<70 LCR sequences (default == 1e-10)", default = 1e-10)
 p.add_argument("-o", "-output", dest="outputFile",
                help="Output file name")
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
