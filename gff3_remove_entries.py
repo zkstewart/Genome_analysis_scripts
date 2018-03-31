@@ -1,37 +1,36 @@
 #! python3
 # gff3_remove_entries.py
-# Script to parse a gff3 file and remove entries which hit against a provided list of
-# sequences. Made with fixing the BLAT alignment file for PASA if problem sequences were
-# removed after the BLAT alignment was completed.
-# NOTE: I did not need to use this since PASA handles this issue on its own
+# Program to remove lines from a gff3 formatted file that correspond to
+# entries with IDs provided in a text file. Will also remove PASA
+# comment lines and empty lines to provide a clean and concise file
 
-import os, argparse, re
+import os, argparse, re, time
 from Bio import SeqIO
 
 ##### USER INPUT SECTION
 
-usage = """%(prog)s reads in a gff3 file and, with reference to provided list of sequence IDs,
-removes any entries unwanted in the output file.
+usage = """%(prog)s reads in a gff3 file and a user provided list of transcript IDs
+and removes entries present in the ID list. Further cleaning is undertaken to produce more compact files
+without blank lines. The input file and IDs are assumed to result from the EVM -> PASA pipeline, and so
+entry transcript IDs should look like 'evm.model.${CONTIG}.\d+' and its corresponding gene ID would replace 'model'
+with 'TU'
 """
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("-g", "-gff3", dest="gff3File",
-                  help="Specify gff3 file")
-p.add_argument("-id", "-idfile", dest="idFile",
-                  help="Specify text file containing list of IDs to remove from gff3 file")
-p.add_argument("-p", "-prefix", dest="prefixString",
-                  help="Specify the text that immediately preceeds the sequence ID in the gff3 file (e.g., for Target=sequence_1, you should provide this argument 'Target=' so I can find the sequence ID.")
+p.add_argument("-g", "-gff3", dest="gffFile",
+                  help="Specify gff file")
+p.add_argument("-i", "-idfile", dest="idfile",
+                  help="Specify the text file containing a list of gene IDs (not transcript IDs)")
 p.add_argument("-o", "-output", dest="outputFile",
-               help="Output file name")
+               help="Output file name [text file containing the sequence IDs that match overlap criteria")
 p.add_argument("-f", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
                help="default == 'n', which means the program will not overwrite existing files. Specify 'y' to allow this behaviour at your own risk.", default='n')
 
 args = p.parse_args()
 
 # Obtain data from arguments
-gff3File = args.gff3File
-idFile = args.idFile
+gffFile = args.gffFile
+idfile = args.idfile
 outputFileName = args.outputFile
-prefixString = args.prefixString
 force = args.force
 
 # Format output names and check that output won't overwrite another file
@@ -41,35 +40,27 @@ if os.path.isfile(outputFileName) and force.lower() != 'y':
 elif os.path.isfile(outputFileName) and force.lower() == 'y':
         os.remove(outputFileName)
 
-# Parse provided ID file
-idList = []
-with open(idFile, 'r') as fileIn:
-        for line in fileIn:
-                trimLine = line.replace('\n','').replace(' ','')
-                if trimLine != '':
-                        idList.append(trimLine)
+### CORE PROCESS
 
-# Parse the gff3 file
-seqidRegex = re.compile(prefixString + '(.+?)\s')               # Assumes there is a space immediately after the sequence ID  (which should be true when parsing BLAT or GMAP results from PASA (which was the reason this script was made)
-with open(gff3File, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
+# Parse ID file
+idList = []
+with open(idfile, 'r') as fileIn:
         for line in fileIn:
-                if line.startswith('#'):
+                if line == '\n':
                         continue
-                sl = line.split('\t')
-                idCol = sl[8]
-                seqid = seqidRegex.findall(idCol)
-                # Check if the regular expression is working correctly
-                if len(seqid) == 0:
-                        print('Couldn\'t find the sequence ID in current line (printed below). Is your prefix string correct?')
-                        print(line)
-                        quit()
-                elif len(seqid) > 1:
-                        print('Found more than one match in current line (printed below). Is your prefix string specific enough?')
-                        print(line)
-                        quit()
-                # Skip line if it contains a sequence to remove, otherwise output line
-                if seqid[0] in idList:
-                        print('Skipped line that contains ' + seqid[0])
+                idList.append(line.rstrip('\n'))
+                idList.append(line.replace('model', 'TU').rstrip('\n'))         # This is the gene ID equivalent of the transcript
+
+# Read through the gff3 file and remove entries + clean the file
+idRegex = re.compile(r'(evm\.(model|TU)\..+?\.\d{1,10})')
+with open(gffFile, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
+        for line in fileIn:
+                # Skip filler lines
+                if line == '\n':
                         continue
-                else:
-                        fileOut.write(line)
+                # Handle information-containing lines
+                modelID = idRegex.search(line).group(1)
+                if modelID in idList:
+                        continue
+                # Put any lines that get here into the out file
+                fileOut.write(line)
