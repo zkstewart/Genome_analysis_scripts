@@ -5,6 +5,8 @@
 
 import os, argparse, re
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.Alphabet import generic_dna
 
 # Define functions for later use
 def reverse_comp(seq):
@@ -19,14 +21,15 @@ def reverse_comp(seq):
 ##### USER INPUT SECTION
 
 usage = """%(prog)s reads in genome fasta file and corresponding gff3 file in a format output by PASA and retrieves the main
-and/or alternative isoform transcripts for each locus
+and/or alternative isoform transcripts for each locus. Alternatively, you can grab the CDS regions which will produce nucleotide
+and AA files (name format == OUTPUT.nucl / OUTPUT.aa)
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-i", "-input", dest="fasta",
                   help="genome fasta file")
 p.add_argument("-g", "-gff", dest="gff3",
                   help="gff3 file")
-p.add_argument("-t", "-transcripts", dest="transcriptType", choices = ['main', 'both'],
+p.add_argument("-t", "-transcripts", dest="transcriptType", choices = ['main', 'both', 'cds'],
                   help="type of transcripts to output file")
 p.add_argument("-o", "-output", dest="output",
              help="output fasta file name containing transcript sequences")
@@ -43,19 +46,39 @@ transcriptType = args.transcriptType
 outputFileName = args.output
 force = args.force
 
+# Format cds output names if relevant
+if transcriptType == 'cds':
+        nuclOutputFileName = outputFileName + '.nucl'
+        protOutputFileName = outputFileName + '.aa'
+
 # Check that output won't overwrite another file
-if os.path.isfile(outputFileName) and force.lower() != 'y':
-        print('There is already a file named ' + outputFileName + '. Either specify a new file name, delete these older file(s), or provide the -force argument either "Y" or "y"')
-        quit()
-elif os.path.isfile(outputFileName) and force.lower() == 'y':
-        os.remove(outputFileName)
+if transcriptType != 'cds':
+        if os.path.isfile(outputFileName) and force.lower() != 'y':
+                print('There is already a file named ' + outputFileName + '. Either specify a new file name, delete these older file(s), or provide the -force argument either "Y" or "y"')
+                quit()
+        elif os.path.isfile(outputFileName) and force.lower() == 'y':
+                os.remove(outputFileName)
+else:
+        # Nucl
+        if os.path.isfile(nuclOutputFileName) and force.lower() != 'y':
+                print('There is already a file named ' + nuclOutputFileName + '. Either specify a new file name, delete these older file(s), or provide the -force argument either "Y" or "y"')
+                quit()
+        elif os.path.isfile(nuclOutputFileName) and force.lower() == 'y':
+                os.remove(nuclOutputFileName)
+        # Prot
+        if os.path.isfile(protOutputFileName) and force.lower() != 'y':
+                print('There is already a file named ' + protOutputFileName + '. Either specify a new file name, delete these older file(s), or provide the -force argument either "Y" or "y"')
+                quit()
+        elif os.path.isfile(protOutputFileName) and force.lower() == 'y':
+                os.remove(protOutputFileName)
 
 # Load the fasta file and parse its contents
 seqFile = open(fastaFile, 'rU')
 records = SeqIO.to_dict(SeqIO.parse(seqFile, 'fasta'))
 
-# Parse the gtf file
+# Parse the gff3 file
 idRegex = re.compile(r'ID=(.+?);')
+#cdsRegex = re.compile(r'Parent=(.+)')
 currGroup = []
 gffCoordDict = {}
 with open(gffFile, 'r') as fileIn:
@@ -88,11 +111,18 @@ with open(gffFile, 'r') as fileIn:
                                                 else:                           # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one
                                                         # Process current mrnaGroup
                                                         for subentry in mrnaGroup:
-                                                                if subentry[2] == 'mRNA':
-                                                                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                                                elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
-                                                                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
-                                                                        full_mrnaGroup[-1][-1].append(coords)
+                                                                if transcriptType != 'cds':
+                                                                        if subentry[2] == 'mRNA':
+                                                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                                                                        elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
+                                                                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                                                                full_mrnaGroup[-1][-1].append(coords)
+                                                                else:
+                                                                        if subentry[2] == 'mRNA':
+                                                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                                                                        elif subentry[2] == 'CDS':
+                                                                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                                                                full_mrnaGroup[-1][-1].append(coords)
                                                         # Initiate new mrnaGroup
                                                         full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation
                                                         mrnaGroup = [entry]
@@ -100,11 +130,18 @@ with open(gffFile, 'r') as fileIn:
                                                 mrnaGroup.append(entry)
                                 # Process the mrnaGroup that's currently sitting in the pipe (so to speak)
                                 for subentry in mrnaGroup:
-                                        if subentry[2] == 'mRNA':
-                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                        elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
-                                                coords = subentry[3] + '-' + subentry[4]                                # +1 here to make Python act 1-based like gff3 format
-                                                full_mrnaGroup[-1][-1].append(coords)
+                                        if transcriptType != 'cds':
+                                                if subentry[2] == 'mRNA':
+                                                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                                                elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
+                                                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                                        full_mrnaGroup[-1][-1].append(coords)
+                                        else:
+                                                if subentry[2] == 'mRNA':
+                                                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                                                elif subentry[2] == 'CDS':
+                                                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                                        full_mrnaGroup[-1][-1].append(coords)
                                 full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation
                                 # Put info into the coordDict and move on
                                 gffCoordDict[geneID] = full_mrnaGroup
@@ -113,25 +150,46 @@ with open(gffFile, 'r') as fileIn:
                         # Keep building group until we encounter another 'gene' lineType
                         currGroup.append(sl)
 
-# Output fasta transcripts
-with open(outputFileName, 'w') as fileOut:
-        for key, value in gffCoordDict.items():
-                for mrna in value:
-                        genomeSeq = str(records[mrna[2]].seq)
-                        # Join sequence segments
-                        if mrna[3] == '-':
-                                mrna[1].reverse()
-                        transcript = ''
-                        for pair in mrna[1]:
-                                coords = pair.split('-')
-                                segment = genomeSeq[int(coords[0])-1:int(coords[1])]            # Make it 1-based by -1 to the first coordinate
-                                transcript += segment
-                        # Reverse comp if necessary
-                        if mrna[3] == '-':
-                                transcript = reverse_comp(transcript)
-                        # Output to file
-                        fileOut.write('>' + mrna[0] + '\n' + transcript + '\n')
-                        if transcriptType == 'main':
-                                break                   # This will only cause us to look at the first mRNA only in 'value' if there are multiple isoforms in this gene group
+# Prepare results
+if transcriptType != 'cds':
+        outList = []
+else:
+        nuclOutList = []
+        protOutList = []
+
+for key, value in gffCoordDict.items():
+        for mrna in value:
+                genomeSeq = str(records[mrna[2]].seq)
+                # Join sequence segments
+                if mrna[3] == '-':
+                        mrna[1].reverse()
+                transcript = ''
+                for pair in mrna[1]:
+                        coords = pair.split('-')
+                        segment = genomeSeq[int(coords[0])-1:int(coords[1])]            # Make it 1-based by -1 to the first coordinate
+                        transcript += segment
+                # Reverse comp if necessary
+                if mrna[3] == '-':
+                        transcript = reverse_comp(transcript)
+                # Make protein translation if necessary
+                if transcriptType == 'cds':
+                        aatranscript = str(Seq(transcript, generic_dna).translate(table=1))
+                # Output to file
+                if transcriptType != 'cds':
+                        outList.append('>' + mrna[0] + '\n' + transcript)
+                else:
+                        nuclOutList.append('>' + mrna[0] + '\n' + transcript)
+                        protOutList.append('>' + mrna[0] + '\n' + aatranscript)
+                if transcriptType == 'main':
+                        break                   # This will only cause us to look at the first mRNA only in 'value' if there are multiple isoforms in this gene group
+
+# Dump to file
+if transcriptType != 'cds':
+        with open(outputFileName, 'w') as fileOut:
+                fileOut.write('\n'.join(outList))
+else:
+        with open(nuclOutputFileName, 'w') as nuclOut, open(protOutputFileName, 'w') as protOut:
+                nuclOut.write('\n'.join(nuclOutList))
+                protOut.write('\n'.join(protOutList))
 
 #### SCRIPT ALL DONE, GO HOME
