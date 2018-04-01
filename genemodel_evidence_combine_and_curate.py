@@ -85,18 +85,13 @@ with open(integratedTable, 'r') as fileIn:
                 if line == '\n' or line.startswith('gene_id\t'):                # Shouldn't be in the file, but it doesn't hurt to make sure
                         continue
                 sl = line.rstrip('\n').split('\t')
-                # Parse the seg column to get positions of masked sequence
-                segpos = set()
-                for i in range(len(sl[4])):
-                        if sl[4][i].islower():
-                                segpos.add(i+1)
                 # Figure out if this transcript has other isoforms
                 if sl[0] in isoformIDs:
                         isoform = 'y'
                 else:
                         isoform = 'n'
                 # Save details of this transcript
-                integratedDict[sl[1]] = [isoform, segpos, int(sl[5]), float(sl[6]), float(sl[7])]
+                integratedDict[sl[1]] = [isoform, int(sl[4]), float(sl[5]), float(sl[6])]
 
 # Compile forms of evidence and decide if the sequence should be dropped
 """Goals for this step:
@@ -116,7 +111,7 @@ for key, value in integratedDict.items():
                 evalue = blastDict[key]       # If it's not in the dictionary, it didn't get a BLAST hit
         else:
                 evalue = 99999.0                # Just sub in values that will never affect anything
-        isoform, segpos, orflen, ovlPerc, lcrPerc = value
+        isoform, orflen, ovlPerc, lcrPerc = value
         # Check 1: is this sequence overlapped by repeats?
         if ovlPerc < maskOverlap:
                 #goodList.append(key + '\t-\tless than 50 overlap')

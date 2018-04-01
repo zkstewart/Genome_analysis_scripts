@@ -279,7 +279,7 @@ Output is a list of provided sequence IDs and the proportion of which they are m
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-fa", "-fasta", dest="fastaFile",
-                  help="Specify gene model fasta file")
+                  help="Specify gene model fasta file - this should be the amino acid translation ORF file")
 p.add_argument("-t", "-table", dest="tableFile",
                   help="Optionally specify the location of the tab-delimited file produced by repeat_genemodel_overlaps.py to integrate this script's output into that one.")
 p.add_argument("-s", "-segdir", dest="segDir",
@@ -314,25 +314,30 @@ recordDict = SeqIO.to_dict(SeqIO.parse(open(fastaFile, 'rU'), 'fasta'))
 idsList = []
 with open(tableFile, 'r') as fileIn:
         for line in fileIn:
-                if line == '\n':
+                if line == '\n' or line.startswith('gene_id\t'):
                         continue
                 sl = line.rstrip('\n').split('\t')
                 # Get the transcript col value
                 idsList.append(sl[1])
 
 # Make a records list for feeding into ORF finding function
-records = []
-for i in idsList:
-        records.append(recordDict[i])
+#records = []
+#for i in idsList:
+#        records.append(recordDict[i])
 
 # Get ORFs from function
-protDict = orf_find(records, 30, 0, 1, 39, 69, 'prot', 'n', 1)
+#protDict = orf_find(records, 30, 0, 1, 39, 69, 'prot', 'n', 1)
 
 # Make a temporary file for feeding into seg
+#tmpFasta = temp_file_name_gen('lcr_filtration.tmp')
+#with open(tmpFasta, 'w') as fileOut:
+#        for key, value in protDict.items():
+#                fileOut.write('>' + key + '\n' + value + '\n')
 tmpFasta = temp_file_name_gen('lcr_filtration.tmp')
 with open(tmpFasta, 'w') as fileOut:
-        for key, value in protDict.items():
-                fileOut.write('>' + key + '\n' + value + '\n')
+        for entry in idsList:
+                record = recordDict[entry]
+                fileOut.write('>' + record.description + '\n' + str(record.seq) + '\n')
 
 # Call seg with a temporary file
 tmpSeg = temp_file_name_gen('lcr_seg_output.tmp')
@@ -354,13 +359,16 @@ os.remove(tmpFasta)
 os.remove(tmpSeg)
 
 # Integrate this script's output into previous one
-newTable = ['gene_id\ttranscript_id\tnucl\tbest_prot\tseg_masked_prot\torf_len\toverlap_perc\tlcr_perc']
+#newTable = ['gene_id\ttranscript_id\tnucl\tunmasked_prot\tseg_masked_prot\torf_len\toverlap_perc\tlcr_perc']
+newTable = ['gene_id\ttranscript_id\tunmasked_prot\tseg_masked_prot\torf_len\toverlap_perc\tlcr_perc']          # removed nucl column since we're just going to play by the rules using PASA's annotated CDS'
 with open(tableFile, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
         ongoingCount = 0
         for line in fileIn:
+                if line == '\n' or line.startswith('gene_id\t'):
+                        continue
                 sl = line.rstrip('\n').split('\t')
-                nucl = str(records[ongoingCount].seq)
                 ongoingCount += 1                       # the records list is ordered, so we can just use an index that increases by 1 each loop to retrieve contents
-                new_sl = '\t'.join(['\t'.join(sl[0:2]), nucl, protDict[sl[1] + '_ORF1'], segDict[sl[1] + '_ORF1'][1], str(len(protDict[sl[1] + '_ORF1'])), sl[2], segDict[sl[1] + '_ORF1'][0]])
+                #new_sl = '\t'.join(['\t'.join(sl[0:2]), nucl, protDict[sl[1] + '_ORF1'], segDict[sl[1] + '_ORF1'][1], str(len(protDict[sl[1] + '_ORF1'])), sl[2], segDict[sl[1] + '_ORF1'][0]])
+                new_sl = '\t'.join(['\t'.join(sl[0:2]), str(recordDict[sl[1]].seq), segDict[sl[1]][1], str(len(recordDict[sl[1]])), sl[2], segDict[sl[1]][0]])
                 newTable.append(new_sl)
         fileOut.write('\n'.join(newTable))
