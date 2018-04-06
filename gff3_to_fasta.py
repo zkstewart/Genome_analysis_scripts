@@ -29,7 +29,7 @@ p.add_argument("-i", "-input", dest="fasta",
                   help="genome fasta file")
 p.add_argument("-g", "-gff", dest="gff3",
                   help="gff3 file")
-p.add_argument("-t", "-transcripts", dest="transcriptType", choices = ['main', 'both', 'cds'],
+p.add_argument("-t", "-transcripts", dest="transcriptType", choices = ['main', 'isoforms', 'cds'],
                   help="type of transcripts to output file")
 p.add_argument("-o", "-output", dest="output",
              help="output fasta file name containing transcript sequences")
@@ -78,13 +78,22 @@ records = SeqIO.to_dict(SeqIO.parse(seqFile, 'fasta'))
 
 # Parse the gff3 file
 idRegex = re.compile(r'ID=(.+?);')
-#cdsRegex = re.compile(r'Parent=(.+)')
 currGroup = []
 gffCoordDict = {}
+pasaProts = {}                  # We use this to get amino acid translations since 5' fragmented CDS regions will be incorrectly translated if we derive it from the sequence itself
 with open(gffFile, 'r') as fileIn:
         for line in fileIn:
                 # Skip filler lines
-                if line == '\n' or line.startswith('#'):
+                if line == '\n':
+                        continue
+                # Grab the PASA predicted ORF sequences
+                if line.startswith('#PROT'):
+                        sl = line.rstrip('\n').split('\t')
+                        geneID = sl[0].split()[1]
+                        pasaProt = sl[1]
+                        pasaProts[geneID] = pasaProt
+                        continue
+                elif line.startswith('#'):
                         continue
                 # Get details
                 sl = line.rstrip('\n').split('\t')
@@ -171,9 +180,10 @@ for key, value in gffCoordDict.items():
                 # Reverse comp if necessary
                 if mrna[3] == '-':
                         transcript = reverse_comp(transcript)
-                # Make protein translation if necessary
+                # Get protein translation if necessary
                 if transcriptType == 'cds':
-                        aatranscript = str(Seq(transcript, generic_dna).translate(table=1))
+                        #aatranscript = str(Seq(transcript, generic_dna).translate(table=1))
+                        aatranscript = pasaProts[mrna[0]]                               # As mentioned before, directly translating the ORF may cause nonsense if a fragmentary CDS isn't in frame 1
                 # Output to file
                 if transcriptType != 'cds':
                         outList.append('>' + mrna[0] + '\n' + transcript)
