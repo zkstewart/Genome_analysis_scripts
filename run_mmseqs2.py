@@ -175,8 +175,16 @@ if args.resume.lower() == 'y':
         print('You\'ve specified that you want to resume the run. I will attempt to do that.')
         log_update(logName, 'You\'ve specified that you want to resume the run. I will attempt to do that.')
         currdir = os.listdir()
-        querydir = os.listdir(os.path.dirname(args.query))
-        targetdir = os.listdir(os.path.dirname(args.target))
+        # Query dir details
+        tmp_qdir = os.path.dirname(args.query)          # We use a temporary value just to check if os.path.dirname == '', in which case we've specified a file in the current directory without its full path.
+        if tmp_qdir == '':
+                tmp_qdir = '.'
+        querydir = os.listdir(tmp_qdir)
+        # Target dir details
+        tmp_tdir = os.path.dirname(args.target)
+        if tmp_tdir == '':
+                tmp_tdir = '.'
+        targetdir = os.listdir(tmp_tdir)
         # Make query db
         if os.path.basename(args.query) + '_queryDB' not in querydir:
                 print('Running query DB generation...')
