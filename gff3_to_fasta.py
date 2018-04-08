@@ -18,6 +18,55 @@ def reverse_comp(seq):
         reversedSeq = reversedSeq.replace('g', 'C')
         return reversedSeq
 
+def group_process(currGroup):
+        full_mrnaGroup = []             # This will hold processed mRNA positions
+        mrnaGroup = []                  # This will be a temporary storage for mRNA lines
+        for entry in currGroup:
+                # Handle the first line in the group: we just want the gene ID
+                if entry[2] == 'gene':
+                        geneID = idRegex.search(entry[8]).group(1)
+                # Handle mRNA lines: this will start a subgroup corresponding to the mRNA
+                elif entry[2] == 'mRNA':
+                        if mrnaGroup == []:             # i.e., if this is the first mRNA line in this gene group, we just need to start building it
+                                mrnaGroup.append(entry)
+                        else:                           # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one
+                                # Process current mrnaGroup
+                                for subentry in mrnaGroup:
+                                        if transcriptType != 'cds':
+                                                if subentry[2] == 'mRNA':
+                                                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                                                elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
+                                                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                                        full_mrnaGroup[-1][-1].append(coords)
+                                        else:
+                                                if subentry[2] == 'mRNA':
+                                                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                                                elif subentry[2] == 'CDS':
+                                                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                                        full_mrnaGroup[-1][-1].append(coords)
+                                # Initiate new mrnaGroup
+                                full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation
+                                mrnaGroup = [entry]
+                else:
+                        mrnaGroup.append(entry)
+        # Process the mrnaGroup that's currently sitting in the pipe (so to speak)
+        for subentry in mrnaGroup:
+                if transcriptType != 'cds':
+                        if subentry[2] == 'mRNA':
+                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                        elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
+                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                full_mrnaGroup[-1][-1].append(coords)
+                else:
+                        if subentry[2] == 'mRNA':
+                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                        elif subentry[2] == 'CDS':
+                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
+                                full_mrnaGroup[-1][-1].append(coords)
+        full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation
+        # Put info into the coordDict and move on
+        gffCoordDict[geneID] = full_mrnaGroup
+
 ##### USER INPUT SECTION
 
 usage = """%(prog)s reads in genome fasta file and corresponding gff3 file in a format output by PASA and retrieves the main
@@ -107,57 +156,15 @@ with open(gffFile, 'r') as fileIn:
                                 continue
                         else:
                                 # Process group if we're encountering a new group
-                                full_mrnaGroup = []             # This will hold processed mRNA positions
-                                mrnaGroup = []                  # This will be a temporary storage for mRNA lines
-                                for entry in currGroup:
-                                        # Handle the first line in the group: we just want the gene ID
-                                        if entry[2] == 'gene':
-                                                geneID = idRegex.search(entry[8]).group(1)
-                                        # Handle mRNA lines: this will start a subgroup corresponding to the mRNA
-                                        elif entry[2] == 'mRNA':
-                                                if mrnaGroup == []:             # i.e., if this is the first mRNA line in this gene group, we just need to start building it
-                                                        mrnaGroup.append(entry)
-                                                else:                           # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one
-                                                        # Process current mrnaGroup
-                                                        for subentry in mrnaGroup:
-                                                                if transcriptType != 'cds':
-                                                                        if subentry[2] == 'mRNA':
-                                                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                                                        elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
-                                                                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
-                                                                                full_mrnaGroup[-1][-1].append(coords)
-                                                                else:
-                                                                        if subentry[2] == 'mRNA':
-                                                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                                                        elif subentry[2] == 'CDS':
-                                                                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
-                                                                                full_mrnaGroup[-1][-1].append(coords)
-                                                        # Initiate new mrnaGroup
-                                                        full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation
-                                                        mrnaGroup = [entry]
-                                        else:
-                                                mrnaGroup.append(entry)
-                                # Process the mrnaGroup that's currently sitting in the pipe (so to speak)
-                                for subentry in mrnaGroup:
-                                        if transcriptType != 'cds':
-                                                if subentry[2] == 'mRNA':
-                                                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                                elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
-                                                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
-                                                        full_mrnaGroup[-1][-1].append(coords)
-                                        else:
-                                                if subentry[2] == 'mRNA':
-                                                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                                elif subentry[2] == 'CDS':
-                                                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format
-                                                        full_mrnaGroup[-1][-1].append(coords)
-                                full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation
-                                # Put info into the coordDict and move on
-                                gffCoordDict[geneID] = full_mrnaGroup
+                                group_process(currGroup)
                                 currGroup = [sl]
+                elif lineType == 'rRNA' or lineType == 'tRNA':          # Skip lines that aren't coding
+                        continue
                 else:
                         # Keep building group until we encounter another 'gene' lineType
                         currGroup.append(sl)
+        # Process the last mrnaGroup
+        group_process(currGroup)
 
 # Prepare results
 if transcriptType != 'cds':
