@@ -32,7 +32,7 @@ def group_process(currGroup):
                         else:                           # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one
                                 # Process current mrnaGroup
                                 for subentry in mrnaGroup:
-                                        if transcriptType != 'cds':
+                                        if seqType != 'cds':
                                                 if subentry[2] == 'mRNA':
                                                         full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
                                                 elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
@@ -51,7 +51,7 @@ def group_process(currGroup):
                         mrnaGroup.append(entry)
         # Process the mrnaGroup that's currently sitting in the pipe (so to speak)
         for subentry in mrnaGroup:
-                if transcriptType != 'cds':
+                if seqType != 'cds':
                         if subentry[2] == 'mRNA':
                                 full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
                         elif subentry[2] != 'CDS':              # CDS lines are the only one we don't care about - we just grab the exon since its identical / more relevant
@@ -70,7 +70,7 @@ def group_process(currGroup):
 ##### USER INPUT SECTION
 
 usage = """%(prog)s reads in genome fasta file and corresponding gff3 file in a format output by PASA and retrieves the main
-and/or alternative isoform transcripts for each locus. Alternatively, you can grab the CDS regions which will produce nucleotide
+and/or alternative isoform transcripts or CDS' for each locus. Alternatively, you can grab the CDS regions which will produce nucleotide
 and AA files (name format == OUTPUT.nucl / OUTPUT.aa)
 """
 p = argparse.ArgumentParser(description=usage)
@@ -78,30 +78,32 @@ p.add_argument("-i", "-input", dest="fasta",
                   help="genome fasta file")
 p.add_argument("-g", "-gff", dest="gff3",
                   help="gff3 file")
-p.add_argument("-t", "-transcripts", dest="transcriptType", choices = ['main', 'isoforms', 'cds'],
-                  help="type of transcripts to output file")
+p.add_argument("-l", "-locusSeqs", dest="locusSeqs", choices = ['main', 'isoforms'],
+                  help="type of transcripts to extract from each locus (main == just the ")
+p.add_argument("-s", "-seqType", dest="seqType", choices = ['transcripts', 'cds'],
+                  help="type of sequence to output (transcripts == full gene model including UTRs if annotated, cds == coding regions)")
 p.add_argument("-o", "-output", dest="output",
              help="output fasta file name containing transcript sequences")
 p.add_argument("-f", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
                help="default == 'n', which means the program will not overwrite existing files. Specify 'y' to allow this behaviour at your own risk.", default='n')
-
 
 args = p.parse_args()
 
 # Obtain data from arguments
 fastaFile = args.fasta
 gffFile = args.gff3
-transcriptType = args.transcriptType
+locusSeqs = args.locusSeqs
+seqType = args.seqType
 outputFileName = args.output
 force = args.force
 
 # Format cds output names if relevant
-if transcriptType == 'cds':
+if seqType == 'cds':
         nuclOutputFileName = outputFileName + '.nucl'
         protOutputFileName = outputFileName + '.aa'
 
 # Check that output won't overwrite another file
-if transcriptType != 'cds':
+if seqType != 'cds':
         if os.path.isfile(outputFileName) and force.lower() != 'y':
                 print('There is already a file named ' + outputFileName + '. Either specify a new file name, delete these older file(s), or provide the -force argument either "Y" or "y"')
                 quit()
@@ -167,15 +169,32 @@ with open(gffFile, 'r') as fileIn:
         group_process(currGroup)
 
 # Prepare results
-if transcriptType != 'cds':
+if seqType != 'cds':
         outList = []
 else:
         nuclOutList = []
         protOutList = []
 
 for key, value in gffCoordDict.items():
+        skipped = 'y'
+        # Handle picking out the main/representative gene based on length
+        if locusSeqs == 'main':
+                longestMrna = ['', 0]           # We pick out the representative gene based on length. If length is identical, we'll end up picking the entry listed first in the gff3 file since our > condition won't be met. I doubt this will happen much or at all though.
+                for mrna in value:
+                        mrnaLen = 0
+                        for pair in mrna[1]:
+                                coords = pair.split('-')
+                                mrnaLen += (int(coords[1]) - int(coords[0]) + 1)
+                        if mrnaLen > longestMrna[1]:
+                                longestMrna = [mrna, mrnaLen]
+                value = [longestMrna[0]]          # This will mean we only have one entry in value for when we iterate through this below, ensuring we get just the representative gene
         for mrna in value:
-                genomeSeq = str(records[mrna[2]].seq)
+                skipped = 'n'
+                try:
+                        genomeSeq = str(records[mrna[2]].seq)
+                except:
+                        print(value)
+                        quit()
                 # Join sequence segments
                 if mrna[3] == '-':
                         mrna[1].reverse()
@@ -188,20 +207,24 @@ for key, value in gffCoordDict.items():
                 if mrna[3] == '-':
                         transcript = reverse_comp(transcript)
                 # Get protein translation if necessary
-                if transcriptType == 'cds':
+                if seqType == 'cds':
                         #aatranscript = str(Seq(transcript, generic_dna).translate(table=1))
                         aatranscript = pasaProts[mrna[0]]                               # As mentioned before, directly translating the ORF may cause nonsense if a fragmentary CDS isn't in frame 1
                 # Output to file
-                if transcriptType != 'cds':
+                if seqType != 'cds':
                         outList.append('>' + mrna[0] + '\n' + transcript)
                 else:
                         nuclOutList.append('>' + mrna[0] + '\n' + transcript)
                         protOutList.append('>' + mrna[0] + '\n' + aatranscript)
-                if transcriptType == 'main':
-                        break                   # This will only cause us to look at the first mRNA only in 'value' if there are multiple isoforms in this gene group
+        # Debug: check if we skipped a mRNA
+        if skipped == 'y':
+                print('Dun goofed!')
+                print(key)
+                print(value)
+                quit()
 
 # Dump to file
-if transcriptType != 'cds':
+if seqType != 'cds':
         with open(outputFileName, 'w') as fileOut:
                 fileOut.write('\n'.join(outList))
 else:
