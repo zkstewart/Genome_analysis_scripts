@@ -128,6 +128,9 @@ elif sampleType == 'first':
         sampleNums = list(range(0, sampleNum))
 else:
         sampleNums = list(range(totalCount-sampleNum, totalCount))
+# Convert sampleNums into a dictionary (saves time when working with v. large files
+sampleNums = dict.fromkeys(sampleNums)
+
 # Perform sampling
 for entry in inputFastas:
         outputFileName = file_name_gen(entry + '.subset' + str(sampleNum))
