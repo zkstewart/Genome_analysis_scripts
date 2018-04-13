@@ -118,7 +118,7 @@ def mms2sort(args):
                         if len(group) > 1:
                                 for i in range(len(group)):
                                         group[i] = group[i].rstrip('\n').split('\t')
-                                group.sort(key = lambda x: (float(x[10]),float(x[11])))
+                                group.sort(key = lambda x: (float(x[10]),-float(x[11])))
                                 for i in range(len(group)):
                                         group[i] = '\t'.join(group[i])
                         else:
