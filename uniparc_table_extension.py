@@ -20,6 +20,11 @@ def file_name_gen(prefix):
                 else:
                         return prefix + str(ongoingCount) + '.pkl'
 
+# Make a regex for handling gene/protein name redundancy if needed
+#protRegex = re.compile(r'Protein_names=(.+)(\.\s*Gene_names=|$)')
+protRegex = re.compile(r'Protein_names=(.+)(\.\s*Gene_names=|\.\s$)')
+geneRegex = re.compile(r'Gene_names=(.+)\.$')
+
 #### USER INPUT SECTION
 usage = """This program will read in an input basic annotation table formatted by the uniparc_basic_table.py script and query the UniProtKB
 API to get mappings of UPIs to other databases. This takes a LONG time, and because of that we save backups of the dictionary value
@@ -176,9 +181,9 @@ try:
                                                 if protNames == []:
                                                         addNames = 'Protein_names=_None_.'
                                                 else:
-                                                        addNames = 'Protein_names=' + ';'.join(protNames) + '. '
+                                                        addNames = 'Protein_names=' + ';'.join(protNames) + '. '        ## This is the source of the extra space. Woops.
                                                 if geneNames != []:                                                     # We don't have a condition for when geneNames == [] since we don't care if this isn't added
-                                                        addNames += ' Gene_names=' + ';'.join(geneNames) + '.'           # Put the gene names at the end of the value so the user can ctrl + c to find it, but we don't want it forefront since the long names are, again, more "informative"
+                                                        addNames += ' Gene_names=' + ';'.join(geneNames) + '.'          # Put the gene names at the end of the value so the user can ctrl + c to find it, but we don't want it forefront since the long names are, again, more "informative"
                                                 # Save results in processedUPIs
                                                 processedUPIs[upis[i]] = [dbAccessions, addNames, taxIDs]
                                                 modifiedDict = 'y'
@@ -192,6 +197,31 @@ try:
                                         taxIDs = []
                                         for upi in upis:
                                                 tmpAcc, tmpName, tmpID = processedUPIs[upi]
+                                                ## Handle dbAccession redundancy [need to do this since we didn't do it during the API query step]
+                                                newAcc = []
+                                                dbNames = []    # This will store the database names (like RefSeq) so we only get one accession per database. This needs to be done since some sequences are multiply redundant in a single database (I'm looking at you EMBLWGS...) and it's causing problems for opening the file in Excel
+                                                tmpSplit = tmpAcc.split(';')
+                                                for i in range(len(tmpSplit)):
+                                                        components = tmpSplit[i].split('=')
+                                                        if components[0] not in dbNames:
+                                                                newAcc.append(tmpSplit[i])
+                                                                dbNames.append(components[0])
+                                                tmpAcc = ';'.join(newAcc)
+                                                ## Handle excessive numbers of gene names [again, didn't do this during the API query so we do it here. Also, because I mistakely added an extra space above, we just apply this process to everything to remove the space.]
+                                                if 'Protein_names=_None_' not in tmpName:
+                                                        tmpProtNames = protRegex.search(tmpName).group(1)
+                                                else:
+                                                        tmpProtNames = '_None_'                         # Need this to handle the _None_ scenario which it's otherwise too difficult to make a regex for. There's a number of difficulties I've made for myself with my API query approach, but I just wanted to get that running since it takes a long time
+                                                tmpProtSplit = tmpProtNames.split(';')
+                                                newProts = ';'.join(tmpProtSplit[0:10])                 # If we have more than 10 protein or gene names from a single database we just make a cut-off to reduce the amount of superfluous details which disrupt Excel viewing
+                                                newName = 'Protein_names=' + newProts + '.'
+                                                if 'Gene_names=' in tmpName:
+                                                        tmpGeneNames = geneRegex.search(tmpName).group(1)
+                                                        tmpGeneSplit = tmpGeneNames.split(';')
+                                                        newGenes = ';'.join(tmpGeneSplit[0:10])
+                                                        newName += ' Gene_names=' + newGenes + '.'
+                                                tmpName = newName
+                                                # Format the outputs
                                                 if dbAccessions == []:                          # This just lets us know it's the first UPI we're looking at in which case it's the best E-value hit, so we distinguish this one.
                                                         dbAccessions.append(tmpAcc + ' ')
                                                         addNames.append(tmpName + ' ')
@@ -207,14 +237,18 @@ try:
                                         newL = [*line[0:3], ''.join(dbAccessions), ''.join(addNames), ''.join(taxIDs), *line[3:]]
                                         fileOut.write('\t'.join(newL) + '\n')
 except Exception as e:
-        print('Catastrophy has struck! I\'ll pickle this dict for later and give you some information of what\'s gone wrong.')          # I'll still end up pickling the dict even if no changes were made to the dict just because.
-        # Pickle the dict
-        if pickleDict == None:
-                pickleName = file_name_gen(outputTable + '_pickledDict')
+        print('Catastrophy has struck! I\'ll pickle your dict for you (if relevant) and print some details of what\'s gone wrong.')
+        if modifiedDict == 'y':
+                print('I\'ll pickle this dict for later...')
+                # Pickle the dict
+                if pickleDict == None:
+                        pickleName = file_name_gen(outputTable + '_pickledDict')
+                else:
+                        pickleName = file_name_gen(pickleDict.rsplit('.',maxsplit=1)[0])                # Just strip off the .pkl extension so we end up making a ${pickleName}1.pkl
+                with open(pickleName, 'wb') as pickleOut:
+                        pickle.dump(processedUPIs, pickleOut)
         else:
-                pickleName = file_name_gen(pickleDict.rsplit('.',maxsplit=1)[0])                # Just strip off the .pkl extension so we end up making a ${pickleName}1.pkl
-        with open(pickleName, 'wb') as pickleOut:
-                pickle.dump(processedUPIs, pickleOut)
+                print('Doesn\'t look like your dictionary value changed, so no need to pickle that dict for you.')
         # Inform error details
         print(upis)
         print('Index==' + str(i))
