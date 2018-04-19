@@ -117,7 +117,6 @@ try:
                                         # Get details
                                         for i in range(len(upis)):
                                                 if upis[i] in processedUPIs:
-                                                        #print('UPI already processed: ' + upis[i])
                                                         continue
                                                 # Get the .xml information from UniProt website
                                                 address = 'http://www.uniprot.org/uniparc/' + upis[i] + '.xml'

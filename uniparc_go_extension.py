@@ -4,7 +4,7 @@
 # The output is a table containing GO terms, including an additional one containing all ancestor terms.
 # Requires the location of a go-basic.obo file to be specified.
 
-import os, argparse, pickle
+import os, argparse
 from goatools import obo_parser
 #### USER INPUT SECTION
 usage = """This program will read in a gene annotation table formatted by uniparc_basic_table.py -> uniparc_table_extension.py
@@ -24,8 +24,6 @@ p.add_argument("-inputObo", "-io", dest="oboFile",
                    help="Input go-basic.obo file.")
 p.add_argument("-outfile", "-o", dest="outputTable",
                    help="Output BLAST-tab file name (must be different to the input blastTab file).")
-#p.add_argument("-goType", "-g", dest="goType", choices = ["all", "best"],
-#                   help="Specify whether you want to retrieve the GO terms only from the best hit with GO annotation, or if you want to combine all GO terms.")
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
                help="default == 'n', which means the program will not overwrite existing files. Specify 'y' to allow this behaviour at your own risk.", default='n')
 
@@ -35,10 +33,7 @@ blastTab = args.blastTab
 idmapFile = args.idmapFile
 oboFile = args.oboFile
 outputTable = args.outputTable
-#goType = args.goType
 force = args.force
-
-pickledStuff = 'idmap.pkl'
 
 # Check that output won't overwrite another file
 if os.path.isfile(outputTable) and force.lower() != 'y':
@@ -47,46 +42,41 @@ if os.path.isfile(outputTable) and force.lower() != 'y':
 elif os.path.isfile(outputTable) and force.lower() == 'y':
         os.remove(outputTable)
 
-if pickledStuff == None:
-        # Pull out relevant details from blastTab file (should speed script up & reduce memory usage substantially on large files)
-        idMap = {}
-        with open(blastTab, 'r') as fileIn:
-                for line in fileIn:
-                        if line.startswith('Query\tSource'):
-                                continue
-                        else:
-                                line = line.rstrip('\n').rstrip('\r').split('\t')
-                                if line[2] != '.':
-                                        upis = line[2].replace(' ','').replace(']','').split('[')
-                                        for upi in upis:
-                                                idMap[upi] = ''
 
-        print('Pulled out relevant details from input annotation table')
-
-        # Parse idmapping_selected.tab file
-        with open(idmapFile, 'r') as idIn:
-                for line in idIn:
+# Pull out relevant details from blastTab file (should speed script up & reduce memory usage substantially on large files)
+idMap = {}
+with open(blastTab, 'r') as fileIn:
+        for line in fileIn:
+                if line.startswith('Query\tSource'):
+                        continue
+                else:
                         line = line.rstrip('\n').rstrip('\r').split('\t')
-                        upi = line[10]
-                        go = line[6]
-                        if upi in idMap and go != '':
-                                idMap[upi] = go
-                        elif upi in idMap and go == '':
-                                idMap[upi] = '.'
+                        if line[2] != '.':
+                                upis = line[2].replace(' ','').replace(']','').split('[')
+                                for upi in upis:
+                                        idMap[upi] = ''
 
-        print('Parsed the ' + idmapFile + ' file')
+print('Pulled out relevant details from input annotation table')
 
-        with open('idmap.pkl', 'wb') as pickleOut:
-                pickle.dump(idMap, pickleOut)
-else:
-        with open(pickledStuff, 'rb') as pickleIn:
-                idMap = pickle.load(pickleIn)
+# Parse idmapping_selected.tab file
+with open(idmapFile, 'r') as idIn:
+        for line in idIn:
+                line = line.rstrip('\n').rstrip('\r').split('\t')
+                upi = line[10]
+                go = line[6]
+                if upi in idMap and go != '':
+                        idMap[upi] = go
+                elif upi in idMap and go == '':
+                        idMap[upi] = '.'
+
+print('Parsed the ' + idmapFile + ' file')
 
 # Parse .obo file
 go = obo_parser.GODag(oboFile)
 
 # Update annotations file
 deprecatedGOs = ['GO:0042993', 'GO:0042990', 'GO:0042992', 'GO:1901206', 'GO:0044376', 'GO:1990022', 'GO:0051436']      # This is for handling deprecated GOs (these term are not in the go.obo file downloaded 16/04/2018 5:20pm AEST; the idmapping_selected.tab file was the 22/03/2018 file)
+replacedGOs = {'GO:0000189': 'GO:0006606'}
 with open(blastTab, 'r') as fileIn, open(outputTable, 'w') as fileOut:
         for line in fileIn:
                 if line.startswith('Query\tSource'):
@@ -115,6 +105,12 @@ with open(blastTab, 'r') as fileIn, open(outputTable, 'w') as fileOut:
                                                 if entry in splitGOs:
                                                         print('Removed ' + entry)
                                                         splitGOs.remove(entry)
+                                        # Handle replaced GOs
+                                        for entry in replacedGOs.keys():
+                                                if entry in splitGOs:
+                                                        print('Replaced ' + entry)
+                                                        splitGOs.remove(entry)
+                                                        splitGOs.add(replacedGOs[entry])
                                         # Skip this if we've ended up removing all our GO entries
                                         if splitGOs == set():
                                                 continue

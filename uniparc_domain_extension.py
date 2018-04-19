@@ -125,17 +125,17 @@ Note that the HMMER3 result should have been generated using the hmm_db_download
 
 # Reqs
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("--inputBlast", "-ib", dest="blastTab",
+p.add_argument("-ib","-inputBlast", dest="blastTab",
                    help="Input tab-delimited annotation file name.")
-p.add_argument("--inputHmmer", "-ih", dest="domtbloutFile",
+p.add_argument("-ih", "-inputHmmer", dest="domtbloutFile",
                    help="Input domtblout HMMER3 result file.")
-p.add_argument("--idFile", "-id", dest="idFile",
+p.add_argument("-id", "-idFile", dest="idFile",
                    help="Input ID mapping file (with key pairs old:new). Leave blank if the IDs are consistent in your HMMER results and BLAST-tab file.")
-p.add_argument("--evalue", "-e", dest="evalue", type=float,
+p.add_argument("-e", "-evalue", dest="evalue", type=float,
                    help="E-value significance cut-off for domain predictions.")
-p.add_argument("-p", "--percOvl", type=float, dest="ovlCutoff",
+p.add_argument("-p", "-percOvl", type=float, dest="ovlCutoff",
                    help="Percentage overlap cutoff (below == trimming to prevent overlap, above = deletion of lower E-value hit, default == 25.0)", default=25.0)
-p.add_argument("--outfile", "-out", dest="outfile",
+p.add_argument("-o", "-outfile", dest="outfile",
                    help="Output BLAST-tab file name (must be different to the input blastTab file).")
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
                help="default == 'n', which means the program will not overwrite existing files. Specify 'y' to allow this behaviour at your own risk.", default='n')
