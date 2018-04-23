@@ -6,7 +6,7 @@
 # The gff3_to_fasta.py script will note where deletions were made
 # when building models.
 
-import os, argparse, re
+import os, argparse, re, copy
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Alphabet import generic_dna
@@ -20,12 +20,6 @@ def reverse_comp(seq):                                                  # This f
         reversedSeq = reversedSeq.replace('c', 'G')
         reversedSeq = reversedSeq.replace('g', 'C')
         return reversedSeq
-
-def indel(seq, indexList):                                                         # This function is used for modifying a genomic contig to insert/delete bases later
-        indexList.sort(reverse = True)
-        for index in indexList:
-                seq = seq[:index] + seq[index+1:]
-        return seq
 
 def first_pass(file, regex, gffDictionary):                             # This function provides a first pass through a gff3 file to pull out mRNA sections which is fed into the group_process function
         currGroup = []
@@ -232,19 +226,21 @@ with open(outputFileName, 'w') as fileOut:
                                         continue
                                 else:
                                         # Store mRNA
-                                        mrnas.append([currGroup])
+                                        mrnas.append(currGroup)
                                         currGroup = [sl]
                         else:
                                 # Keep building group until we encounter another 'gene' lineType
                                 currGroup.append(sl)
                 mrnas.append(currGroup)
+                # Sort mrnas value so it looks neater in the later output
+                mrnas.sort(key = lambda x: nameRegex.search(x[0][8]).group(1))
                 # Extract CDS and exon regions as sets
-                cdsSet = set()
-                exonSet = set()
-                aatranscripts = []              # This will hold onto our protein translations of CDS regions for output to file
+                aatranscripts = []              # These two values will hold onto our protein translations of CDS regions for output to file after processing all mRNAS
                 results = []
                 results.append([contigID, 'manual_annotation', 'gene', geneStart, geneEnd, '.', orient, '.', 'ID=' + geneName + ';Name=manual_annot_' + geneName])      # This is our first gene line for every gene group
                 for mrna in mrnas:
+                        cdsSet = set()          # These two values need to reset for each mRNA entry
+                        exonSet = set()
                         for val in mrna:
                                 if val[2] == 'mRNA':
                                         continue
@@ -253,6 +249,8 @@ with open(outputFileName, 'w') as fileOut:
                                         exonSet = exonSet.union(coords)
                                 elif val[2] == 'CDS':
                                         cdsSet = cdsSet.union(coords)
+                                elif val[2].startswith('non_canonical'):
+                                        continue
                                 else:
                                         print('what?')
                                         print(val)
@@ -306,49 +304,44 @@ with open(outputFileName, 'w') as fileOut:
                                         utrRegions.append(currRegion)
                                         currRegion = [utrSet[i],'']
                                 prevNum = utrSet[i]
-                        currRegion[1] = prevNum
-                        utrRegions.append(currRegion)
+                        if utrSet != []:                        # We need this check in place since sometimes there isn't a UTR, in which case we don't want to process the left over bit which will still correspond to the CDS bit (which will always have a left over bit)
+                                currRegion[1] = prevNum
+                                utrRegions.append(currRegion)
                         # Format and save results
                         mrnaName = nameRegex.search(mrna[0][8]).group(1)
                         results.append([contigID, 'manual_annotation', 'mRNA', mrna[0][3], mrna[0][4], '.', orient, '.', 'ID=' + mrnaName + ';Parent=' + geneName])           # This is our first mRNA line for each mRNA group
-                        if orient == '-':
-                                exonRegions.sort(reverse=True)          # This will maintain the same style that PASA provides and thus ensure our gff3_to_fasta script can still work properly
-                                cdsRegions.sort(reverse=True)
-                                utrRegions.sort(reverse=True)
                         tempMrnaBuilding = []                           # This will hold onto our segments so we can sort them before adding them to the results list
                         for i in range(len(exonRegions)):
                                 tempMrnaBuilding.append([contigID, 'manual_annotation', 'exon', exonRegions[i][0], exonRegions[i][1], '.', orient, '.', 'ID=' + geneName + '.exon' + str(i+1) + ';Parent=' + mrnaName])
                         ## CDS -- Get the CDS region as a sequence as well so we can format a protein translation directly into the file so we don't need to modify gff3_to_fasta much to handle these sequences
                         genomeSeq = str(records[contigID].seq)
-                        indices = indelIndices[contigID]
-                        #for i in range(len(indices)-1, -1, -1):         # Is this how it works?
-                        #        if indices[i] not in cdsSet:
-                        #                del indices[i]
-                        genomeSeq = indel(genomeSeq, indices)
+                        indices = copy.deepcopy(indelIndices[contigID])         # Need to build a deep copy since we're modifying the list...
+                        for i in range(len(indices)-1, -1, -1):                 # Is this how it works?
+                                if indices[i] not in cdsSet:
+                                        del indices[i]
                         transcript = ''
-                        for i in range(len(cdsRegions)):
-                                tempMrnaBuilding.append([contigID, 'manual_annotation', 'CDS', cdsRegions[i][0], cdsRegions[i][1], '.', orient, '.', 'ID=cds.' + geneName + ';Parent=' + mrnaName])             ### I JUST CHANGED THIS TO CDSREGIONS FROM EXONREGIONS - CHECK BEHAVIOUR
-                                segment = genomeSeq[int(cdsRegions[i][0])-1:int(cdsRegions[i][1])]
-                                #transcript += segment
+                        for cdsRegion in cdsRegions:
+                                tempMrnaBuilding.append([contigID, 'manual_annotation', 'CDS', cdsRegion[0], cdsRegion[1], '.', orient, '.', 'ID=cds.' + geneName + ';Parent=' + mrnaName])             ### I JUST CHANGED THIS TO CDSREGIONS FROM EXONREGIONS - CHECK BEHAVIOUR
+                                segment = genomeSeq[int(cdsRegion[0])-1:int(cdsRegion[1])]      # We need this to behave 0-based
                                 # Check for deletions
-                                segmentRange = range(int(cdsRegions[i][0])-1,int(cdsRegions[i][1]))
+                                segmentRange = range(int(cdsRegion[0]),int(cdsRegion[1]+1))     # We need this to behave 1-based [think of a deletion from 1-10, we need the second coordinate +1 so we have function range(1,11) which will include the index 10]
                                 segmentIndices = []
                                 for index in indices:
                                         if index in segmentRange:
                                                 segmentIndices.append(index)
                                 if segmentIndices == []:
-                                        transcript += genomeSeq[int(cdsRegions[i][0])-1:int(cdsRegions[i][1])]        # Make it 0-based by -1 to the first coordinate
+                                        transcript += genomeSeq[int(cdsRegion[0])-1:int(cdsRegion[1])]        # Make it 0-based by -1 to the first coordinate
                                 else:
+                                        print('AYY!')
                                         # Normalise the segmentIndices to correspond to the region we're looking at
-                                        #### STOPPED HERE FOR THE NIGHT ####
                                         segmentIndices.sort(reverse = True)
                                         for i in range(len(segmentIndices)):
-                                                segmentIndices[i] = segmentIndices[i] - int(cdsRegions[i][0])          # We're minusing the start of the cdsRegion's coordinate so it relates to the length of this region specifically
+                                                segmentIndices[i] = segmentIndices[i] - int(cdsRegion[0])          # We're minusing the start of the cdsRegion's coordinate so it relates to the length of this region specifically
                                                 segment = segment[:segmentIndices[i]] + segment[segmentIndices[i]+1:]
                                         transcript += segment
                         if orient == '-':
                                 transcript = reverse_comp(transcript)
-                                aatranscript = str(Seq(transcript, generic_dna).translate(table=1))             # This can technically be problematic if the CDS is fragmented. In the case of manual annotations, though, we're assuming the CDS is not fragmented. Will need to add checks to this program to make sure this happens.
+                        aatranscript = str(Seq(transcript, generic_dna).translate(table=1))             # This can technically be problematic if the CDS is fragmented. In the case of manual annotations, though, we're assuming the CDS is not fragmented. Will need to add checks to this program to make sure this happens.
                         # Check that the translation is good
                         if aatranscript.count('*') > 1:
                                 print('Too many stop codons in this translation! I think that means the 5\' CDS region is fragmented - why did you annotate a fragmented gene model?')
@@ -358,21 +351,23 @@ with open(outputFileName, 'w') as fileOut:
                                 aatranscripts.append(aatranscript)
                         ## UTR
                         ## Get the start and end of CDS regions
-                        if orient == '+':                                       # Because of how we've sorted it, the first CDS position will either be the first or the last entry
-                                firstCDS = int(cdsRegions[0][0])
-                                lastCDS = int(cdsRegions[-1][1])
-                        else:
-                                firstCDS = int(cdsRegions[-1][0])
-                                lastCDS = int(cdsRegions[0][1])
+                        firstCDS = int(cdsRegions[0][0])
+                        lastCDS = int(cdsRegions[-1][1])
+                        fiveOngoingCount = 0                                    # It's not good enough to refer to the i value since that increases with both 5' and 3', we need to individually track the number of these features annotated to correctly represent their count
+                        threeOngoingCount = 0
                         for i in range(len(utrRegions)):
                                 if int(utrRegions[i][0]) < firstCDS:            # If the UTR region starts upstream of the first CDS (i.e., is < firstCDS) then we're looking at a 5' UTR
-                                        tempMrnaBuilding.append([contigID, 'manual_annotation', 'five_prime_UTR', utrRegions[i][0], utrRegions[i][1], '.', orient, '.', 'ID=' + geneName + '.utr5p' + str(i+1) + ';Parent=' + mrnaName])
+                                        tempMrnaBuilding.append([contigID, 'manual_annotation', 'five_prime_UTR', utrRegions[i][0], utrRegions[i][1], '.', orient, '.', 'ID=' + geneName + '.utr5p' + str(fiveOngoingCount+1) + ';Parent=' + mrnaName])
+                                        fiveOngoingCount += 1
                                 elif int(utrRegions[i][0]) > lastCDS:           # If the UTR region is downstream of the last CDS (i.e., is > lastCDS) then we're looking at a 3' UTR. This check isn't necessary, but it's just to display code behaviour
-                                        tempMrnaBuilding.append([contigID, 'manual_annotation', 'three_prime_UTR', utrRegions[i][0], utrRegions[i][1], '.', orient, '.', 'ID=' + geneName + '.utr3p' + str(i+1) + ';Parent=' + mrnaName])
+                                        tempMrnaBuilding.append([contigID, 'manual_annotation', 'three_prime_UTR', utrRegions[i][0], utrRegions[i][1], '.', orient, '.', 'ID=' + geneName + '.utr3p' + str(threeOngoingCount+1) + ';Parent=' + mrnaName])
+                                        threeOngoingCount += 1
                                 else:
                                         print('This should never happen. Something is wrong with the code or your input file...')
+                                        print('Info: Gene name=' + geneName + ';ContigID=' + contigID)
                                         quit()
-                        if orient == '+':                                       # Because of how we've sorted it, the first CDS position will either be the first or the last entry
+                        # Sort the results so they're in the same format as PASA's gff3
+                        if orient == '+':
                                 tempMrnaBuilding.sort(key = lambda x: x[3])
                         else:
                                 tempMrnaBuilding.sort(key = lambda x: x[3], reverse=True)
@@ -386,7 +381,7 @@ with open(outputFileName, 'w') as fileOut:
                 for entry in results:
                         entry[3] = str(entry[3])
                         entry[4] = str(entry[4])
-                        fileOut.write('\t'.join(entry))
+                        fileOut.write('\t'.join(entry) + '\n')
                 for i in range(len(mrnas)):
                         mrnaName = nameRegex.search(mrnas[i][0][8]).group(1)
                         footerLine = '#PROT ' + mrnaName + '\t' + aatranscripts[i] + '\n'
