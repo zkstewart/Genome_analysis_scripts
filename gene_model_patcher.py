@@ -136,8 +136,8 @@ p.add_argument("-gen", "-genomefile", dest="genomeFile", help="Input genome cont
 p.add_argument("-gff", "-gff3", dest="gff3File", help="Input gff3 file name")
 p.add_argument("-tr", "-transfile", dest="transcriptomeFile", help="Input nucleotide transcriptome fasta file name (should be the same transcript file [NOT CDS] used for GMAP alignment)")                         
 p.add_argument("-gm", "-gmap", dest="gmapFile", help="Input gmap gff3 file name")
-p.add_argument("-e", "-evalue", dest="evalue", type=float, help="E-value cut-off for sequences to join based on BLAST hit (default == 1e-10)", default = 1e-10)
-p.add_argument("-p", "-proximity", dest="proximityValue", type=int, help="Maximum distance of separation allowed for two gene models to have been interrupted by an indel (default == 200)", default = 200)
+p.add_argument("-e", "-evalue", dest="evalue", type=float, help="E-value cut-off for sequences to join based on BLAST hit (default == 1e-10)", default = 1e-5)  # Was 1e-10 but it resulted in missing a manually validated join where BLAST E-value was only 1e-8
+p.add_argument("-p", "-proximity", dest="proximityValue", type=int, help="Maximum distance of separation allowed for two gene models to have been interrupted by an indel (default == 500)", default = 500)     # Was 200 but wasn't long enough. This will require more stringent BLAST pairing me thinks.
 p.add_argument("-o", "-output", dest="outputFileName", help="Output results file name")
 # Opts
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
@@ -163,7 +163,6 @@ print('Parsed the annotations gff3 file')
 # Load the BLAST file and parse its contents to form an association dictionary
 blastDict = {}
 grouper = lambda x: x.split('\t')[0]
-#with open(args.blastTab, 'r') as bfile, open(args.outputFileName, 'w') as outFile:
 with open(args.blastTab, 'r') as bfile:
         for key, group in groupby(bfile, grouper):
                 for line in group:
@@ -346,7 +345,50 @@ with open(args.outputFileName, 'w') as fileOut:
                                                         break
                         # Did we find anything?
                         if foundPatch == 'n':
-                                print('Couldn\'t find shit for ' + pair[0][3] + ' and ' + pair[1][3] + '...')
+                                print('Couldn\'t find anything for ' + pair[0][3] + ' and ' + pair[1][3] + ', but I still think they should fuse...')
+                                ## Added modules go here ##
+                                ## ADDED MODULE 1: Find GMAP alignments that fully encompass the two exons we're trying to join [this is desirable as the above process was not capable of finding at least one example that was manually annotated. 
+                                for pair in joiningPairs:                       # This scenario was two single-exon genes that should fuse and was supported by a transcript which extended beyond the 5' end of the first gene since frameshift-causing indels resulted in this first gene having a truncated 5' end.
+                                        if pair[0][1] == '+':                   # Note that we're deliberately looking at just the last 5' gene exon / first 3' gene exon rather than cycling through them like we did above
+                                                # Find completely overlapping GMAP alignments within 1Kb of fivePStart which overlap threePEnd [we need to do some extra dictionary parsing since we've indexed by start positions which was useful for the above analysis but is a bit limiting here]
+                                                dictEntries = []
+                                                fivePStart = int(pair[0][0][-1].split('-')[0])
+                                                threePEnd = int(pair[1][0][0].split('-')[1])
+                                                for key in gmapLoc.keys():
+                                                        if key in range(fivePStart - 1000, fivePStart+1):
+                                                                dictEntries.append(gmapLoc[key])
+                                        else:
+                                                dictEntries = []
+                                                fivePStart = int(pair[1][0][0].split('-')[1])
+                                                threePEnd = int(pair[0][0][-1].split('-')[0])
+                                                for key in gmapLoc.keys():
+                                                        if key in range(fivePStart + 1000, fivePStart+1, -1):   # Need the range to run in reverse
+                                                                dictEntries.append(gmapLoc[key])
+                                        
+                                        dictEntries = copy.deepcopy(dictEntries)        # Need a deepcopy since we don't want to modify our gmapLoc dictionary values
+                                        # Narrow down our dictEntries to hits on the same contig
+                                        for j in range(len(dictEntries)):               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
+                                                for k in range(len(dictEntries[j])-1, -1, -1):  # Loop through in reverse so we can delete entries without messing up the list
+                                                        if dictEntries[j][k][7] != pair[0][2]:
+                                                                del dictEntries[j][k]
+                                        while [] in dictEntries:
+                                                del dictEntries[dictEntries.index([])]
+                                        entryList = []
+                                        for entry in dictEntries:
+                                                for subentry in entry:
+                                                        entryList.append(subentry)              # This flattens our list into a list of lists, rather than a list of lists of lists
+                                        # Narrow down our entryList to hits that fully encompass the candidate joining exons
+                                        for l in range(len(entryList)-1, -1, -1):
+                                                if pair[0][1] == '+':
+                                                        if not (threePEnd <= entryList[l][1] and fivePStart >= entryList[l][0]):        # If NOT fully encompassed... [also note that its entryList[L], not [#1]]
+                                                                del entryList[l]
+                                                else:
+                                                        if not (fivePStart <= entryList[l][1] and threePEnd >= entryList[l][0]):        # If NOT fully encompassed...
+                                                                del entryList[l]
+                                        # Use these results
+                                        
+                                        
+                                        #leftCoord = 
                                 joined_Pairs.append([pair[0][3], pair[1][3]])           # Technically these aren't joined pairs, but this list just acts as a "skip this pair" value
                                 continue
 
