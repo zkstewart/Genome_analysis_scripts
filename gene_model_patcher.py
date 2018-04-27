@@ -120,6 +120,54 @@ def cdna_parser(gffFile):             # I've essentially crammed the gff3_to_fas
                         nuclDict[mrna[0]] = [mrna[1], mrna[3], mrna[2], mrna[0], transcriptBits]
         return nuclDict
 
+# Define function to find non-exact GMAP alignments that fully encompass the two exons we're trying to join [this is desirable as the exact matching process was not capable of finding at least one example that was manually annotated.]
+# This scenario was two single-exon genes that should fuse and was supported by a transcript which extended beyond the 5' end of the first gene since frameshift-causing indels resulted in this first gene having a truncated 5' end.
+def nonexact_finder(pair, gmapLoc):
+        if pair[0][1] == '+':                   # Note that we're deliberately looking at just the last 5' gene exon / first 3' gene exon rather than cycling through them like we did above
+                # Find completely overlapping GMAP alignments within 1Kb of fivePStart which overlap threePEnd [we need to do some extra dictionary parsing since we've indexed by start positions which was useful for the above analysis but is a bit limiting here]
+                dictEntries = []
+                fivePStart = int(pair[0][0][-1].split('-')[0])
+                threePEnd = int(pair[1][0][0].split('-')[1])
+                for key in gmapLoc.keys():
+                        if key in range(fivePStart - 1000, fivePStart+1):
+                                dictEntries.append(gmapLoc[key])
+        else:
+                dictEntries = []
+                fivePStart = int(pair[1][0][0].split('-')[1])
+                threePEnd = int(pair[0][0][-1].split('-')[0])
+                for key in gmapLoc.keys():
+                        if key in range(fivePStart + 1000, fivePStart+1, -1):   # Need the range to run in reverse
+                                dictEntries.append(gmapLoc[key])
+
+        dictEntries = copy.deepcopy(dictEntries)        # Need a deepcopy since we don't want to modify our gmapLoc dictionary values
+        # Narrow down our dictEntries to hits on the same contig
+        for j in range(len(dictEntries)):               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
+                for k in range(len(dictEntries[j])-1, -1, -1):  # Loop through in reverse so we can delete entries without messing up the list
+                        if dictEntries[j][k][7] != pair[0][2]:
+                                del dictEntries[j][k]
+        while [] in dictEntries:
+                del dictEntries[dictEntries.index([])]
+        entryList = []
+        for entry in dictEntries:
+                for subentry in entry:
+                        entryList.append(subentry)              # This flattens our list into a list of lists, rather than a list of lists of lists
+        # Narrow down our entryList to hits that fully encompass the candidate joining exons and have very good alignment identity (minimum 98?)
+        minCutoff = 98  # Value is subject to change, or could be user argument specifiable if deemed helpful
+        for l in range(len(entryList)-1, -1, -1):
+                if pair[0][1] == '+':
+                        if not (threePEnd <= entryList[l][1] and fivePStart >= entryList[l][0]):        # If NOT fully encompassed... [also note that its entryList[L], not [#1]]
+                                del entryList[l]
+                        elif entryList[l][6] < minCutoff:                                               # If this has less than 98 identity we don't want it, since we're already taking a risk with the transcript not matching exactly
+                                del entryList[l]
+                else:
+                        if not (fivePStart <= entryList[l][1] and threePEnd >= entryList[l][0]):        # If NOT fully encompassed...
+                                del entryList[l]
+                        elif entryList[l][6] < minCutoff:
+                                del entryList[l]
+        return entryList, fivePStart, threePEnd         # We can return fivePStart and threePEnd since we need to use these values later when handling non-exact matches
+
+# Use these results
+
 # Build regex for later use
 isoRegex = re.compile(r'(evm\.model\.utg\d{1,10}(_pilon_pilon)?\.\d{1,10})')
 
@@ -136,8 +184,8 @@ p.add_argument("-gen", "-genomefile", dest="genomeFile", help="Input genome cont
 p.add_argument("-gff", "-gff3", dest="gff3File", help="Input gff3 file name")
 p.add_argument("-tr", "-transfile", dest="transcriptomeFile", help="Input nucleotide transcriptome fasta file name (should be the same transcript file [NOT CDS] used for GMAP alignment)")                         
 p.add_argument("-gm", "-gmap", dest="gmapFile", help="Input gmap gff3 file name")
-p.add_argument("-e", "-evalue", dest="evalue", type=float, help="E-value cut-off for sequences to join based on BLAST hit (default == 1e-10)", default = 1e-5)  # Was 1e-10 but it resulted in missing a manually validated join where BLAST E-value was only 1e-8
-p.add_argument("-p", "-proximity", dest="proximityValue", type=int, help="Maximum distance of separation allowed for two gene models to have been interrupted by an indel (default == 500)", default = 500)     # Was 200 but wasn't long enough. This will require more stringent BLAST pairing me thinks.
+p.add_argument("-e", "-evalue", dest="evalue", type=float, help="E-value cut-off for sequences to join based on BLAST hit (default == 1e-10)", default = 1e-10)  # Was 1e-10 but it resulted in missing a manually validated join where BLAST E-value was only 1e-8
+p.add_argument("-p", "-proximity", dest="proximityValue", type=int, help="Maximum distance of separation allowed for two gene models to have been interrupted by an indel (default == 500)", default = 200)     # Was 200 but wasn't long enough. This will require more stringent BLAST pairing me thinks.
 p.add_argument("-o", "-output", dest="outputFileName", help="Output results file name")
 # Opts
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
@@ -260,137 +308,132 @@ with open(args.outputFileName, 'w') as fileOut:
                                         fivePStart = int(pair[0][0][::-1][z].split('-')[0])   # This is the start (5' end in + orientation) of the exon
                                         # Next, we need to retrieve the GMAP alignments that match the 5' start position if possible [we get all of these since it allows us to pick the "best" ones and trial them - fit them into the CDS and see what happens!]
                                         if fivePStart not in gmapLoc:
-                                                #print('Couldn\'t find a perfect 5\' match for ' + pair[0][4] + ' - ' + pair[1][4])
-                                                #quit()
-                                                continue
+                                                gmapMatches, fivePStart, threePEnd = nonexact_finder(pair, gmapLoc)
+                                                if gmapMatches != []:
+                                                        print('Cool, found nonexact match instead! (' + pair[0][3] + ')')       ### STOPPING HERE FOR TONIGHT: Need to figure out how I'm going to get the patchSeq in this scenario (reality: 5' and 3' bits of exons will act as indices for doing a sub-extraction of the patchseq if we use a non-exact match (I should probably try this anyway since some exact matches at 5' won't be exact at 3', and I could test how this impacts things I guess?)
+                                                        #print(gmapMatches)
+                                                        #quit()
+                                                else:
+                                                        print('No nonexact matches found... (' + pair[0][3] + ')')
+                                                        continue
                                         else:
-                                                # Remove spurious matches and sort remaining matches [we sort to order the best hits (based on identity) by their length (based on contigStop keeping orientation in mind)
                                                 gmapMatches = copy.deepcopy(gmapLoc[fivePStart])                # Need to run a deep copy since we don't want to affect the actual list part of our dictionary
-                                                for i in range(len(gmapMatches)-1,-1,-1):
-                                                        if gmapMatches[i][7] != pair[0][2]:
-                                                                del gmapMatches[i]
-                                                gmapMatches.sort(key = lambda x: (-x[6], -x[1]))        # - to both since we want the largest numbers
-                                                ## FINAL MAJOR STEP: Trial out RNA-seq patching to see if we can derive a contiguous ORF
-                                                # Trial 1: The exon where breakage occurs ()
-                                                for match in gmapMatches:
-                                                        # Grab the patch sequence [note that reverse complementing is not necessary for '-' orientation hits since the transcript itself is already in the reverse orientation to the genome sequence if marked '-' by GMAP]
-                                                        patchSeq = str(transRecords[match[5]].seq)[int(match[2])-1:int(match[3])]               # Make it 0-based by -1 to the first coordinate
-                                                        # Reverse comp the patchSeq if necessary
-                                                        if match[4] != pair[1][1]:
-                                                                patchSeq = reverse_comp(patchSeq)                                               # As mentioned before, not all transcripts are in the same orientation as the gene models, so when they're in the opposite orientation we need to reverse complement the patch
-                                                        # Slot the patch instead of the last exon of the 5' sequence and instead of the first exon of the 3' sequence (remembering that 5' is relative to the transcript - when '+' this is the left-most seq relative to the contig's coordinates, and right-most for '-' orientation)
-                                                        newCDS = ''.join(pair[0][4][0:-(z+1)]) + patchSeq + ''.join(pair[1][4][z+1:])
-                                                        # Test to see if the patch fixed the problem
-                                                        aaCDS = str(Seq(newCDS, generic_dna).translate(table=1))
-                                                        stopCodons = aaCDS.count('*')
+                                        # Remove spurious matches and sort remaining matches [we sort to order the best hits (based on identity) by their length (based on contigStop keeping orientation in mind)
+                                        for i in range(len(gmapMatches)-1,-1,-1):
+                                                if gmapMatches[i][7] != pair[0][2]:
+                                                        del gmapMatches[i]
+                                        gmapMatches.sort(key = lambda x: (-x[6], -x[1]))        # - to both since we want the largest numbers
+                                        ## FINAL MAJOR STEP: Trial out RNA-seq patching to see if we can derive a contiguous ORF
+                                        # Trial 1: The exon where breakage occurs ()
+                                        for match in gmapMatches:
+                                                # Grab the patch sequence [note that reverse complementing is not necessary for '-' orientation hits since the transcript itself is already in the reverse orientation to the genome sequence if marked '-' by GMAP]
+                                                patchSeq = str(transRecords[match[5]].seq)[int(match[2])-1:int(match[3])]               # Make it 0-based by -1 to the first coordinate
+                                                if match[4] != pair[1][1]:
+                                                                patchSeq = reverse_comp(patchSeq)                                       # As mentioned before, not all transcripts are in the same orientation as the gene models, so when they're in the opposite orientation we need to reverse complement the patch [also note that reverse complementing still means the transcript bit aligns to the same genomic coordinates, just now it's in the same direction as the gene model]
+                                                # New approach: trim the patch seq if it extends beyond the 5' and 3' bounds of the exon we assume we are patching
+                                                if fivePStart not in gmapLoc:           # This lets us know we're working with a non-exact match
+                                                        fivePExtension = fivePStart - int(match[0])
+                                                        threePExtension = int(match[1]) - threePEnd
+                                                        patchSeq = patchSeq[fivePExtension:len(patchSeq)-threePExtension]               # We don't minus one here since, for example, if fivePExtension == 100, that means there are 100 bases that are extended and we want to start at position 101 when 1-based (thus, we can just use 100 as a 0-based position)                                            
+                                                # Slot the patch instead of the last exon of the 5' sequence and instead of the first exon of the 3' sequence (remembering that 5' is relative to the transcript - when '+' this is the left-most seq relative to the contig's coordinates, and right-most for '-' orientation)
+                                                newCDS = ''.join(pair[0][4][0:-(z+1)]) + patchSeq + ''.join(pair[1][4][z+1:])
+                                                # Test to see if the patch fixed the problem [note that we need to check +1/+2/+3 reading frames since there might also be indels upstream of the fivePStart site when dealing with inexact matches which this RNAseq transcript might be correcting, in which case the frame might not be exactly right]
+                                                record = Seq(newCDS, generic_dna)
+                                                print(newCDS)
+                                                for frame in range(3):
+                                                        length = 3 * ((len(record)-frame) // 3)
+                                                        frameNuc = str(record[frame:])
+                                                        frameProt = str(record[frame:].translate(table=1))
+                                                        #print(frameProt)
+                                                        stopCodons = frameProt.count('*')
                                                         if stopCodons > 1:              # Essentially, we can just check to see if the reading frame continues through the whole sequence. 1 stop codon is expected to be at the end of the sequence, so if we find >=2 then we know a frameshift occurred when joining the two gene models with this patch
                                                                 continue
                                                         else:
                                                                 foundPatch = 'y'
                                                                 break
-                                                if foundPatch == 'n':
-                                                        #print('Couldn\'t find a good RNAseq patch for ' + pair[0][3] + ' and ' + pair[1][3] + '...')
-                                                        #quit()
-                                                        continue
-                                                else:
-                                                        print('Found a good RNAseq patch for ' + pair[0][3] + ' and ' + pair[1][3] + '!')
-                                                        # Format patch details into a tabular format for another script to perform the patching process itself
-                                                        outLine = [pair[0][2], str(match[0]), str(match[1]), match[5], str(match[2]), str(match[3]), match[4], pair[0][3], pair[1][3]]
-                                                        fileOut.write('\t'.join(outLine) + '\n')
-                                                        joined_Pairs.append([pair[0][3], pair[1][3]])           # We don't need to hold onto the inverse pairing of gene IDs since we order them previously. Holding onto this pairing means we don't waste time performing this operation again.
+                                                if foundPatch == 'y':                   # This acts as our exit condition to the loop to make sure match == our good hit when we are formatting our output line
                                                         break
-                                        
+                                        if foundPatch == 'n':
+                                                continue
+                                        else:
+                                                print('Found a good RNAseq patch for ' + pair[0][3] + ' and ' + pair[1][3] + '!')
+                                                if pair[0][3] == 'evm.model.utg103_pilon_pilon.134':
+                                                        print('AYY')
+                                                        quit()
+                                                # Format patch details into a tabular format for another script to perform the patching process itself
+                                                outLine = [pair[0][2], str(match[0]), str(match[1]), match[5], str(match[2]), str(match[3]), match[4], pair[0][3], pair[1][3]]
+                                                fileOut.write('\t'.join(outLine) + '\n')
+                                                joined_Pairs.append([pair[0][3], pair[1][3]])           # We don't need to hold onto the inverse pairing of gene IDs since we order them previously. Holding onto this pairing means we don't waste time performing this operation again.
+                                                break
                         else:
                                 for z in range(len(pair[1][0])):
                                         fivePStart = int(pair[1][0][z].split('-')[1])   # This is the start (5' end in - orientation) of the exon
                                         if fivePStart not in gmapLoc:
-                                                #print('Couldn\'t find a perfect 5\' match for ' + pair[0][4] + ' - ' + pair[1][4])
-                                                #quit()
-                                                continue
+                                                gmapMatches, fivePStart, threePEnd = nonexact_finder(pair, gmapLoc)
+                                                if gmapMatches != []:
+                                                        print('Cool, found nonexact match instead! (' + pair[0][3] + ')')
+                                                        #print(gmapMatches)
+                                                        #quit()
+                                                else:
+                                                        print('No nonexact matches found... (' + pair[0][3] + ')')
+                                                        continue
                                         else:
-                                                # Remove spurious matches and sort remaining matches [we sort to order the best hits (based on identity) by their length (based on contigStop keeping orientation in mind)
                                                 gmapMatches = copy.deepcopy(gmapLoc[fivePStart])                # Need to run a deep copy since we don't want to affect the actual list part of our dictionary
-                                                for i in range(len(gmapMatches)-1,-1,-1):
-                                                        if gmapMatches[i][7] != pair[0][2]:
-                                                                del gmapMatches[i]
-                                                gmapMatches.sort(key = lambda x: (-x[6], x[0]))         # - to just the contigStart since we want the smallest number here (will mean we're looking at the longest hit)
-                                                ## FINAL MAJOR STEP: Trial out RNA-seq patching to see if we can derive a contiguous ORF
-                                                # Trial 1: The exon where breakage occurs ()
-                                                for match in gmapMatches:
-                                                        # Grab the patch sequence [note that reverse complementing is not necessary for - orientation hits, since the transcript itself is already in the reverse orientation to the genome sequence if marked by '-' by GMAP]
-                                                        patchSeq = str(transRecords[match[5]].seq)[int(match[2])-1:int(match[3])]               # Make it 0-based by -1 to the first coordinate
-                                                        # Reverse comp the patchSeq if necessary
-                                                        if match[4] != pair[1][1]:
-                                                                patchSeq = reverse_comp(patchSeq)                                               # As mentioned before, not all transcripts are in the same orientation as the gene models, so when they're in the opposite orientation we need to reverse complement the patch
-                                                        # Slot the patch instead of the last exon of the 5' sequence and instead of the first exon of the 3' sequence (remembering that 5' is relative to the transcript - when '+' this is the left-most seq relative to the contig's coordinates, and right-most for '-' orientation)
-                                                        newCDS = ''.join(pair[1][4][z+1:][::-1]) + patchSeq + ''.join(pair[0][4][:-(z+1)][::-1]) ### CHANGE THE INDEX FOR START EXON
-                                                        # Test to see if the patch fixed the problem
-                                                        aaCDS = str(Seq(newCDS, generic_dna).translate(table=1))
-                                                        stopCodons = aaCDS.count('*')
+                                        # Remove spurious matches and sort remaining matches [we sort to order the best hits (based on identity) by their length (based on contigStop keeping orientation in mind)
+                                        for i in range(len(gmapMatches)-1,-1,-1):
+                                                if gmapMatches[i][7] != pair[0][2]:
+                                                        del gmapMatches[i]
+                                        gmapMatches.sort(key = lambda x: (-x[6], x[0]))         # - to just the contigStart since we want the smallest number here (will mean we're looking at the longest hit)
+                                        ## FINAL MAJOR STEP: Trial out RNA-seq patching to see if we can derive a contiguous ORF
+                                        # Trial 1: The exon where breakage occurs ()
+                                        for match in gmapMatches:
+                                                # Grab the patch sequence [note that reverse complementing is not necessary for '-' orientation hits since the transcript itself is already in the reverse orientation to the genome sequence if marked '-' by GMAP]
+                                                patchSeq = str(transRecords[match[5]].seq)[int(match[2])-1:int(match[3])]               # Make it 0-based by -1 to the first coordinate
+                                                if match[4] != pair[1][1]:
+                                                                patchSeq = reverse_comp(patchSeq)                                       # As mentioned before, not all transcripts are in the same orientation as the gene models, so when they're in the opposite orientation we need to reverse complement the patch [also note that reverse complementing still means the transcript bit aligns to the same genomic coordinates, just now it's in the same direction as the gene model]
+                                                # New approach: trim the patch seq if it extends beyond the 5' and 3' bounds of the exon we assume we are patching
+                                                if fivePStart not in gmapLoc:           # This lets us know we're working with a non-exact match
+                                                        fivePExtension = int(match[0]) - fivePStart
+                                                        threePExtension = threePEnd - int(match[1])
+                                                        patchSeq = patchSeq[fivePExtension-1:len(patchSeq)-threePExtension]             # Make it 0-based by -1 to the first coordinate
+                                                # Slot the patch instead of the last exon of the 5' sequence and instead of the first exon of the 3' sequence (remembering that 5' is relative to the transcript - when '+' this is the left-most seq relative to the contig's coordinates, and right-most for '-' orientation)
+                                                newCDS = ''.join(pair[1][4][z+1:][::-1]) + patchSeq + ''.join(pair[0][4][:-(z+1)][::-1])
+                                                # Test to see if the patch fixed the problem [note that we need to check +1/+2/+3 reading frames since there might also be indels upstream of the fivePStart site when dealing with inexact matches which this RNAseq transcript might be correcting, in which case the frame might not be exactly right]
+                                                record = Seq(newCDS, generic_dna)
+                                                for frame in range(3):
+                                                        length = 3 * ((len(record)-frame) // 3)
+                                                        frameNuc = str(record[frame:])
+                                                        frameProt = str(record[frame:].translate(table=1))
+                                                        stopCodons = frameProt.count('*')
                                                         if stopCodons > 1:              # Essentially, we can just check to see if the reading frame continues through the whole sequence. 1 stop codon is expected to be at the end of the sequence, so if we find >=2 then we know a frameshift occurred when joining the two gene models with this patch
                                                                 continue
                                                         else:
                                                                 foundPatch = 'y'
                                                                 break
-                                                if foundPatch == 'n':
-                                                        #print('Couldn\'t find a good RNAseq patch for ' + pair[0][3] + ' and ' + pair[1][3] + '...')
-                                                        #quit()
-                                                        continue
-                                                else:
-                                                        print('Found a good RNAseq patch for ' + pair[0][3] + ' and ' + pair[1][3] + '!')
-                                                        # Format patch details into a tabular format for another script to perform the patching process itself
-                                                        outLine = [pair[0][2], str(match[0]), str(match[1]), match[5], str(match[2]), str(match[3]), match[4], pair[0][3], pair[1][3]]
-                                                        fileOut.write('\t'.join(outLine) + '\n')
-                                                        joined_Pairs.append([pair[0][3], pair[1][3]])
+                                                if foundPatch == 'y':                   # This acts as our exit condition to the loop to make sure match == our good hit when we are formatting our output line
                                                         break
+                                        if foundPatch == 'n':
+                                                #print('Couldn\'t find a good RNAseq patch for ' + pair[0][3] + ' and ' + pair[1][3] + '...')
+                                                #quit()
+                                                continue
+                                        else:
+                                                print('Found a good RNAseq patch for ' + pair[0][3] + ' and ' + pair[1][3] + '!')
+                                                # Format patch details into a tabular format for another script to perform the patching process itself
+                                                outLine = [pair[0][2], str(match[0]), str(match[1]), match[5], str(match[2]), str(match[3]), match[4], pair[0][3], pair[1][3]]
+                                                fileOut.write('\t'.join(outLine) + '\n')
+                                                joined_Pairs.append([pair[0][3], pair[1][3]])
+                                                break
                         # Did we find anything?
                         if foundPatch == 'n':
                                 print('Couldn\'t find anything for ' + pair[0][3] + ' and ' + pair[1][3] + ', but I still think they should fuse...')
                                 ## Added modules go here ##
-                                ## ADDED MODULE 1: Find GMAP alignments that fully encompass the two exons we're trying to join [this is desirable as the above process was not capable of finding at least one example that was manually annotated. 
-                                for pair in joiningPairs:                       # This scenario was two single-exon genes that should fuse and was supported by a transcript which extended beyond the 5' end of the first gene since frameshift-causing indels resulted in this first gene having a truncated 5' end.
-                                        if pair[0][1] == '+':                   # Note that we're deliberately looking at just the last 5' gene exon / first 3' gene exon rather than cycling through them like we did above
-                                                # Find completely overlapping GMAP alignments within 1Kb of fivePStart which overlap threePEnd [we need to do some extra dictionary parsing since we've indexed by start positions which was useful for the above analysis but is a bit limiting here]
-                                                dictEntries = []
-                                                fivePStart = int(pair[0][0][-1].split('-')[0])
-                                                threePEnd = int(pair[1][0][0].split('-')[1])
-                                                for key in gmapLoc.keys():
-                                                        if key in range(fivePStart - 1000, fivePStart+1):
-                                                                dictEntries.append(gmapLoc[key])
-                                        else:
-                                                dictEntries = []
-                                                fivePStart = int(pair[1][0][0].split('-')[1])
-                                                threePEnd = int(pair[0][0][-1].split('-')[0])
-                                                for key in gmapLoc.keys():
-                                                        if key in range(fivePStart + 1000, fivePStart+1, -1):   # Need the range to run in reverse
-                                                                dictEntries.append(gmapLoc[key])
-                                        
-                                        dictEntries = copy.deepcopy(dictEntries)        # Need a deepcopy since we don't want to modify our gmapLoc dictionary values
-                                        # Narrow down our dictEntries to hits on the same contig
-                                        for j in range(len(dictEntries)):               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
-                                                for k in range(len(dictEntries[j])-1, -1, -1):  # Loop through in reverse so we can delete entries without messing up the list
-                                                        if dictEntries[j][k][7] != pair[0][2]:
-                                                                del dictEntries[j][k]
-                                        while [] in dictEntries:
-                                                del dictEntries[dictEntries.index([])]
-                                        entryList = []
-                                        for entry in dictEntries:
-                                                for subentry in entry:
-                                                        entryList.append(subentry)              # This flattens our list into a list of lists, rather than a list of lists of lists
-                                        # Narrow down our entryList to hits that fully encompass the candidate joining exons
-                                        for l in range(len(entryList)-1, -1, -1):
-                                                if pair[0][1] == '+':
-                                                        if not (threePEnd <= entryList[l][1] and fivePStart >= entryList[l][0]):        # If NOT fully encompassed... [also note that its entryList[L], not [#1]]
-                                                                del entryList[l]
-                                                else:
-                                                        if not (fivePStart <= entryList[l][1] and threePEnd >= entryList[l][0]):        # If NOT fully encompassed...
-                                                                del entryList[l]
-                                        # Use these results
+                                ## ADDED MODULE 1:  
+                                
                                         
                                         
                                         #leftCoord = 
                                 joined_Pairs.append([pair[0][3], pair[1][3]])           # Technically these aren't joined pairs, but this list just acts as a "skip this pair" value
                                 continue
 
-                
+
 #### SCRIPT ALL DONE
