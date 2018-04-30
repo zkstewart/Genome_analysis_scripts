@@ -297,9 +297,32 @@ def translate_cds(seq1, seq2):
                 longest[i] = tmpLongest
         return longest
 
+def geneblocks_update(geneBlocksDict, model, modelCoords):
+        orientation = model[1]
+        contigID = model[2]
+        # Derive coordinates
+        if orientation == '+':
+                start = int(modelCoords[0].split('-')[0])
+                stop = int(modelCoords[-1].split('-')[1])
+        else:
+                start = int(modelCoords[-1].split('-')[0])
+                stop = int(modelCoords[0].split('-')[1])
+        # Update geneBlocksDict
+        if contigID not in geneBlocksDict:
+                geneBlocksDict[contigID] = [[start, stop, model[3], orientation]]
+        else:
+                geneBlocksDict[contigID].append([start, stop, model[3], orientation])
+        return geneBlocksDict
+
 def gene_overlap_validation(geneBlocks):
         for key, value in geneBlocks.items():
-                asdf
+                value.sort()
+                for i in range(len(value)-1):
+                        if value[i][1] >= value[i+1][0]:
+                                basename1 = isoRegex.search(value[i][2]).group(1)
+                                basename2 = isoRegex.search(value[i+1][2]).group(1)
+                                if basename1 != basename2 and value[i][3] == value[i+1][3]:
+                                        print('Looks like ' + value[i][2] + ' merged with ' + value[i+1][2])
 
 ## CORE FUNCTIONS ##
 def gmap_parse(gmapFile):
@@ -467,15 +490,19 @@ minCutoff = 98    # Up for modification / making visible to the user
 gmapCutoff = 95
 """# I have two values here since [in the case of utg103.12], my gmap_curate function was too strict. 
 Since we're checking for exon skipping now (wasn't part of the original plan but it is important)
-it's essential that we are absolutely certain the real gene model """ # Hold off on this a moment...
-joined_Pairs = []               # We need this to hold onto pairs that we've successfully patched together because we're going to iterate through a lot of BLAST hits, some of which may be redundant.
-cleaned_Seqs = []               # This will hold onto which models we've gone through exon-by-exon and noted corrections
-vcfDict = {}            # This dictionary will hold onto values in a style that is consistent with VCF, making output and parsing easier
+it's essential that we are absolutely certain the real gene model has a skipped exon, and the best
+way to do that is to lower our gmapCutoff to see if something similar to the real exon is part of the real
+gene model or not. 
 
+Additionally, I am pretty sure I found a case where GMAP's identity score was noted as 97%
+but in reality it was 100% identical. I've noticed a handful of weird things GMAP does (hence why I align my
+genomic patch against the whole transcript, GMAP's coordinates aren't trustworthy..) so I try to limit my trust in the
+program's accuracy."""
+vcfDict = {}            # This dictionary will hold onto values in a style that is consistent with VCF, making output and parsing easier
 geneBlocks = {}         # This dictionary serves as a form of validation. By holding onto new model starts/stops, we'll be able to check for overlap which will tell us if gene models will end up merged in the reannotation.
 
 for key, model in nuclDict.items():
-        if not 'utg103' in key:
+        if not 'utg103' in key: ## Testing
                 continue
         # Hold onto both the original gene model, as well as the new gene model resulting from indel correction/exon boundary modification
         origModelCoords = []
@@ -492,9 +519,9 @@ for key, model in nuclDict.items():
                 first and last exons in a gene model which might not respect the positions supported by transcript evidence. I don't want to
                 do this with internal exons, however, since it was causing problems that were too difficult to handle (i.e., 100% alignment
                 matches to portions of the exon but not the whole exon, whereas I had other exons which perfectly matched the boundaries but
-                had ~90% identity according to GMAP)"""
+                had ~90-97% identity according to GMAP)"""
                 if i == 0 or i == len(model[0]) - 1:
-                        gmapMatches = boundary_exon_finder(args.proximityValue, gmapLoc, model, i)      ## Consider modifying behaviour to grab anything that encompasses the exon regardless of its start position
+                        gmapMatches = boundary_exon_finder(args.proximityValue, gmapLoc, model, i)
                 else:
                         gmapMatches = nonexact_exon_finder(args.proximityValue, gmapLoc, model, i)
                 if gmapMatches == []:
@@ -532,7 +559,7 @@ for key, model in nuclDict.items():
         # Validate the indel positions
         if modelVcf == {}:
                 print('Found no edits [' + model[3] + ']')
-                geneBlocks[model[2]] = [int(origModelCoords[0].split('-')[0]), int(origModelCoords[-1].split('-')[1])]
+                geneBlocks = geneblocks_update(geneBlocks, model, origModelCoords)
         else:
                 origCDS, newCDS = cds_build(origModelCoords, newModelCoords, model[2], model[1], modelVcf)
                 origProt, newProt = translate_cds(origCDS, newCDS)
@@ -540,24 +567,43 @@ for key, model in nuclDict.items():
                 if len(newProt) > len(origProt):
                         print('Looks like we improved this model! [' + model[3] + ']')
                         vcfDict = vcf_merge(vcfDict, modelVcf)
-                        geneBlocks[model[2]] = [int(newModelCoords[0].split('-')[0]), int(newModelCoords[-1].split('-')[1])]
+                        geneBlocks = geneblocks_update(geneBlocks, model, newModelCoords)
                 elif len(newProt) == len(origProt):
-                        print('Length is the same, I\'ll save changes though [' + model[3] + ']')
+                        print('Length is the same, I\'ll save changes though. [' + model[3] + ']')
                         vcfDict = vcf_merge(vcfDict, modelVcf)
-                        geneBlocks[model[2]] = [int(newModelCoords[0].split('-')[0]), int(newModelCoords[-1].split('-')[1])]
+                        geneBlocks = geneblocks_update(geneBlocks, model, newModelCoords)
                 else:
                         # Check how much shorter the new model is
                         if len(newProt) / len(origProt) >= 0.90:
+                                """This check is in place for the same reasons as mentioned above about exon skipping. Sometimes the real gene model should have 
+                                a skipped exon (since EVM/PASA will add in a spurious one to maintain a reading frame in the presence of indel error) which means
+                                our newProt will be slightly shorter than origProt and that is not cause for alarm."""
                                 print('We shortened this model, but not by much. It\'s probably fine [' + model[3] + ']')
                                 vcfDict = vcf_merge(vcfDict, modelVcf)
-                                geneBlocks[model[2]] = [int(newModelCoords[0].split('-')[0]), int(newModelCoords[-1].split('-')[1])]
+                                geneBlocks = geneblocks_update(geneBlocks, model, newModelCoords)
+                                print(origProt)
+                                print('---')
+                                print(newProt)
+                                print('---')
                         else:
-                                print('We made things worse! How? [' + model[3] + ']')
-                                worselength
+                                """After testing this program in its (near) final stage, I'm pretty confident that scenarios where this occurs are likely to indicate
+                                chimerism that occurred as a result of indel error. When running this on the test dataset, it handles all scenarios fine until MERGED_utg103.185_184.
+                                As the name suggests, PASA merged these two gene models. Performing BLAST makes it clear that this join is incorrect, and when we fix indels with
+                                this program, a continuous ORF is not possible between these two genes. Thus, although this gene model did get shorter, this was a good thing.
+                                I'm still a little worried that sometimes these changes might be in error, but with the extensive validation built into this program I'm confident
+                                enough to unlock this section and let the program make the edits it thinks it should. I will, however, make these cases clear so that manual validation
+                                can occur to make sure it's not messing up any gene models, which is the #1 goal of this program - do not make _anything_ worse."""
+                                print('I shortened this model a lot. Was this gene a chimer? [' + model[3] + ']')
+                                vcfDict = vcf_merge(vcfDict, modelVcf)
+                                geneBlocks = geneblocks_update(geneBlocks, model, newModelCoords)
+                                print(origProt)
+                                print('---')
+                                print(newProt)
+                                print('---')
         #print('Done this seq!')
 
 # Check for probable gene joins
-
+gene_overlap_validation(geneBlocks)
 
 # Create output VCF-like file [it's a really abbreviated VCF style format, but it's enough to make it easy to parse and perform genome edits]
 output
@@ -569,8 +615,4 @@ with open(args.outputFileName, 'w') as fileOut:
                 for pair in value:
                         fileOut.write('\t'.join([key, str(pair[0]), pair[1]]) + '\n')
 
-"""To do:
-1; Make sure that all GMAP alignments at least cover both exons or extend beyond a bit [reduce chance of using a transcript alignment that doesn't cover our indel bit]
-2; Be more stringent with all GMAP alignments, not just inexact matches
-"""
 #### SCRIPT ALL DONE
