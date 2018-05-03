@@ -32,6 +32,7 @@ def gmap_exon_finder(gmapLoc, model, coordIndex, processType):
                 dictEntries = [gmapLoc[key] for key in gmapLoc if start in key or stop in key]          # Getting start OR stop means we just grab onto anything perfectly matching one of the boundaries
         else:
                 dictEntries = [gmapLoc[key] for key in gmapLoc if start in key and stop in key]         # Getting start AND stop means it must equal or encompass our current exon
+        dictEntries = copy.deepcopy(dictEntries)                                                        # I'm not 100% sure this is necessary, but I've found deepcopies to be necessary for other functions similar to this
         # Narrow down our dictEntries to hits on the same contig
         for j in range(len(dictEntries)):                                                               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
                 for k in range(len(dictEntries[j])-1, -1, -1):                                          # Loop through in reverse so we can delete entries without messing up the list
@@ -405,6 +406,51 @@ def verbose_print(args, text):
         if args.verbose:
                 print(text)
 
+## New gene model rescuer functions
+def novel_gmap_align_finder(gmapLoc, nuclDict, minCutoff):
+        # Re-index our nuclDict into a format capable of comparison to our gmapLoc dictionary
+        nuclRanges = {}
+        for key, value in nuclDict.items():
+                for coord in value[0]:
+                        coordSplit = coord.split('-')
+                        coordRange = range(int(coordSplit[0]), int(coordSplit[1]) + 1)                  # Make it 1-based
+                        if coordRange not in nuclRanges:
+                                nuclRanges[coordRange] = [[value[2], value[3]]]
+                        else:
+                                nuclRanges[coordRange].append([value[2], value[3]])
+        # Compare gmapLoc values to nuclRanges values to find GMAP alignments which don't overlap known genes
+        validExons = []
+        for key, value in gmapLoc.items():
+                gmapHits = copy.deepcopy(value)
+                # Cull any hits that aren't good enough                                                 # It's important that we're as strict (or more) as we are with the established gene model checking
+                for x in range(len(gmapHits)-1,-1,-1):
+                        if gmapHits[x][6] < minCutoff:
+                                del gmapHits[x]
+                # Do we have enough hits to suggest there might be a defined exon here?
+                if len(gmapHits) < 2:                                                                      # Because of how we indexed our GMAP alignments, we can easily tell if there are multiple sequences hitting the exact same coordinates. Convenient!
+                        continue
+                # Find out if this region already overlaps a known gene model
+                start = min(key)
+                stop = max(key)
+                overlaps = [nuclRanges[key_range] for key_range in nuclRanges if start in key_range or stop in key_range]
+                overlaps = copy.deepcopy(overlaps)
+                # Narrow down our overlaps to hits on the same contig
+                for j in range(len(overlaps)):
+                        for k in range(len(overlaps[j])-1, -1, -1):
+                                if overlaps[j][k][0] != gmapHits[0][7]:
+                                        del overlaps[j][k]
+                while [] in overlaps:
+                        del overlaps[overlaps.index([])]
+                # Do we have any overlaps?
+                if overlaps != []:                                                                      # This list won't be empty if it overlaps an established gene model
+                        continue
+                else:
+                        validExons.append(gmapHits)
+                if len(validExons) > 3:
+                        break
+        return validExons
+
+                
 # Build regex for later use
 isoRegex = re.compile(r'(evm\.model\.utg\d{1,10}(_pilon_pilon)?\.\d{1,10})')
 
@@ -616,4 +662,39 @@ with open(args.outputFileName, 'w') as fileOut:
                 for pair in value:
                         fileOut.write('\t'.join([key, str(pair[0]), str(pair[1][0])]) + '\n')
 
+## TESTING NOVEL GMAP GENE FIXER ##
+gmapHits = novel_gmap_align_finder(gmapLoc, nuclDict, minCutoff)
+for hit in gmapHits:
+        # Find the best GMAP match by SSW alignment score
+        sswResults = []
+        for match in hit[0:2]:                                                                  # We don't need to look at more than 2 hits
+                model = ['','',match[7]]                                                        # We're going to just hijack the functions developed for the main part of the program where possible
+                # Grab the sequences for alignment                                              # Note that we're going to compare the portion of the genome which the transcript hits (from GMAP) to the full transcript since GMAP handles N's weirdly and thus its transcript coordinates cannot be used
+                transcriptRecord, genomePatchRec = patch_seq_extract(match, model)
+                # Perform SSW alignment
+                sswResults.append(ssw(genomePatchRec, transcriptRecord) + [match[0], match[1], match[5], match[4]])  # SSW returns [transcriptAlign, genomeAlign, hyphen, startIndex, alignment.optimal_alignment_score), and we also + [matchStart, matchEnd, matchName, matchOrientation] to this
+        sswResults.sort(key = lambda x: (-x[4], x[2], x[3]))                                    # i.e., sort so score is maximised, then sort by presence of hyphens then by the startIndex
+        # Look at our best match to see if indels are present
+        if sswResults[0][2] == 'n':                                                             # i.e., if we have no hyphens in our alignment, then there are no indels
+                # Log
+                #log_update(args, logName, [key, model, i, sswResults, '.', 'hit'])
+                continue        # Need to fix the logging here
+        elif sswResults[0][2] != 'n' and sswResults[1][2] == 'n':                               # We want unanimous agreement since we have to be a bit more strict when we're not working with known exon boundaries
+                # Log
+                #log_update(args, logName, [key, model, i, sswResults, '.', 'hit'])
+                continue
+        else:
+                # See if the indels are located in the exact same position by both alignments...
+                # Modify our modelVcf if the alignment is trustworthy
+                modelVcf, sswIdentity, tmpVcf = indel_location(sswResults[0][0], sswResults[0][1], sswResults[0][5], model, sswResults[0][3], modelVcf, minCutoff)   # This will update our vcfDict with indel locations
+                if sswIdentity >= minCutoff:
+                        origModelCoords.append(model[0][i])
+                        newModelCoords.append(str(sswResults[0][5]) + '-' + str(sswResults[0][6]))
+                        # Log
+                        log_update(args, logName, [key, model, i, sswResults, tmpVcf, 'hit'])
+                else:
+                        origModelCoords.append(model[0][i])
+                        newModelCoords.append(model[0][i])                                      # Like above after gmap_curate, there is transcript support for this exon. Here, we chose not to make any changes, so we'll stick to the original coordinates.
+                        # Log
+                        log_update(args, logName, [key, model, i, sswResults, '.', 'hit'])
 #### SCRIPT ALL DONE
