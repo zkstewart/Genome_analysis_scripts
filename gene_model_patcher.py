@@ -3,9 +3,8 @@
 # TBD
 
 # Load packages
-import re, os, argparse, subprocess, copy, pickle, warnings
+import re, os, argparse, copy, pickle, warnings
 from Bio import SeqIO
-from Bio import AlignIO
 from Bio.Seq import Seq
 from Bio.Alphabet import generic_dna
 from skbio.alignment import StripedSmithWaterman
@@ -20,91 +19,16 @@ def reverse_comp(seq):
         reversedSeq = reversedSeq.replace('g', 'C')
         return reversedSeq
 
-def nonexact_exon_finder(extension, gmapLoc, model, coordIndex):        # Define function to find non-exact GMAP alignments that fully encompass the exons we're trying to join [this is desirable as an exact matching process fails when the exon borders of the annotated gene model have been altered by EVM/PASA to avoid indel error]
+def gmap_exon_finder(gmapLoc, model, coordIndex, processType):
         dictEntries = []
         start = int(model[0][coordIndex].split('-')[0])
         stop = int(model[0][coordIndex].split('-')[1])
-        # Find completely overlapping GMAP alignments within (extension Kb) of fivePStart which overlap threePEnd [we need to do some extra dictionary parsing since we've indexed by start positions which was useful for the above analysis but is a bit limiting here]
-        for key in gmapLoc.keys():                                                                              # Also note that we don't need to treat '+' and '-' orientation differently here, we're working based on genomic coordinate
-                if key in range(start - extension, start + 1):       # +1 so we run up to and including the start site
-                        dictEntries.append(gmapLoc[key])
-                elif key in range(stop, stop + extension):
-                        dictEntries.append(gmapLoc[key])
-
-        dictEntries = copy.deepcopy(dictEntries)        # Need a deepcopy since we don't want to modify our gmapLoc dictionary values
+        if processType == 'boundary':
+                dictEntries = [gmapLoc[key] for key in gmapLoc if start in key or stop in key]         # Getting start OR stop means we just grab onto anything perfectly matching one of the boundaries
+        else:
+                dictEntries = [gmapLoc[key] for key in gmapLoc if start in key and stop in key]        # Getting start AND stop means it must equal or encompass our current exon
         # Narrow down our dictEntries to hits on the same contig
-        for j in range(len(dictEntries)):               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
-                for k in range(len(dictEntries[j])-1, -1, -1):  # Loop through in reverse so we can delete entries without messing up the list
-                        if dictEntries[j][k][7] != model[2]:
-                                del dictEntries[j][k]
-        while [] in dictEntries:
-                del dictEntries[dictEntries.index([])]
-        entryList = []
-        for entry in dictEntries:
-                for subentry in entry:
-                        entryList.append(subentry)              # This flattens our list into a list of lists, rather than a list of lists of lists
-        # Narrow down our entryList to hits that fully encompass the candidate exon
-        for n in range(len(entryList)-1, -1, -1):
-                if entryList[n][0] <= start and entryList[n][1] >= stop:
-                        continue
-                else:
-                        del entryList[n]
-        outList = []
-        for entry in entryList:         # This will remove redundancy since we likely grabbed the same sequence twice in the gmapLoc.keys() loop
-                if entry not in outList:
-                        outList.append(entry)
-        outList.sort(key = lambda x: (int(x[6]), x[2] - x[1]), reverse = True)          # Provides a sorted list where, at the top, we have the longest and best matching hits
-        return outList
-
-def boundary_exon_finder(extension, gmapLoc, model, coordIndex):        # Testing modified behaviour to get fully encompasses matches OR just matches which share one boundary
-        dictEntries = []
-        start = int(model[0][coordIndex].split('-')[0])
-        stop = int(model[0][coordIndex].split('-')[1])
-        # Find overlapping GMAP alignments within (extension Kb) of fivePStart which overlap threePEnd [we need to do some extra dictionary parsing since we've indexed by start positions which was useful for the above analysis but is a bit limiting here]
-        for key in gmapLoc.keys():                                                                              # Also note that we don't need to treat '+' and '-' orientation differently here, we're working based on genomic coordinate
-                if key in range(start - extension, start + 1):       # +1 so we run up to and including the start site
-                        dictEntries.append(gmapLoc[key])
-                elif key in range(stop, stop + extension):
-                        dictEntries.append(gmapLoc[key])
-
-        dictEntries = copy.deepcopy(dictEntries)        # Need a deepcopy since we don't want to modify our gmapLoc dictionary values
-        # Narrow down our dictEntries to hits on the same contig
-        for j in range(len(dictEntries)):               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
-                for k in range(len(dictEntries[j])-1, -1, -1):  # Loop through in reverse so we can delete entries without messing up the list
-                        if dictEntries[j][k][7] != model[2]:
-                                del dictEntries[j][k]
-        while [] in dictEntries:
-                del dictEntries[dictEntries.index([])]
-        entryList = []
-        for entry in dictEntries:
-                for subentry in entry:
-                        entryList.append(subentry)              # This flattens our list into a list of lists, rather than a list of lists of lists
-        # Narrow down our entryList to hits that fully encompass the candidate exon...
-        for n in range(len(entryList)-1, -1, -1):
-                if entryList[n][0] <= start and entryList[n][1] >= stop:
-                        continue
-                # ...or hits which share an exact boundary     # Reason for this behaviour is that a gene model had a weird 5' exon that extends beyond where it should due to fragmentation of it from the upstream gene which would have normally resulted in the discovery of an intron
-                elif entryList[n][0] == start:
-                        continue
-                elif entryList[n][1] == stop:
-                        continue
-                # Delete anything else!
-                else:
-                        del entryList[n]
-        outList = []
-        for entry in entryList:         # This will remove redundancy since we likely grabbed the same sequence twice in the gmapLoc.keys() loop
-                if entry not in outList:
-                        outList.append(entry)
-        outList.sort(key = lambda x: (int(x[6]), x[2] - x[1]), reverse = True)          # Provides a sorted list where, at the top, we have the longest and best matching hits
-        return outList
-
-def nonexact_exon_finder2(extension, gmapLoc, model, coordIndex):        # Testing modified behaviour to get fully encompasses matches OR just matches which share one boundary
-        dictEntries = []
-        start = int(model[0][coordIndex].split('-')[0])
-        stop = int(model[0][coordIndex].split('-')[1])
-        dictEntries = [gmapLoc[key] for key in gmapLoc if start in key and stop in key]         # Getting start AND stop means it must equal or encompass our current exon
-        # Narrow down our dictEntries to hits on the same contig
-        for j in range(len(dictEntries)):               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
+        for j in range(len(dictEntries)):                       # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
                 for k in range(len(dictEntries[j])-1, -1, -1):  # Loop through in reverse so we can delete entries without messing up the list
                         if dictEntries[j][k][7] != model[2]:
                                 del dictEntries[j][k]
@@ -115,33 +39,14 @@ def nonexact_exon_finder2(extension, gmapLoc, model, coordIndex):        # Testi
         for entry in dictEntries:
                 for subentry in entry:
                         outList.append(subentry)
-        # Sort and return list
-        outList.sort(key = lambda x: (int(x[6]), x[2] - x[1]), reverse = True)          # Provides a sorted list where, at the top, we have the longest and best matching hits
-        return outList
-
-def boundary_exon_finder2(extension, gmapLoc, model, coordIndex):        # Testing modified behaviour to get fully encompasses matches OR just matches which share one boundary
-        dictEntries = []
-        start = int(model[0][coordIndex].split('-')[0])
-        stop = int(model[0][coordIndex].split('-')[1])
-        dictEntries = [gmapLoc[key] for key in gmapLoc if start in key or stop in key]          # Getting start OR stop means we just grab onto one of the boundaries
-        # Narrow down our dictEntries to hits on the same contig
-        for j in range(len(dictEntries)):               # Remember: gmapLoc = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
-                for k in range(len(dictEntries[j])-1, -1, -1):  # Loop through in reverse so we can delete entries without messing up the list
-                        if dictEntries[j][k][7] != model[2]:
-                                del dictEntries[j][k]
-        while [] in dictEntries:
-                del dictEntries[dictEntries.index([])]
-        # Flatten our list
-        outList = []
-        for entry in dictEntries:
-                for subentry in entry:
-                        outList.append(subentry)
-        # Narrow down this list further to make sure we're only holding onto perfect boundary matches
-        for n in range(len(outList)-1, -1, -1):
-                if outList[n][0] == start or outList[n][1] == stop:
-                        continue
-                else:
-                        del outList[n]
+        # Extra processing if looking at first and last exons
+        if processType == 'boundary':
+                # Narrow down this list further to make sure we're only holding onto perfect boundary matches
+                for n in range(len(outList)-1, -1, -1):
+                        if outList[n][0] == start or outList[n][1] == stop:
+                                continue
+                        else:
+                                del outList[n]
         # Sort and return list
         outList.sort(key = lambda x: (int(x[6]), x[2] - x[1]), reverse = True)          # Provides a sorted list where, at the top, we have the longest and best matching hits
         return outList
@@ -158,7 +63,7 @@ def gmap_curate(minCutoff, gmapMatches, model, coordIndex):
                 elif gmapMatches[x][6] < minCutoff:
                         del gmapMatches[x]
                    
-        # Return the best match we can
+        # Return the best match if we can or, if not, just return any matches that meet our curation conditions
         if bestMatches == []:
                 return gmapMatches
         else:
@@ -166,7 +71,7 @@ def gmap_curate(minCutoff, gmapMatches, model, coordIndex):
                 but the other, despite 98% identity, still had a better SSW score simply because it was longer. I could normalise SSW score to handle this, but this is probably
                 just as good as it should reduce the computational time of the script by quite a bit.
                 Also important consideration: if there is a GMAP alignment which matches this exon's boundaries perfectly, it provides solid evidence that this exon boundary
-                should not be changed, so we can limit out consideration to these matches"""
+                should not be changed, so we can limit our consideration to these matches"""
                 return bestMatches
 
 def patch_seq_extract(match, model):
@@ -174,32 +79,9 @@ def patch_seq_extract(match, model):
         transcriptRecord = copy.deepcopy(transRecords[match[5]])
         if match[4] != '+':                                                             # Put it in the same orientation as the genome sequence [the genome sequence is always + orientation]
                 transcriptRecord = transcriptRecord.reverse_complement()
-        # Genomic patch (correlating to transcriptome positions) [this is to try to find indels outside of the exon boundaries if we have specified program behaviour to do this]
+        # Genomic patch (correlating to transcript alignment positions)
         genomeExtendPatchRec = genomeRecords[model[2]][int(match[0])-1:int(match[1])]
         return transcriptRecord, genomeExtendPatchRec
-
-def alignment_region_finder(genomePatch, transcriptPatch, genomeExtendPatch, transcriptRecord):        # This processType just lets us specify this function's behaviour while testing so I don't need to
-        # Format MUSCLE call and retrieve alignment object [formatted based on http://lists.open-bio.org/pipermail/biopython/2015-October/015781.html]
-        #seqs = [genomeExtendPatch, transcriptPatch]
-        seqs = [genomeExtendPatch, transcriptRecord]    # Trialing alignment against the full transcript. I don't think this increases computational time significantly, and it makes it easier to deal with N containing sequences
-        muscle_cmd = ['muscle', "-quiet", "-diags"]
-        muscle = subprocess.Popen(muscle_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
-        SeqIO.write(seqs, muscle.stdin, "fasta")
-        muscle.stdin.close()
-        align = AlignIO.read(muscle.stdout, 'fasta')
-        muscle.stdout.close()
-        # Parse the alignment object to find the region of alignment
-        genomeRegion = alignParse.search(str(align[0].seq)).group(0)
-        startIndex = str(align[0].seq).find(genomeRegion)
-        endIndex = startIndex + len(genomeRegion)
-        transcriptRegion = str(align[1].seq)[startIndex:endIndex]
-        # Generate information and return values
-        hyphen = 'n'
-        if '-' in transcriptRegion:
-                hyphen = 'y'
-        elif '-' in genomeRegion:
-                hyphen = 'y'
-        return transcriptRegion, genomeRegion, hyphen
 
 def ssw(genomeExtendPatch, transcriptRecord):           # Local pairwise alignment is more in line with what we need the program to perform - easier to use its output directly when compared to MUSCLE, and scikits implementation is fast to boot
         query = StripedSmithWaterman(str(genomeExtendPatch.seq))
@@ -217,11 +99,6 @@ def ssw(genomeExtendPatch, transcriptRecord):           # Local pairwise alignme
         return [transcriptAlign, genomeAlign, hyphen, startIndex, alignment.optimal_alignment_score]
 
 def indel_location(transcriptAlign, genomeAlign, matchStart, model, startIndex, inputVcf, minCutoff):     # This function will check hyphens in the transcript (== deletions in the genome) and hyphens in the genome (== insertion from the transcript)
-        if len(transcriptAlign) != len(genomeAlign):
-                print('Something is wrong! Transcript and genome alignment lengths aren\'t identical?')
-                print(match)
-                print(model)
-                notidenticallength
         # Check if this is likely to be worth bothering
         badChars = ['---', 'n'] # Finding a three base pair difference suggests that the transcript might not originate from this actual gene model (maybe it's a paralogue?)
         for char in badChars:   # This is a rough metric, but gap opens larger than three make us wonder whether this transcript does actually originate from the alignment position; in almost all cases, the indel has a length of one. Further, if we have N's in the aligned region then it's likely that the transcript itself is poorly assembled]
@@ -240,20 +117,17 @@ def indel_location(transcriptAlign, genomeAlign, matchStart, model, startIndex, 
                         if model[2] not in tmpVcf:
                                 tmpVcf[model[2]] = {genomeIndex: ['.']}
                         else:
-                                #if genomeIndex not in tmpVcf[model[2]]:
                                 tmpVcf[model[2]][genomeIndex] = ['.']
                 elif pair[1] == '-':
                         if model[2] not in tmpVcf:
                                 tmpVcf[model[2]] = {genomeIndex: [pair[0]]}
                         else:
-                                #if genomeIndex not in tmpVcf[model[2]]:
                                 tmpVcf[model[2]][genomeIndex] = [pair[0]]
         # Calculate the (rough) identity score between the alignments
         pctIdentity = (identical / len(transcriptAlign)) * 100
         if pctIdentity >= minCutoff:
                 # Merge the temporary vcf into the main one
-                inputVcf = vcf_merge(inputVcf, tmpVcf)
-        # If our pctIdentity isn't good enough we make no changes to the inputVcf since this isn't a good enough alignment to trust
+                inputVcf = vcf_merge(inputVcf, tmpVcf)          # If our pctIdentity isn't good enough we make no changes to the inputVcf since this isn't a good enough alignment to trust
         return inputVcf, pctIdentity
 
 def vcf_edit(tmpVcf, contigID, coordRange):
@@ -262,17 +136,12 @@ def vcf_edit(tmpVcf, contigID, coordRange):
         tmpVcfList = []
         for key, value in subVcfDict.items():
                 if key in coordRange:
-                        if len(value) > 1:
-                                print('Let\'s check out this scenario')
-                                print(key)
-                                print(value)
-                                asdf
                         tmpVcfList.append([key, value[0]])
         tmpVcfList.sort(reverse=True)
         # Edit the genome sequence
         genomeSeq = str(genomeRecords[contigID].seq)[min(coordRange)-1:max(coordRange)]                 # -1 for 0-based
         for pair in tmpVcfList:
-                indelIndex = pair[0] - min(coordRange)                                                  # 
+                indelIndex = pair[0] - min(coordRange)                                                  # pair[0] refers to the actual genomic index, but we want to find the location in this particular genome section, so we just minus the start coordinate
                 if pair[1] == '.':
                         genomeSeq = genomeSeq[:indelIndex] + genomeSeq[indelIndex+1:]                   # Since pair[0] and coordRange are 1-based, minusing these results in an index that is, essentially, 0-based.
                 else:
@@ -293,8 +162,7 @@ def cds_build(origCoords, newCoords, contigID, orientation, tmpVcf):
         prevCoord = ''
         for coord in newCoords:
                 if coord == prevCoord:
-                        #print('Found a redundant coord!')
-                        continue        # This was validated on utg103.7 to work correctly - we get redundant coords when we naturally join two exonss
+                        continue        # This was validated on utg103.7 to work correctly - we get redundant coords when we naturally join two exons
                 prevCoord = coord       # Hold onto this so we can find redundant coords (can happen when we have exon joinage, a single GMAP match will cover both exons)
                 splitCoord = coord.split('-')
                 coordRange = range(int(splitCoord[0]), int(splitCoord[1])+1)            # Our VCF dictionary is 1-based at this point, so we want our range to act like this, too
@@ -302,8 +170,7 @@ def cds_build(origCoords, newCoords, contigID, orientation, tmpVcf):
                 if orientation == '-':
                         cdsBit = reverse_comp(cdsBit)
                 newCDS.append(cdsBit)
-                #newCDS += str(genomeRecords[contigID].seq)[int(splitCoord[0])-1:int(splitCoord[1])]
-        # Reverse comp if necessary
+        # Joing our CDS bits together
         origCDS = ''.join(origCDS)
         newCDS = ''.join(newCDS)
         return origCDS, newCDS        
@@ -318,10 +185,10 @@ def vcf_merge(vcf1, vcf2):              # This will merge vcf2 into vcf1 (curren
                         for k2, v2 in value.items():
                                 if k2 in value2:
                                         if value2[k2] == v2:
-                                                continue                # We don't care if it's identical, we just want to find situations that don't agree
+                                                continue                        # We don't care if it's identical, we just want to find situations that don't agree
                                         else:
                                                 print('Difference of opinion?')
-                                                value2[k2].append(v2[0])    # This will hold onto multiple values if there are differences in opinion and we can process this later
+                                                value2[k2].append(v2[0])        # This will hold onto multiple values if there are differences in opinion and we can process this later
                                                 differentindel
                                 else:
                                         value2[k2] = v2
@@ -373,36 +240,6 @@ def gene_overlap_validation(geneBlocks):
                                         print('Looks like ' + value[i][2] + ' merged with ' + value[i+1][2])
 
 ## CORE FUNCTIONS ##
-def gmap_parse(gmapFile):
-        gmapLoc = {}
-        with open(gmapFile, 'r') as fileIn:
-                for line in fileIn:
-                        # Skip unneccessary lines
-                        if line.startswith('#'):
-                                continue
-                        sl = line.split('\t')
-                        if sl[2] != 'cDNA_match':       # I don't think any other type of line is present in a GMAP gff3 file, but this could potentially future proof the script?
-                                continue
-                        # Get details from line including start, stop, and orientation
-                        contigID = sl[0]
-                        geneID = sl[8].split(';')[1].lstrip('Name=')
-                        contigStart = int(sl[3])
-                        contigStop = int(sl[4])
-                        identity = int(sl[5])
-                        orient = sl[6]
-                        transStart = int(sl[8].split(';')[2].split()[1])
-                        transStop = int(sl[8].split(';')[2].split()[2])
-                        # Add to our dictionary [note that we add this entry in two places since we want to index by "start positions" but our transcripts are not necessarily stranded 100% correctly which means we can have GMAP matches in the opposite orientation to the gene model]
-                        if contigStart not in gmapLoc:                   # By indexing at the start and stop positions of the alignment we can more easily retrieve matches below in "3) Transcript coverage of gap check..."
-                                gmapLoc[contigStart] = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]    # Because we've indexed by start position, there's a small but non-zero chance we'll get hits from multiple contigs associated here, so need to add the contigID here too
-                        else:
-                                gmapLoc[contigStart].append([contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID])
-                        if contigStop not in gmapLoc:
-                                gmapLoc[contigStop] = [[contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID]]
-                        else:
-                                gmapLoc[contigStop].append([contigStart, contigStop, transStart, transStop, orient, geneID, identity, contigID])
-        return gmapLoc
-
 def gmap_parse_ranges(gmapFile):
         gmapLoc = {}
         with open(gmapFile, 'r') as fileIn:
@@ -503,27 +340,28 @@ def cdna_parser(gffFile):             # I've essentially crammed the gff3_to_fas
 # Build regex for later use
 isoRegex = re.compile(r'(evm\.model\.utg\d{1,10}(_pilon_pilon)?\.\d{1,10})')
 alignParse = re.compile(r'\w[\w-]+\w')          # Simple regex to get the region of alignment [it will match everything between the first and last letter]
-#nRegex = re.compile(r'[nN]')
 
 ### USER INPUT
-usage = """%(prog)s reads in a BLAST-tab format file and a gff3 file and identifies
-gene models that are likely to be 1) fragmented across multiple models due to indels,
-or 2) chimers of two incorrectly merged gene models.
+usage = """%(prog)s aims to improve the ability to reannotate gene models. In order to work, this program
+requires a gff3 file of gene annotations alongside its respective genome fasta file in addition to a gff3 file
+of transcript alignments with its respective transcriptome fastas file. These files will be used to compare the
+genome sequence to the aligned transcript sequence to identify any occurrences of indel errors. By correcting these
+indels, reannotation of gene models can take place which will provide more accurate results.
 """
 # Reqs
 p = argparse.ArgumentParser(description=usage)
 
-p.add_argument("-b", "-blasttab", dest="blastTab", help="Input BLAST-tab file name")
 p.add_argument("-gen", "-genomefile", dest="genomeFile", help="Input genome contig fasta file name")
 p.add_argument("-gff", "-gff3", dest="gff3File", help="Input gff3 file name")
-p.add_argument("-tr", "-transfile", dest="transcriptomeFile", help="Input nucleotide transcriptome fasta file name (should be the same transcript file [NOT CDS] used for GMAP alignment)")                         
+p.add_argument("-tr", "-transfile", dest="transcriptomeFile", help="Input nucleotide transcriptome fasta file name (should be the same transcript file used for GMAP alignment)")                         
 p.add_argument("-gm", "-gmap", dest="gmapFile", help="Input gmap gff3 file name")
-p.add_argument("-e", "-evalue", dest="evalue", type=float, help="E-value cut-off for sequences to join based on BLAST hit (default == 1e-10)", default = 1e-5)  # Was 1e-10 but it resulted in missing a manually validated join where BLAST E-value was only 1e-8
-p.add_argument("-p", "-proximity", dest="proximityValue", type=int, help="Maximum distance of separation allowed for two gene models to have been interrupted by an indel (default == 500)", default = 1000)     # Was 200 but wasn't long enough. This will require more stringent BLAST pairing me thinks.
 p.add_argument("-o", "-output", dest="outputFileName", help="Output results file name")
 # Opts
 p.add_argument("-fo", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
                    help="Default == 'n', which means the program will not overwrite existing files. Specify 'y' to allow this behaviour at your own risk.", default="n")
+p.add_argument('-v', '-verbose', action='store_true', help="Print program details to terminal", default=False)
+p.add_argument('-l', '-log', action='store_true', help="Produce a logging file as output", default=False)
+
 args = p.parse_args()
 
 # Hard coded for testing
@@ -596,9 +434,9 @@ for key, model in nuclDict.items():
                 matches to portions of the exon but not the whole exon, whereas I had other exons which perfectly matched the boundaries but
                 had ~90-97% identity according to GMAP)"""
                 if i == 0 or i == len(model[0]) - 1:
-                        gmapMatches = boundary_exon_finder2(args.proximityValue, gmapLoc, model, i)
+                        gmapMatches = gmap_exon_finder(gmapLoc, model, i, "boundary")
                 else:
-                        gmapMatches = nonexact_exon_finder2(args.proximityValue, gmapLoc, model, i)
+                        gmapMatches = gmap_exon_finder(gmapLoc, model, i, "internal")
                 if gmapMatches == []:
                         origModelCoords.append(model[0][i])     # If there is no transcript support for this exon, it might be a spurious attempt by PASA/EVM to keep the gene inframe [this was found to be the case in utg103.43]. Thus, we'll only save these coords under the origModel
                         #exonSkips.append(model[0][i])
@@ -685,13 +523,12 @@ in this program. This at least provides a nice way to validate these changes usi
 are going according to plan (on my test dataset, they are. Yay!)"""
 
 # Create output VCF-like file [it's a really abbreviated VCF style format, but it's enough to make it easy to parse and perform genome edits]
-output
 with open(args.outputFileName, 'w') as fileOut:
         fileOut.write('#contig_id\tposition\treplacement\n')
         for key, value in vcfDict.items():
                 value = list(value.items())
                 value.sort()
                 for pair in value:
-                        fileOut.write('\t'.join([key, str(pair[0]), pair[1]]) + '\n')
+                        fileOut.write('\t'.join([key, str(pair[0]), str(pair[1][0])]) + '\n')
 
 #### SCRIPT ALL DONE
