@@ -421,6 +421,8 @@ def novel_gmap_align_finder(gmapLoc, nuclDict, minCutoff):
         # Compare gmapLoc values to nuclRanges values to find GMAP alignments which don't overlap known genes
         validExons = []
         for key, value in gmapLoc.items():
+                if value[0][7] != 'utg781_pilon_pilon':        ## TESTING
+                        continue
                 gmapHits = copy.deepcopy(value)
                 # Cull any hits that aren't good enough                                                 # It's important that we're as strict (or more) as we are with the established gene model checking
                 for x in range(len(gmapHits)-1,-1,-1):
@@ -446,8 +448,8 @@ def novel_gmap_align_finder(gmapLoc, nuclDict, minCutoff):
                         continue
                 else:
                         validExons.append(gmapHits)
-                if len(validExons) > 3:
-                        break
+                #if len(validExons) > 15:
+                #        break
         return validExons
 
                 
@@ -653,7 +655,7 @@ if args.verbose or args.log:
         in this program. This at least provides a nice way to validate these changes using manual annotation to see if things
         are going according to plan"""
 
-# Create output VCF-like file                                                                   # It's a really abbreviated VCF style format, but it's enough to make it easy to parse and perform genome edits with a downstream script
+# Create output VCF-like file                                                                           # It's a really abbreviated VCF style format, but it's enough to make it easy to parse and perform genome edits with a downstream script
 with open(args.outputFileName, 'w') as fileOut:
         fileOut.write('#contig_id\tposition\treplacement\n')
         for key, value in vcfDict.items():
@@ -664,37 +666,49 @@ with open(args.outputFileName, 'w') as fileOut:
 
 ## TESTING NOVEL GMAP GENE FIXER ##
 gmapHits = novel_gmap_align_finder(gmapLoc, nuclDict, minCutoff)
+novelVcf = {}
+## TO-DO: Find overlaps among the gmapHits and pick out just the longest alignment region [see utg781.18 for reason why]
 for hit in gmapHits:
         # Find the best GMAP match by SSW alignment score
         sswResults = []
-        for match in hit[0:2]:                                                                  # We don't need to look at more than 2 hits
-                model = ['','',match[7]]                                                        # We're going to just hijack the functions developed for the main part of the program where possible
-                # Grab the sequences for alignment                                              # Note that we're going to compare the portion of the genome which the transcript hits (from GMAP) to the full transcript since GMAP handles N's weirdly and thus its transcript coordinates cannot be used
+        for match in hit:
+                model = ['','',match[7]]                                                                # We're going to just hijack the functions developed for the main part of the program where possible
+                # Grab the sequences for alignment                                                      # Note that we're going to compare the portion of the genome which the transcript hits (from GMAP) to the full transcript since GMAP handles N's weirdly and thus its transcript coordinates cannot be used
                 transcriptRecord, genomePatchRec = patch_seq_extract(match, model)
                 # Perform SSW alignment
                 sswResults.append(ssw(genomePatchRec, transcriptRecord) + [match[0], match[1], match[5], match[4]])  # SSW returns [transcriptAlign, genomeAlign, hyphen, startIndex, alignment.optimal_alignment_score), and we also + [matchStart, matchEnd, matchName, matchOrientation] to this
-        sswResults.sort(key = lambda x: (-x[4], x[2], x[3]))                                    # i.e., sort so score is maximised, then sort by presence of hyphens then by the startIndex
+        sswResults.sort(key = lambda x: (-x[4], x[2], x[3]))                                            # i.e., sort so score is maximised, then sort by presence of hyphens then by the startIndex
         # Look at our best match to see if indels are present
-        if sswResults[0][2] == 'n':                                                             # i.e., if we have no hyphens in our alignment, then there are no indels
+        if sswResults[0][2] == 'n':                                                                     # i.e., if we have no hyphens in our alignment, then there are no indels
                 # Log
                 #log_update(args, logName, [key, model, i, sswResults, '.', 'hit'])
                 continue        # Need to fix the logging here
-        elif sswResults[0][2] != 'n' and sswResults[1][2] == 'n':                               # We want unanimous agreement since we have to be a bit more strict when we're not working with known exon boundaries
+        elif sswResults[0][2] != 'n' and sswResults[1][2] == 'n':                                       # We want unanimous agreement since we have to be a bit more strict when we're not working with known exon boundaries
                 # Log
                 #log_update(args, logName, [key, model, i, sswResults, '.', 'hit'])
                 continue
         else:
-                # See if the indels are located in the exact same position by both alignments...
-                # Modify our modelVcf if the alignment is trustworthy
-                modelVcf, sswIdentity, tmpVcf = indel_location(sswResults[0][0], sswResults[0][1], sswResults[0][5], model, sswResults[0][3], modelVcf, minCutoff)   # This will update our vcfDict with indel locations
-                if sswIdentity >= minCutoff:
-                        origModelCoords.append(model[0][i])
-                        newModelCoords.append(str(sswResults[0][5]) + '-' + str(sswResults[0][6]))
-                        # Log
-                        log_update(args, logName, [key, model, i, sswResults, tmpVcf, 'hit'])
-                else:
-                        origModelCoords.append(model[0][i])
-                        newModelCoords.append(model[0][i])                                      # Like above after gmap_curate, there is transcript support for this exon. Here, we chose not to make any changes, so we'll stick to the original coordinates.
-                        # Log
-                        log_update(args, logName, [key, model, i, sswResults, '.', 'hit'])
+                # See if the indels are located in the exact same position by all good alignments
+                indelLocations = []
+                firstVcf = ''
+                same = 'y'
+                for result in sswResults:
+                        modelVcf, sswIdentity, tmpVcf = indel_location(result[0], result[1], result[5], model, result[3], modelVcf, minCutoff)   # This will update our vcfDict with indel locations
+                        if sswIdentity >= minCutoff:
+                                # Get the tmpVcf locations (i.e., keys) into a list for comparison
+                                indelLocations.append(set(tmpVcf[match[7]].keys()))
+                                # Save our first/best VCF dict
+                                if firstVcf == '':
+                                        firstVcf = copy.deepcopy(tmpVcf)
+                for x in range(0, len(indelLocations)-1):
+                        if indelLocations[x] == indelLocations[x+1]:
+                                continue
+                        else:
+                                same = 'n'
+                                break
+                if same == 'y':
+                        # Since we have multiple alignments all agreeing on the exact same location of any indels, we are pretty happy that this indel is genuine
+                        print('All indel locations agree!')
+                        novelVcf = vcf_merge(novelVcf, firstVcf)
+
 #### SCRIPT ALL DONE
