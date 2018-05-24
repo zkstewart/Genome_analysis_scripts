@@ -73,7 +73,7 @@ def blasttab_best_hits(blastTab, evalue, numHits, idmapSet):
                                 if float(val[10]) <= evalue and len(bestHits) < numHits:
                                         # Alter the target name if it has UniRef prefix
                                         if val[1].startswith('UniRef'):
-                                                val[1] = val[1].split('_', maxsplit=1)[1]
+                                                val[1] = val[1].split('_')[1]           # This handles normal scenarios ("UniRef100_UPI0000") as well as MMseqs2 weird ID handling ("UniRef100_UPI0000_0")
                                         bestHits.append(val)
                         # Skip this hit if we found no matches which pass E-value cut-off
                         if bestHits == []:
@@ -137,7 +137,7 @@ outDict = blasttab_best_hits(args.blastTab, args.evalue, args.numHits, idmapSet)
 
 # Loop through ID file to rename the genes (if applicable), order the output appropriately, and identify gaps in the BLAST-tab file
 with open(args.idFile, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
-        fileOut.write('Query\tSource\tTarget_accession\tPercentage_identity\tAlignment_length\tMismatches\tGap_opens\tQuery_start\tQuery_end\tTarget_start\tTarget_end\tExpect_value\tBit_score\tBest_hit_with_idmapping\n')
+        fileOut.write('#Query\tSource\tTarget_accession\tPercentage_identity\tAlignment_length\tMismatches\tGap_opens\tQuery_start\tQuery_end\tTarget_start\tTarget_end\tExpect_value\tBit_score\tBest_hit_with_idmapping\n')
         for line in fileIn:
                 line = line.rstrip('\r\n')
                 # Format ID replacement
