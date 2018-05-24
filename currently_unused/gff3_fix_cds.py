@@ -200,6 +200,6 @@ with open(gffFile, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
                 else:
                         fileOut.write(line)
 
-print('Corrected ' + str(ongoingCount) + ' lines. Did I do good father? Please don\'t change me anymore...')
+print('Corrected ' + str(ongoingCount) + ' lines. Does this look right?')
 
 #### SCRIPT ALL DONE, GO HOME
