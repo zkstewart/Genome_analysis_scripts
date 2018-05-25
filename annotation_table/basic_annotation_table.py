@@ -79,7 +79,7 @@ def blasttab_best_hits(blastTab, evalue, numHits, idmapSet):
                         if bestHits == []:
                                 continue
                         # Dig into the hits and retrieve our best hit which has a mapping in the idmapping file
-                        bestMapped = 'None'
+                        bestMapped = '.'
                         for val in value:
                                 if val[1].startswith('UniRef'):
                                         val[1] = val[1].split('_', maxsplit=1)[1]
