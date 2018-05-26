@@ -97,17 +97,19 @@ def chunk_fasta(fastaFile, threads):
 
 def signalp_thread(organism, fastaFile, resultNames):
         import os, subprocess, platform
+        # Get the full fasta file location
+        fastaFile = os.path.abspath(fastaFile)
         # Format signalP script text
-        sigpResultFile = thread_file_name_gen('tmp_sigpResults_' + os.path.basename(fastaFile), '')
+        sigpResultFile = os.path.join(os.getcwd(), thread_file_name_gen('tmp_sigpResults_' + os.path.basename(fastaFile), ''))
         scriptText = '"' + os.path.join(args.signalpdir, 'signalp') + '" -t ' + organism + ' -f short -n "' + sigpResultFile + '" "' + fastaFile + '"'
         # Generate a script for use with cygwin (if on Windows)
         if platform.system() == 'Windows':
-                sigpScriptFile = thread_file_name_gen('tmp_sigpScript_' + os.path.basename(fastaFile), '')
+                sigpScriptFile = os.path.join(os.getcwd(), thread_file_name_gen('tmp_sigpScript_' + os.path.basename(fastaFile), '.sh'))
                 with open(sigpScriptFile, 'w') as fileOut:
                         fileOut.write(scriptText.replace('\\', '/'))
         # Run signalP depending on operating system
         if platform.system() == 'Windows':
-                cmd = os.path.join(args.cygwindir, 'bash') + ' -l -c ' + sigpScriptFile
+                cmd = os.path.join(args.cygwindir, 'bash') + ' -l -c "' + sigpScriptFile.replace('\\', '/') + '"'
                 runsigP = subprocess.Popen(cmd, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
                 sigpout, sigperr = runsigP.communicate()
                 os.remove(sigpScriptFile)       # Clean up temporary file
@@ -160,7 +162,8 @@ def run_signalp(organism, fileNames):
 usage = """This program will extend upon an annotation file to include various accessory features. Presently, these include
 SignalP predictions, SEG low-complexity regions, coiled coils, and transmembrane domains. Note that this script is coded
 to work with Python 3.X versions, but pscoils does require Python 2.7 - thus, you must use Python 3.X to run this script
-but specify the directory for Python 2.7 where its python.exe is located. Sorry.
+but specify the directory for Python 2.7 where its python.exe is located. Sorry. Final note: this script will NOT
+tolerate space characters in file directories.
 """
 
 # Reqs
@@ -195,7 +198,8 @@ args = p.parse_args()
 
 ## TESTING ##
 args.inputTable = 'aulactinia_smart_domextended_table.tsv'
-args.fastaFile = r'E:\genome\Aulactinia\CORE RESULTS\gene_annotation\final_update\fasta_files\aul_smart_pasaupdated_all_cds.aa'
+args.fastaFile = r'E:\genome\Aulactinia\CORE_RESULTS\gene_annotation\final_update\fasta_files\aul_smart_pasaupdated_all_cds.aa'
+#args.fastaFile = r'E:\genome\Aulactinia\CORE_RESULTS\gene_annotation\annotation\test_fasta.aa'
 args.threads = 3
 args.signalpdir = r'D:\Bioinformatics\Protein_analysis\signalp-4.1f.CYGWIN\signalp-4.1'
 args.segdir = r'D:\Bioinformatics\Protein_analysis\seg'
@@ -211,7 +215,7 @@ fileNames = chunk_fasta(args.fastaFile, args.threads)
 
 # Run signalP
 sigPredictions = run_signalp(args.signalporg, fileNames)
-
+stophere
 # Append results to BLAST-tab file
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
