@@ -117,14 +117,22 @@ def signalp_thread(organism, fastaFile, resultNames):
                 runsigP = subprocess.Popen(scriptText, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
                 sigpout, sigperr = runsigP.communicate()
         # Process output
+        okayLines = ['', 'is an unknown amino amino acid', 'perl: warning:', '\tLC_ALL =,', '\tLANG =', 'are supported and installed on your system']
         for line in sigperr.decode("utf-8").split('\n'):
                 if line.rstrip('\n') == '# No sequences predicted with a signal peptide':
                         with open(sigpResultFile, 'w') as fileOut:
                                 fileOut.write(line)
                         break
-                elif not 'is an unknown amino amino acid' in line and not line == '':
-                        print(line + '<')       # Forgot wtf this is for...?
-                        print('--')
+                # Check if this line has something present within okayLines
+                okay = 'n'
+                for entry in okayLines:
+                        if entry in line:
+                                okay = 'y'
+                                break
+                if okay == 'y':
+                        continue
+                # If nothing matches the okayLines list, we have a potentially true error
+                else:
                         raise Exception('SignalP error occurred when processing file name ' + fastaFile + '. Error text below\n' + str(sigperr.decode("utf-8")))
         # Store the result file name in a mutable object so we can retrieve it after joining
         resultNames.append(sigpResultFile)
@@ -215,7 +223,7 @@ fileNames = chunk_fasta(args.fastaFile, args.threads)
 
 # Run signalP
 sigPredictions = run_signalp(args.signalporg, fileNames)
-stophere
+
 # Append results to BLAST-tab file
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
