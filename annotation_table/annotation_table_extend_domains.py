@@ -197,9 +197,10 @@ def join_models(modelGroup, y):
         return modelGroup
 
 #### USER INPUT SECTION
-usage = """This program will read in an input BLAST-tab format file and optionally an ID list (formatted as a tab-delimited list of old:new ID pairs) if the HMMER3 result IDs don't match those in the uniclust table,
-and, using an E-value cut-off, produce a BLAST-tab-like file with a 'Domain_summary' column containing the best-matching models with minimal overlaps, followed by columns representing each individual database's model hits.
-Note that the HMMER3 result should have been generated using the hmm_db_download.py script (stable link to be placed HERE)
+usage = """This program will extend upon an annotation file to include overlap-resolved domain predictions from various databases.
+This HMMER3 database should have been generated using the hmm_db_download.py script. Inputs include the HMMER3 domtblout result file
+and, optionally, an ID list (formatted as a tab-delimited list of old:new ID pairs) if the HMMER3 result IDs don't match those in the annotation table.
+Also required is an E-value cut-off for domain hit significance.
 """
 
 # Reqs
