@@ -11,9 +11,6 @@
 # should be more biologically realistic in most cases.
 
 import os, argparse
-## TESTING ##
-import time
-time1 = time.time()
 
 # Define functions for later use
 def findMiddle(input_list):             # https://stackoverflow.com/questions/38130895/find-middle-of-a-list
@@ -41,136 +38,10 @@ def ovl_resolver(ovlCutoff, inputList):
                 if overlapping == 'n':
                         break
                 # Handle overlaps through looping structure
-                #seqHits = seed_looping_structure(seqHits, ovlCutoff)
-                seqHits = maximum_coverage_looping_structure(seqHits, ovlCutoff)
+                seqHits = seed_looping_structure(seqHits, ovlCutoff)
         seqHits.sort(key = lambda x: (x[1], x[2]))
         return seqHits
 
-def maximum_coverage_looping_structure(domList, ovlCutoff):
-        import copy
-        from itertools import chain, combinations
-        
-        # Define internal functions
-        def powerset(iterable):
-                "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
-                s = list(iterable)
-                return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
-        
-        def average_evalue(domList):
-                averageEval = []
-                for dom in domList:
-                        averageEval.append(dom[3])
-                averageEval = sum(averageEval) / len(averageEval)
-                return averageEval
-        
-        def cull_highly_similar(domList):
-                highlySimilarCutoff = 0.80
-                for y in range(len(domList)-1):
-                        z = y + 1
-                        while True:
-                                # Exit condition
-                                if z >= len(domList):
-                                        break
-                                # If there is overlap, resolve this
-                                if domList[y][2] > domList[z][1] and domList[z][2] > domList[y][1]:
-                                        # Get details of sequence overlap
-                                        sharedPos = set(range(max(domList[y][1], domList[z][1]), min(domList[y][2], domList[z][2]) + 1))
-                                        ovlLen = len(sharedPos)
-                                        seq1Perc = ovlLen / (domList[y][2] - domList[y][1] + 1)
-                                        seq2Perc = ovlLen / (domList[z][2] - domList[z][1] + 1)
-                                        bestEval = min(domList[y][3], domList[z][3])
-                                        # Handle highly similar overlaps
-                                        if seq1Perc > highlySimilarCutoff and seq2Perc > highlySimilarCutoff:
-                                                ## Identical E-values [delete the most C-proximal]
-                                                if domList[y][3] == domList[z][3]:
-                                                        if domList[y][1] < domList[z][1]:
-                                                                del domList[z]
-                                                        else:
-                                                                del domList[y]
-                                                ## Different E-values [delete the lowest E-value]
-                                                elif bestEval == domList[y][3]:
-                                                        del domList[z]
-                                                else:
-                                                        del domList[y]
-                                                        # We make no changes to our z value since we deleted a sequence
-                                        # Small overlaps are OK
-                                        else:
-                                                z += 1
-                                # If there is no overlap, continue the loop
-                                else:
-                                        z += 1
-                return domList
-                                        
-        # Remove entries to speed up program
-        domList = copy.deepcopy(domList)
-        domList = cull_highly_similar(domList)
-        top3 = domList[0:3]
-        # Generate powerset
-        power = powerset(domList)
-        bestCombo = ['', 0, '']     # Format is [seqHits, len_of_coverage, average_evalue]
-        for seqHits in power:
-                ### Speed up: combination MUST contain one of the top three most significant E-value hits in it [I wanted to avoid this, but there's too many combinations to trial them all]
-                present = 'n'
-                for entry in top3:
-                        if entry in seqHits:
-                                present = 'y'
-                                break
-                if present == 'n':
-                        continue
-                # Sort
-                seqHits = copy.deepcopy(seqHits)        # Make seqHits separate from the input domList value
-                seqHits = list(seqHits)
-                seqHits.sort(key = lambda x: (x[1], x[2]))
-                # Handle marginal overlaps
-                overlapping = 'n'
-                for y in range(len(seqHits)-1):
-                        z = y + 1
-                        while True:
-                                # Exit condition
-                                if z >= len(seqHits):   # len(seqHits)-1 would correspond to the final entry, this means we've gone at least one step further beyond
-                                        break
-                                # Trim 1-bp overlaps [note the consistent design choice: the most N-proximal domain gets the extra AA position for no particular reason, we just need to handle this]
-                                if seqHits[y][2] == seqHits[z][1]:
-                                        seqHits[z][1] =  seqHits[z][1] + 1
-                                if seqHits[z][2] == seqHits[y][1]:
-                                        seqHits[y][1] =  seqHits[y][1] + 1
-                                # If there is marginal overlap, resolve this
-                                if seqHits[y][2] > seqHits[z][1] and seqHits[z][2] > seqHits[y][1]:
-                                        # Get details of sequence overlap
-                                        sharedPos = set(range(max(seqHits[y][1], seqHits[z][1]), min(seqHits[y][2], seqHits[z][2]) + 1))
-                                        ovlLen = len(sharedPos)
-                                        seq1Perc = ovlLen / (seqHits[y][2] - seqHits[y][1] + 1)
-                                        seq2Perc = ovlLen / (seqHits[z][2] - seqHits[z][1] + 1)
-                                        # Handle slight mutual overlaps by middle split
-                                        if seq1Perc < ovlCutoff and seq2Perc < ovlCutoff:
-                                                ## Identical E-values [mutual trimming]
-                                                seqHits = split_middle(sharedPos, seqHits, y)
-                                                z += 1  # We've made the current pair compatible, now we can just move onto the next pairing
-                                        # Larger overlaps are incompatible; stop processing
-                                        else:
-                                                overlapping = 'y'
-                                                z = len(seqHits)        # This will ensure the loop ends
-                                # If there is no overlap, continue the loop
-                                else:
-                                        z += 1
-                # Continue if there is large overlap
-                if overlapping == 'y':
-                        continue
-                # Find out the amount of coverage if there aren't any overlaps remaining
-                ongoingSet = set()
-                for hit in seqHits:
-                        ongoingSet = ongoingSet.union(set(range(hit[1], hit[2]+1)))
-                coverage = len(ongoingSet)
-                # Update bestCombo if we should
-                if coverage > bestCombo[1]:
-                        averageEval = average_evalue(seqHits)
-                        bestCombo = [seqHits, coverage, averageEval]
-                elif coverage == bestCombo[2]:
-                        averageEval = average_evalue(seqHits)
-                        if averageEval < bestCombo[2]:
-                                bestCombo = [seqHits, coverage, averageEval]
-        return bestCombo[0]
-        
 def seed_looping_structure(seqHits, ovlCutoff):
         for y in range(len(seqHits)-1):
                 z = y + 1
@@ -347,13 +218,6 @@ p.add_argument("-o", "-outputTable", dest="outputFileName",
                    help="Output annotation table file name.")
 
 args = p.parse_args()
-
-## TESTING
-args.inputTable = r'E:\genome\Aulactinia\CORE RESULTS\gene_annotation\annotation\aulactinia_smart_GOextended_table.tsv'
-args.domtbloutFile = r'E:\genome\Aulactinia\CORE RESULTS\gene_annotation\annotation\hmmer\aul_smart_pasaupdated_all_cds.domtblout'
-args.evalue = 1e-3
-args.outputFileName = 'test_domextens6.tsv'
-
 validate_args(args)
 
 # Building ID mapping dict if necessary
@@ -361,11 +225,11 @@ idDict = idpairs(args.idFile)
 
 # Parse hmmer domblout file
 domDict = hmmer_parse(args.domtbloutFile, args.evalue, idDict)
-print('ayy')
+
 # Delve into parsed hmmer dictionary and sort out overlapping domain hits from different databases
 dom_prefixes = ('cd', 'COG', 'KOG', 'LOAD', 'MTH', 'pfam', 'PHA', 'PRK', 'PTZ', 'sd', 'smart', 'TIGR', 'PLN', 'CHL', 'cath', 'SUPERFAMILY')    # These encompass the databases currently part of NCBI's CDD, and cath which I add to this resource. SUPERFAMILY is also included, but it is purely numbers so no prefix is applicable; if it lacks any of these prefixes, it's a SUPERFAMILY domain.
 finalDict = {}
-extensCutoff = 20       # This is arbitrary; can vary to test its effects
+extensCutoff = 20       # This is arbitrary; seems to work well, don't see any reason why this should be variable by the user
 for key, value in domDict.items():
         keyHits = []
         # Compare models from within each domain database and handle overlaps
@@ -446,7 +310,7 @@ for key, value in domDict.items():
                                                 else:
                                                         modelGroup = join_models(modelGroup, y)
                                                         break
-                                        else:                                                           # We need the y != check above since we need to set an exit condition when no more overlaps are present. The if/elif will always trigger depending on whether there is/is not an overlap UNLESS it's the second last entry and there is no overlap. In this case we finally reach this else clause, and we trigger an exit.
+                                        else:   # We need the y != check above since we need to set an exit condition when no more overlaps are present. The if/elif will always trigger depending on whether there is/is not an overlap UNLESS it's the second last entry and there is no overlap. In this case we finally reach this else clause, and we trigger an exit.
                                                 overlapping = 'n'
                                                 break
                         # Add corrected individual models to collapsedIdentical list
@@ -511,7 +375,4 @@ with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fil
                                 fileOut.write(line.rstrip('\n') + '\t' + '\t'.join(hitReceptacle) + '\n')
                                         
 # Done!
-print('Done!')
-## TESTING
-time2 = time.time()
-print('Program took ' + str(time2-time1) + ' seconds')
+print('Program completed successfully!')
