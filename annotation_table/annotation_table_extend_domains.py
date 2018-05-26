@@ -11,6 +11,9 @@
 # should be more biologically realistic in most cases.
 
 import os, argparse
+## TESTING ##
+import time
+time1 = time.time()
 
 # Define functions for later use
 def findMiddle(input_list):             # https://stackoverflow.com/questions/38130895/find-middle-of-a-list
@@ -19,91 +22,6 @@ def findMiddle(input_list):             # https://stackoverflow.com/questions/38
         return [input_list[int(middle - .5)]]
     else:
         return [input_list[int(middle)], input_list[int(middle-1)]]
-
-def seed_ovl_resolver(ovlCutoff, inputList):
-        import copy
-        seqHits = copy.deepcopy(inputList)
-        seqHits.sort(key = lambda x: (x[3], x[1], x[2]))        # Format is []###
-        while True:
-                # Flow control: if no possibility for overlap, break
-                if len(seqHits) == 1:
-                        break
-                # Flow control: if no overlaps remain, break
-                overlapping = 'n'
-                for y in range(len(seqHits)-1):
-                        for z in range(y+1, len(seqHits)):
-                                if seqHits[y][2] >= seqHits[z][1] and seqHits[z][2] >= seqHits[y][1]:           # i.e., if there is overlap
-                                        overlapping = 'y'
-                                        break
-                if overlapping == 'n':
-                        break
-                # Handle overlaps through looping structure
-                for y in range(len(seqHits)-1):
-                        for z in range(y+1, len(seqHits)):
-                                # Test if there is a hit at this z value after possible previous deletion [prevents errors]
-                                try:
-                                        seqHits[z] ## REJIB THIS
-                                except:
-                                        break
-                                # Check for overlaps
-                                if not (seqHits[y][2] >= seqHits[z][1] and seqHits[z][2] >= seqHits[y][1]) and y != len(seqHits)-2:             # Conditions in bracket == true when no overlap, false when overlap, so we just do a 'not' in front. The y != condition means that, if there's no overlap when comparing the second last to the last sequence, we want to go to the very last else condition to make overlapping = 'n'
-                                        continue
-                                elif seqHits[y][2] == seqHits[z][1]:
-                                        seqHits[z][1] =  seqHits[z][1] + 1              # Consistent design choice: the most N-proximal domain gets the extra AA position for no particular reason, we just need to handle this
-                                        continue
-                                elif seqHits[z][2] == seqHits[y][1]:
-                                        seqHits[y][1] =  seqHits[y][1] + 1              # Consistent design choice: the most N-proximal domain gets the extra AA position for no particular reason, we just need to handle this
-                                        continue
-                                elif seqHits[y][2] >= seqHits[z][1] and seqHits[z][2] >= seqHits[y][1]:                 # i.e., if there's overlap
-                                        # Get details of sequence overlap
-                                        seq1Range = range(seqHits[y][1], seqHits[y][2]+1)
-                                        seq2Range = range(seqHits[z][1], seqHits[z][2]+1)
-                                        sharedPos = set(seq1Range) & set(seq2Range)
-                                        ovlLen = len(sharedPos)
-                                        seq1Perc = ovlLen / len(seq1Range)
-                                        seq2Perc = ovlLen / len(seq2Range)
-                                        bestEval = min(seqHits[y][3], seqHits[z][3])
-                                        # Handle slight mutual overlaps by trimming based on best E-value
-                                        if seq1Perc < ovlCutoff and seq2Perc < ovlCutoff:
-                                                ## Identical E-values [mutual trimming]
-                                                if seqHits[y][3] == seqHits[z][3]:
-                                                        posList = list(sharedPos)
-                                                        posList.sort()
-                                                        midPoint = findMiddle(posList)
-                                                        if seqHits[y][1] < seqHits[z][1]:
-                                                                seqHits[y][2] = midPoint[0]
-                                                                seqHits[z][1] = midPoint[0] + 1
-                                                        else:
-                                                                seqHits[z][2] = midPoint[0]
-                                                                seqHits[y][1] = midPoint[0] + 1
-                                                ## Different E-values [trim lower E-value]
-                                                elif bestEval == seqHits[y][3]:
-                                                        if seqHits[y][1] < seqHits[z][1]:
-                                                                seqHits[z][1] = seqHits[y][2] + 1
-                                                        else:
-                                                                seqHits[z][2] = seqHits[y][1] - 1
-                                                else:
-                                                        if seqHits[y][1] < seqHits[z][1]:
-                                                                seqHits[y][2] = seqHits[z][1] - 1
-                                                        else:
-                                                                seqHits[y][1] = seqHits[z][2] + 1
-                                                continue
-                                        # Handle larger overlaps by deleting based on E-value
-                                        else:
-                                                ## Identical E-values [delete the most C-proximal]
-                                                if seqHits[y][3] == seqHits[z][3]:
-                                                        if seqHits[y][1] < seqHits[z][1]:
-                                                                del seqHits[z]
-                                                        else:
-                                                                del seqHits[y]
-                                                ## Different E-values [delete the lowest E-value]
-                                                elif bestEval == seqHits[y][3]:
-                                                        del seqHits[z]
-                                                else:
-                                                        del seqHits[y]
-                                                break ## Behaviour of script changes quite a lot depending on this - needs new algorithm...
-        seqHits.sort(key = lambda x: (x[1], x[2]))
-        return seqHits
 
 def ovl_resolver(ovlCutoff, inputList):
         import copy
@@ -123,10 +41,136 @@ def ovl_resolver(ovlCutoff, inputList):
                 if overlapping == 'n':
                         break
                 # Handle overlaps through looping structure
-                seqHits = seed_looping_structure(seqHits, ovlCutoff)
+                #seqHits = seed_looping_structure(seqHits, ovlCutoff)
+                seqHits = maximum_coverage_looping_structure(seqHits, ovlCutoff)
         seqHits.sort(key = lambda x: (x[1], x[2]))
         return seqHits
 
+def maximum_coverage_looping_structure(domList, ovlCutoff):
+        import copy
+        from itertools import chain, combinations
+        
+        # Define internal functions
+        def powerset(iterable):
+                "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
+                s = list(iterable)
+                return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
+        
+        def average_evalue(domList):
+                averageEval = []
+                for dom in domList:
+                        averageEval.append(dom[3])
+                averageEval = sum(averageEval) / len(averageEval)
+                return averageEval
+        
+        def cull_highly_similar(domList):
+                highlySimilarCutoff = 0.80
+                for y in range(len(domList)-1):
+                        z = y + 1
+                        while True:
+                                # Exit condition
+                                if z >= len(domList):
+                                        break
+                                # If there is overlap, resolve this
+                                if domList[y][2] > domList[z][1] and domList[z][2] > domList[y][1]:
+                                        # Get details of sequence overlap
+                                        sharedPos = set(range(max(domList[y][1], domList[z][1]), min(domList[y][2], domList[z][2]) + 1))
+                                        ovlLen = len(sharedPos)
+                                        seq1Perc = ovlLen / (domList[y][2] - domList[y][1] + 1)
+                                        seq2Perc = ovlLen / (domList[z][2] - domList[z][1] + 1)
+                                        bestEval = min(domList[y][3], domList[z][3])
+                                        # Handle highly similar overlaps
+                                        if seq1Perc > highlySimilarCutoff and seq2Perc > highlySimilarCutoff:
+                                                ## Identical E-values [delete the most C-proximal]
+                                                if domList[y][3] == domList[z][3]:
+                                                        if domList[y][1] < domList[z][1]:
+                                                                del domList[z]
+                                                        else:
+                                                                del domList[y]
+                                                ## Different E-values [delete the lowest E-value]
+                                                elif bestEval == domList[y][3]:
+                                                        del domList[z]
+                                                else:
+                                                        del domList[y]
+                                                        # We make no changes to our z value since we deleted a sequence
+                                        # Small overlaps are OK
+                                        else:
+                                                z += 1
+                                # If there is no overlap, continue the loop
+                                else:
+                                        z += 1
+                return domList
+                                        
+        # Remove entries to speed up program
+        domList = copy.deepcopy(domList)
+        domList = cull_highly_similar(domList)
+        top3 = domList[0:3]
+        # Generate powerset
+        power = powerset(domList)
+        bestCombo = ['', 0, '']     # Format is [seqHits, len_of_coverage, average_evalue]
+        for seqHits in power:
+                ### Speed up: combination MUST contain one of the top three most significant E-value hits in it [I wanted to avoid this, but there's too many combinations to trial them all]
+                present = 'n'
+                for entry in top3:
+                        if entry in seqHits:
+                                present = 'y'
+                                break
+                if present == 'n':
+                        continue
+                # Sort
+                seqHits = copy.deepcopy(seqHits)        # Make seqHits separate from the input domList value
+                seqHits = list(seqHits)
+                seqHits.sort(key = lambda x: (x[1], x[2]))
+                # Handle marginal overlaps
+                overlapping = 'n'
+                for y in range(len(seqHits)-1):
+                        z = y + 1
+                        while True:
+                                # Exit condition
+                                if z >= len(seqHits):   # len(seqHits)-1 would correspond to the final entry, this means we've gone at least one step further beyond
+                                        break
+                                # Trim 1-bp overlaps [note the consistent design choice: the most N-proximal domain gets the extra AA position for no particular reason, we just need to handle this]
+                                if seqHits[y][2] == seqHits[z][1]:
+                                        seqHits[z][1] =  seqHits[z][1] + 1
+                                if seqHits[z][2] == seqHits[y][1]:
+                                        seqHits[y][1] =  seqHits[y][1] + 1
+                                # If there is marginal overlap, resolve this
+                                if seqHits[y][2] > seqHits[z][1] and seqHits[z][2] > seqHits[y][1]:
+                                        # Get details of sequence overlap
+                                        sharedPos = set(range(max(seqHits[y][1], seqHits[z][1]), min(seqHits[y][2], seqHits[z][2]) + 1))
+                                        ovlLen = len(sharedPos)
+                                        seq1Perc = ovlLen / (seqHits[y][2] - seqHits[y][1] + 1)
+                                        seq2Perc = ovlLen / (seqHits[z][2] - seqHits[z][1] + 1)
+                                        # Handle slight mutual overlaps by middle split
+                                        if seq1Perc < ovlCutoff and seq2Perc < ovlCutoff:
+                                                ## Identical E-values [mutual trimming]
+                                                seqHits = split_middle(sharedPos, seqHits, y)
+                                                z += 1  # We've made the current pair compatible, now we can just move onto the next pairing
+                                        # Larger overlaps are incompatible; stop processing
+                                        else:
+                                                overlapping = 'y'
+                                                z = len(seqHits)        # This will ensure the loop ends
+                                # If there is no overlap, continue the loop
+                                else:
+                                        z += 1
+                # Continue if there is large overlap
+                if overlapping == 'y':
+                        continue
+                # Find out the amount of coverage if there aren't any overlaps remaining
+                ongoingSet = set()
+                for hit in seqHits:
+                        ongoingSet = ongoingSet.union(set(range(hit[1], hit[2]+1)))
+                coverage = len(ongoingSet)
+                # Update bestCombo if we should
+                if coverage > bestCombo[1]:
+                        averageEval = average_evalue(seqHits)
+                        bestCombo = [seqHits, coverage, averageEval]
+                elif coverage == bestCombo[2]:
+                        averageEval = average_evalue(seqHits)
+                        if averageEval < bestCombo[2]:
+                                bestCombo = [seqHits, coverage, averageEval]
+        return bestCombo[0]
+        
 def seed_looping_structure(seqHits, ovlCutoff):
         for y in range(len(seqHits)-1):
                 z = y + 1
@@ -142,12 +186,10 @@ def seed_looping_structure(seqHits, ovlCutoff):
                         # If there is overlap, resolve this
                         if seqHits[y][2] > seqHits[z][1] and seqHits[z][2] > seqHits[y][1]:
                                 # Get details of sequence overlap
-                                seq1Range = range(seqHits[y][1], seqHits[y][2]+1)
-                                seq2Range = range(seqHits[z][1], seqHits[z][2]+1)
-                                sharedPos = set(seq1Range) & set(seq2Range)
+                                sharedPos = set(range(max(seqHits[y][1], seqHits[z][1]), min(seqHits[y][2], seqHits[z][2]) + 1))
                                 ovlLen = len(sharedPos)
-                                seq1Perc = ovlLen / len(seq1Range)
-                                seq2Perc = ovlLen / len(seq2Range)
+                                seq1Perc = ovlLen / (seqHits[y][2] - seqHits[y][1] + 1)
+                                seq2Perc = ovlLen / (seqHits[z][2] - seqHits[z][1] + 1)
                                 bestEval = min(seqHits[y][3], seqHits[z][3])
                                 # Handle slight mutual overlaps by trimming based on best E-value
                                 if seq1Perc < ovlCutoff and seq2Perc < ovlCutoff:
@@ -310,7 +352,7 @@ args = p.parse_args()
 args.inputTable = r'E:\genome\Aulactinia\CORE RESULTS\gene_annotation\annotation\aulactinia_smart_GOextended_table.tsv'
 args.domtbloutFile = r'E:\genome\Aulactinia\CORE RESULTS\gene_annotation\annotation\hmmer\aul_smart_pasaupdated_all_cds.domtblout'
 args.evalue = 1e-3
-args.outputFileName = 'test_domextens3.tsv'
+args.outputFileName = 'test_domextens6.tsv'
 
 validate_args(args)
 
@@ -364,25 +406,25 @@ for key, value in domDict.items():
                                                 continue
                                         elif modelGroup[y+1][1] < modelGroup[y][2]:                             # i.e., if the start of seq2 < end of seq1, there is more than 1bp of overlap of handle
                                                 # Calculate overlap proportion
-                                                range1 = range(modelGroup[y][1], modelGroup[y][2]+1)            # +1 to offset Python counting up-to but not including the last value in a range
-                                                range2 = range(modelGroup[y+1][1], modelGroup[y+1][2]+1)
-                                                sharedPos = set(range1) & set(range2)
+                                                seq1Len = modelGroup[y][2] - modelGroup[y][1] + 1
+                                                seq2Len = modelGroup[y+1][2] - modelGroup[y+1][1] + 1
+                                                sharedPos = set(range(max(modelGroup[y][1], modelGroup[y+1][1]), min(modelGroup[y][2], modelGroup[y+1][2]) + 1))        # +1 to offset Python counting up-to but not including the last value in a range
                                                 ovlLen = len(sharedPos)
-                                                r1Perc = ovlLen / len(range1)
-                                                r2Perc = ovlLen / len(range2)
+                                                r1Perc = ovlLen / (seq1Len + 1)
+                                                r2Perc = ovlLen / (seq2Len + 1)
                                                 highest = max(r1Perc, r2Perc)
                                                 lowest = min(r1Perc, r2Perc)
                                                 # Determine the length of the sequence extension of the most-overlapped sequence
                                                 if highest == 0.50:
-                                                        longest = max(len(range1), len(range2))
-                                                        if longest == len(range1):
-                                                                extension = len(range2) - ovlLen
+                                                        longest = max(seq1Len, seq2Len)
+                                                        if longest == seq1Len:
+                                                                extension = seq2Len - ovlLen
                                                         else:
-                                                                extension = len(range1) - ovlLen
+                                                                extension = seq1Len - ovlLen
                                                 elif highest == r1Perc:
-                                                        extension = len(range1) - ovlLen
+                                                        extension = seq1Len - ovlLen
                                                 else:
-                                                        extension = len(range2) - ovlLen
+                                                        extension = seq2Len - ovlLen
                                                 ## Handle the various scenarios indicated by the highest/lowest values
                                                 # Scenario 1: (TRIM BASED ON E-VALUE) small overlap of both sequences
                                                 if highest <= 0.20:
@@ -470,3 +512,6 @@ with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fil
                                         
 # Done!
 print('Done!')
+## TESTING
+time2 = time.time()
+print('Program took ' + str(time2-time1) + ' seconds')
