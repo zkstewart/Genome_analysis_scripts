@@ -206,7 +206,7 @@ Also required is an E-value cut-off for domain hit significance.
 # Reqs
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-it", "-inputTable", dest="inputTable",
-                   help="Input tab-delimited annotation table file nam.e")
+                   help="Input tab-delimited annotation table file name.")
 p.add_argument("-ih", "-inputHmmer", dest="domtbloutFile",
                    help="Input domtblout HMMER3 result file.")
 p.add_argument("-id", "-idFile", dest="idFile",
