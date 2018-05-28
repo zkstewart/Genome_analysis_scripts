@@ -196,14 +196,6 @@ p.add_argument("-f", "-force", dest="force", action='store_true',
                help="By default this program will not overwrite existing files. Specify this argument to allow this behaviour at your own risk.", default=False)
 
 args = p.parse_args()
-
-## HARDCODED TEST
-args.fasta = r'E:\genome\deGRIT\aulactinia\aul_smrtden.arrow4.pil3.deGRIT.fasta'
-args.gff3 = r'E:\genome\Aulactinia\CORE_RESULTS\gene_annotation\final_update\aul_smart.rnam-trna.final.sorted.gff3'
-args.locusSeqs = 'isoforms'
-args.seqType = 'cds'
-args.outputFileName = 'test3.fasta'
-
 mainOutputFileName, nuclOutputFileName, protOutputFileName = validate_args(args)
 
 # Load the fasta file and parse its contents
