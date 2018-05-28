@@ -37,10 +37,10 @@ def idmap_go_parse(tableFile, idmapFile):
                                 continue
                         # Extract accessions
                         sl = line.rstrip('\r\n').split('\t')
-                        if sl[15] == '.':
+                        if sl[16] == '.':
                                 continue
                         else:
-                                acc = sl[15].split(' (')[0]
+                                acc = sl[16].split(' (')[0]
                                 accDict[acc] = ''
         # Parse through the idmapping file now and hold onto GOs
         with open(idmapFile, 'r') as fileIn:
@@ -90,45 +90,53 @@ idMap = idmap_go_parse(args.inputTable, args.idmappingFile)
 go = obo_parser.GODag(args.oboFile)
 
 # Update annotations file
+obsoletedGOs = ['GO:0097034', 'GO:0097033']   # I can't find any suitable replacements for these terms
 replacedGOs = {'GO:0004871': 'GO:0007165', 'GO:0004702': 'GO:0007165', 'GO:0005057': 'GO:0007165', # These replacements were made manually as the keys are not present within the go-basic.obo file downloaded 24/05/2018
                'GO:0042993': 'GO:0042307', 'GO:0042991': 'GO:0006606', 'GO:0044376': 'GO:0031503', # The idmapping_selected.tab file did contain these keys; file version was dated 25/04/2018
-               'GO:1990022': 'GO:0031503', 'GO:1904721': 'GO:1903895'} 
+               'GO:1990022': 'GO:0031503', 'GO:1904721': 'GO:1903895', 'GO:0042992': 'GO:0042308',
+               'GO:0030819': 'GO:0030816', 'GO:0051436': 'GO:0000278', 'GO:0051442': 'GO:0051321',
+               'GO:0006987': 'GO:0036498', 'GO:0001007': 'GO:0006359'} 
+
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
                 if line.startswith('#Query\tSource'):
-                        fileOut.write('#Query\tSource\tTarget_accessions\tGene_names\tNCBI_taxonomy_of_hits\tPercentage_identity\tAlignment_length\tMismatches\tGap_opens\tQuery_start\tQuery_end\tTarget_start\tTarget_end\tExpect_value\tBit_score\tBest_hit_with_idmapping\tBest_mapped_GOs\tBest_mapped_GOs_+_ancestors\n')
+                        fileOut.write(line.rstrip('\r\n') + '\tBest_mapped_GOs\tBest_mapped_GOs_+_parents\n')   # I was originally calling these ancestors, but parents seems to be the more accurate terminology
                 elif line.startswith('#'):
                         continue
                 else:
                         # Parse best hit accession from the table file's column
                         sl = line.rstrip('\r\n').split('\t')
-                        acc = sl[15].split(' (')[0]
+                        acc = sl[16].split(' (')[0]
                         # Find out if we have any GO terms for this accession. If so, format and obtain ancestors
-                        GOs = '.'               # If the accession doesn't have an ID mapping, this will carry through blank values
+                        GOs = '.'                                               # If the accession doesn't have an ID mapping, this will carry through blank values
                         ancestorGOs = '.'
                         if acc in idMap:
                                 GOs = idMap[acc]
-                                if GOs == '.':
-                                        ancestorGOs = '.'
-                                else:
+                                if GOs != '.':                                  # If GOs == '.', ancestorGOs is already also == '.' so we can carry through these blank values
                                         splitGOs = set(GOs.split('; '))
-                                        # Fix problem GOs               ## I don't know why this is in the GO terms. It shouldn't be, but there's no way I'm introducing it, so I'll just handle it.
-                                        #while '.' in splitGOs:
-                                        #        print('ayy?')
-                                        #        splitGOs.remove('.')
-                                        # Handle GO replacements
-                                        for key, value in replacedGOs.items():
-                                                if key in splitGOs:
-                                                        print('Replaced ' + key)
-                                                        splitGOs.remove(key)
-                                                        splitGOs.add(replacedGOs[key])
-                                        # Reformat our basic GOs
-                                        GOs = '; '.join(splitGOs)
-                                        # Populate ancestors of GO terms
-                                        for term in splitGOs:
-                                                splitGOs = splitGOs.union(go[term].get_all_parents())
-                                        # Format GOs for output
-                                        ancestorGOs = '; '.join(splitGOs)
+                                        # Handle GO obsoletions
+                                        for entry in obsoletedGOs:
+                                                if entry in splitGOs:
+                                                        print('Deleted ' + entry)
+                                                        splitGOs.remove(entry)
+                                        # If we deleted all GOs associated with this sequence, reset values to be blanks
+                                        if splitGOs == set():
+                                                GOs = '.'
+                                                ancestorGOs = '.'
+                                        else:
+                                                # Handle GO replacements
+                                                for key, value in replacedGOs.items():
+                                                        if key in splitGOs:
+                                                                print('Replaced ' + key)
+                                                                splitGOs.remove(key)
+                                                                splitGOs.add(replacedGOs[key])
+                                                # Reformat our basic GOs
+                                                GOs = '; '.join(splitGOs)
+                                                # Populate ancestors of GO terms
+                                                for term in splitGOs:
+                                                        splitGOs = splitGOs.union(go[term].get_all_parents())
+                                                # Format GOs for output
+                                                ancestorGOs = '; '.join(splitGOs)
                                 # Write to file
                         fileOut.write(line.rstrip('\r\n') + '\t' + GOs + '\t' + ancestorGOs + '\n')
 # Done!
