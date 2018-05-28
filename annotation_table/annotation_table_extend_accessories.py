@@ -225,7 +225,7 @@ def coils_thread(coilsdir, py2dir, fastaFile, coilsResults):
 def run_coils(coilsdir, py2dir, fileNames):
         import threading
         from Bio import SeqIO
-        # Run seg on each of the input files
+        # Run coils on each of the input files
         processing_threads = []
         coilsResults = []        # Use a mutable list here so we can retrieve the file names in the absence of being able to return these through the threaded function
         for name in fileNames:
@@ -255,7 +255,7 @@ def run_coils(coilsdir, py2dir, fileNames):
                 for i in range(len(result)):
                         # Build a sequence consisting of L's (loops) and C's (coils)
                         coilSeq = ''
-                        for row in result[i].split('\r\n'):
+                        for row in result[i].split('\n'):
                                 if row.endswith('L') or row.endswith('C'):
                                         coilSeq += row[-1]
                         # Extract coil coordinates
