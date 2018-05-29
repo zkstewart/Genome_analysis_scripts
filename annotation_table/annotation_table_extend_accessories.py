@@ -5,6 +5,7 @@
 # regions, coiled coils, and transmembrane domains.
 
 import os, argparse, platform
+from Bio import SeqIO
 
 # Define functions for later use
 def validate_args(args):
@@ -224,7 +225,6 @@ def coils_thread(coilsdir, py2dir, fastaFile, coilsResults):
 
 def run_coils(coilsdir, py2dir, fileNames):
         import threading
-        from Bio import SeqIO
         # Run coils on each of the input files
         processing_threads = []
         coilsResults = []        # Use a mutable list here so we can retrieve the file names in the absence of being able to return these through the threaded function
@@ -235,16 +235,6 @@ def run_coils(coilsdir, py2dir, fileNames):
         # Wait for all threads to end
         for process_thread in processing_threads:
                 process_thread.join()
-        # Extract sequence ID indices from fasta file to pair up with coils results
-        dictList = []
-        for i in range(len(fileNames)):
-                currDict = {}
-                dictList.append(currDict)
-                records = SeqIO.parse(open(fileNames[i], 'r'), 'fasta')
-                ongoingCount = 0
-                for record in records:
-                        currDict[ongoingCount] = record.id
-                        ongoingCount += 1
         # Parse coils result outputs
         coilsPredictions = {}
         for x in range(len(coilsResults)):
@@ -253,18 +243,21 @@ def run_coils(coilsdir, py2dir, fileNames):
                 while '' in result:     # There should only be one entry corresponding to this at the very start of the result list
                         del result[result.index('')]
                 for i in range(len(result)):
-                        # Build a sequence consisting of L's (loops) and C's (coils)
+                        # Build a sequence consisting of L's (loops) and C's (coils) in addition to the original sequence
                         coilSeq = ''
+                        protSeq = ''
                         for row in result[i].split('\n'):
-                                if row.endswith('L') or row.endswith('C'):
-                                        coilSeq += row[-1]
+                                if row == '':
+                                        continue
+                                sr = row.split()
+                                coilSeq += sr[7]
+                                protSeq += sr[1]
                         # Extract coil coordinates
                         cCoords = consecutive_character_coords(coilSeq, 'C', 1, 'pairs')
-                        # Match this coil result to its sequence id
-                        seqIDMatch = dictList[x][i]
-                        # Add to our coilsPredictions dictionary if relevant
-                        if cCoords != []:
-                                coilsPredictions[seqIDMatch] = cCoords
+                        if cCoords == []:
+                                cCoords = '.'
+                        # Add to our coilsPredictions dictionary
+                        coilsPredictions[protSeq] = cCoords     # psCoils doesn't provide ordered results, so we need to match protein sequences to their coil results
         # Return coils prediction dictionary
         return coilsPredictions
 ## COILS
@@ -441,11 +434,14 @@ tmhmmPredictions = run_tmhmm(args.tmhmmdir, fileNames)
 # Resolve TMHMM and signalP overlaps
 tmhmmPredictions = resolve_tmmhmm_sigp(sigPredictions, tmhmmPredictions)
 
+# Load in fasta file for pairing of coils results
+records = SeqIO.to_dict(SeqIO.parse(open(args.fastaFile, 'r'), 'fasta'))
+
 # Append results to annotation table file
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
                 if line.startswith('#Query\tSource'):
-                        fileOut.write(line.rstrip('\r\n') + '\t' + '\t'.join(['signalP', 'tmhmm', 'seg_LCR', 'coiled_coils']) + '\n')
+                        fileOut.write(line.rstrip('\r\n') + '\t' + '\t'.join(['SignalP', 'TMHMM', 'SEG', 'psCoils']) + '\n')
                 elif line.startswith('#'):
                         fileOut.write(line)
                 else:
@@ -466,10 +462,10 @@ with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fil
                         else:
                                 segCell = '.'
                         # Coils
-                        if sl[0] in coilsPredictions:
-                                coilsCell = pair_coord_join(coilsPredictions[sl[0]])
-                        else:
-                                coilsCell = '.'
+                        currSeq = str(records[sl[0]].seq)
+                        coilsCell = coilsPredictions[currSeq]
+                        if coilsCell != '.':
+                                coilsCell = pair_coord_join(coilsCell)
                         # Output
                         fileOut.write('\t'.join([*sl, sigpCell, tmhmmCell, segCell, coilsCell]) + '\n')
 
