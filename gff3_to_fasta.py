@@ -224,7 +224,7 @@ for i in range(len(dictObjs)):
                                                 chosenIndex = x
                                 value = [value[chosenIndex]]
                         # If we're looking at the pasaProts dictionary, simply dump values to fasta
-                        if i == 2:
+                        if i == 2 and dictObjs[i] != []:        # This lets us handle GFF3's produced by EVM; we won't get a protein, but we won't crash either
                                 with open(fileNames[i], 'w') as fileOut:
                                         for k, v in dictObjs[i].items():
                                                 if args.locusSeqs == 'main':
