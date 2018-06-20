@@ -95,7 +95,7 @@ replacedGOs = {'GO:0004871': 'GO:0007165', 'GO:0004702': 'GO:0007165', 'GO:00050
                'GO:0042993': 'GO:0042307', 'GO:0042991': 'GO:0006606', 'GO:0044376': 'GO:0031503', # The idmapping_selected.tab file did contain these keys; file version was dated 25/04/2018
                'GO:1990022': 'GO:0031503', 'GO:1904721': 'GO:1903895', 'GO:0042992': 'GO:0042308',
                'GO:0030819': 'GO:0030816', 'GO:0051436': 'GO:0000278', 'GO:0051442': 'GO:0051321',
-               'GO:0006987': 'GO:0036498', 'GO:0001007': 'GO:0006359'} 
+               'GO:0006987': 'GO:0036498', 'GO:0001007': 'GO:0006359', 'GO:0004716': 'GO:0023014'} 
 
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
