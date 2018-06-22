@@ -15,16 +15,16 @@ def validate_args(args):
                 print('I am unable to locate the input GMAP gff3 file (' + args.gmapFile + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
-        if not os.path.isfile(args.pasaFile):
-                print('I am unable to locate the input PASA gff3 file (' + args.pasaFile + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
         if not os.path.isfile(args.cdsFile):
                 print('I am unable to locate the input CDS FASTA file (' + args.cdsFile + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         if not os.path.isfile(args.genomeFile):
                 print('I am unable to locate the input genome FASTA file (' + args.genomeFile + ')')
+                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        if not os.path.isfile(args.annotationFile):
+                print('I am unable to locate the input genome annotation gff3 file (' + args.annotationFile + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         # Validate numerical arguments
@@ -34,15 +34,12 @@ def validate_args(args):
         if not 0 <= args.identityCutoff <= 100.0:
                 print('Identity cut-off must be any number >= 0.0 and <= 100.0. Try again.')
                 quit()
-        if args.indelCutoff < 0:
-                print('Indel cut-off must be any number >= 0. Try again.')
-                quit()
         # Handle file overwrites
         if os.path.isfile(args.outputFileName):
                 print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
                 quit()
 
-def check_model(commentLine, covCutoff, idCutoff, indelCutoff):
+def check_model(commentLine, covCutoff, idCutoff):
         # Extract alignment details from comment line
         details = commentLine.split(';')
         detailDict = {}
@@ -55,13 +52,10 @@ def check_model(commentLine, covCutoff, idCutoff, indelCutoff):
         # Cutoff 2: Identity
         if float(detailDict['identity']) < idCutoff:
                 return False
-        # Cutoff 3: Indel count
-        if int(detailDict['indels']) > indelCutoff:
-                return False
         # Passed all cutoffs!
         return True
 
-def cds_build(coords, contigID, orientation, genomeRecords, cdsID):
+def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, idCutoff):
         def correct_overshoots(splitCoord):
                 if int(splitCoord[0]) < 1:
                         splitCoord[0] = '1'
@@ -70,7 +64,7 @@ def cds_build(coords, contigID, orientation, genomeRecords, cdsID):
                 return splitCoord
         # Build the gene model
         cds = []
-        extraLength = 30                # We add a bit of extra sequence to the sides of the CDS to handle for cases where coverage != 100.
+        extraLength = 100               # We add a bit of extra sequence to the sides of the CDS to handle for cases where coverage != 100.
         for i in range(len(coords)):    # This should theoretically mean we capture more models where there is slight differences at their terminal ends.
                 splitCoord = coords[i].split('-')
                 # Modify coordinates if relevant
@@ -95,7 +89,7 @@ def cds_build(coords, contigID, orientation, genomeRecords, cdsID):
         # Join our CDS bits together
         cds = ''.join(cds)
         # Translate to protein and validate
-        result = validate_translated_cds(cds, cdsRecords, cdsID)
+        result = validate_translated_cds(cds, cdsRecords, cdsID, idCutoff)
         #[seq1, cdsRecords, cdsID]=[cds, cdsRecords, cdsID]
         if result == False:
                 return False
@@ -119,42 +113,63 @@ def cds_build(coords, contigID, orientation, genomeRecords, cdsID):
         # Return coordinates
         return coords
 
-def validate_translated_cds(seq1, cdsRecords, cdsID):
+def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
         # Find the starting codon w/r/t to the codon used for the original CDS
         origCDS = str(cdsRecords[cdsID].seq)
         origLen = len(origCDS)
         firstCodon = origCDS[0:3]
         # Translate into ORFs and grab the longest bits inbetween stop codons
         longest = ['', '']
-        record = Seq(seq1, generic_dna)
         for frame in range(3):
+                record = Seq(seq1, generic_dna)
                 # Get nucleotide for this frame
                 nucl = str(record)[frame:]
+                nucl = Seq(nucl, generic_dna)
+                # Translate to protein
+                with warnings.catch_warnings():
+                        warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                        frameProt = str(nucl.translate(table=1))
+                if '*' not in frameProt:
+                        continue        # We only want complete ORFs; no stop codon means we don't accept the sequence
+                # Find the longest ORF
+                prots = frameProt.split('*')
+                tmpLongest = ['', '']
+                for i in range(len(prots)-1):   # Ignore the last section; this has no stop codon
+                        if len(prots[i]) > len(tmpLongest[0]):
+                                tmpLongest = [prots[i], i]
+                if tmpLongest == ['', '']:
+                        continue                # This means the sequence starts with a stop codon, and the ORF itself lacks a stop codon
+                # Convert this ORF back into its nucleotide sequence
+                beforeLength = len(''.join(prots[:tmpLongest[1]]))*3 + (3*tmpLongest[1])   # 3*tmpLongest adds back in the length of any stop codons
+                nuclOrf = nucl[beforeLength:beforeLength + len(tmpLongest[0])*3 + 3]    # +3 for the last stop codon
+                nucl = str(nuclOrf)
                 # Find the starting codon
                 codonIndex = -1
                 codons = re.findall('..?.?', nucl)                      # Pulls out a list of codons from the nucleotide
-                for codon in codons:                                    # Cycle through this list of codons to find the first alternative start of the normal class (GTG and TTG) and the rare class (CTG)
-                        if codon == firstCodon:
-                                codonIndex = codons.index(codon)        # This will save the position of the first GTG or TTG encountered. Note that by breaking after this,  we stop looking for CTG as it is irrelevant after this
+                for codon in codons:
+                        if codon == firstCodon or codon == 'ATG':       # By adding an ATG check we ensure we don't stupidly skip the start codon looking for a silly codon start predicted by PASA
+                                codonIndex = codons.index(codon)
                                 break
                 if codonIndex == -1:
-                        continue        # This means we couldn't find the starting codon in this frame
+                        continue
                 # Update the start position of this nucl
                 nucl = nucl[codonIndex*3:]
                 # Translate to amino acid
                 record = Seq(nucl, generic_dna)
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
-                        frameProt = str(record.translate(table=1))
-                if '*' not in frameProt:
-                        continue        # We only want complete ORFs; no stop codon means we don't accept the sequence
-                frameOrf = frameProt.split('*')[0] + '*'
-                # Get corresponding nucleotide sequence
-                nucl = nucl[:len(frameOrf)*3]
+                        frameOrf = str(record.translate(table=1))
                 if len(frameOrf) > len(longest[0]):
                         longest = [frameOrf, nucl]
         # If no result, return
-        if longest == ['', '']:
+        if longest == ['', ''] or len(longest[0]) < 30: # This is a crude way of ensuring that ssw doesn't die
+                return False
+        # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
+        origProt = longest_orf(cdsRecords[cdsID])
+        newAlign, origAlign = ssw(longest[0], origProt)
+        identity = prot_identity(newAlign, origAlign)
+        alignPct = len(newAlign) / len(longest[0])
+        if identity < idCutoff or alignPct < 0.60:      # Use identity cut-off provided by user, and arbitrary value to ensure the alignment covers most of the original sequence
                 return False
         # If we have the same start codon and a stop codon, check length for consistency
         lowerBound = origLen - (origLen * 0.1)
@@ -163,6 +178,44 @@ def validate_translated_cds(seq1, cdsRecords, cdsID):
                 return longest[1]
         else:
                 return False
+
+def longest_orf(record):
+        longest = ''
+        for frame in range(3):
+                # Get nucleotide for this frame
+                nucl = str(record.seq)[frame:]
+                nucl = Seq(nucl, generic_dna)
+                # Translate to protein
+                with warnings.catch_warnings():
+                        warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                        frameProt = str(nucl.translate(table=1))
+                # Find the longest ORF
+                prots = frameProt.split('*')
+                tmpLongest = ''
+                for i in range(len(prots)):
+                        if len(prots[i]) > len(tmpLongest):
+                                tmpLongest = prots[i]
+                if len(tmpLongest) > len(longest):
+                        longest = tmpLongest
+        return longest
+
+def ssw(querySeq, targetSeq):
+        from skbio.alignment import StripedSmithWaterman
+        # Perform SSW with scikit.bio implementation
+        query = StripedSmithWaterman(querySeq)
+        alignment = query(targetSeq)
+        queryAlign = alignment.aligned_query_sequence
+        targetAlign = alignment.aligned_target_sequence
+        return [queryAlign, targetAlign]
+
+def prot_identity(prot1, prot2):
+        identical = 0
+        for x in range(len(prot1)):
+                if prot1[x] == prot2[x]:
+                        identical += 1
+        # Calculate the (rough) identity score between the alignments
+        pctIdentity = (identical / len(prot1)) * 100
+        return pctIdentity
 
 def reverse_comp(seq):
         reversedSeq = seq[::-1].lower()
@@ -173,6 +226,66 @@ def reverse_comp(seq):
         reversedSeq = reversedSeq.replace('g', 'C')
         return reversedSeq
 
+## NCLS RELATED
+def gff3_parse_ncls(gff3File):
+        import pandas as pd
+        from ncls import NCLS
+        gff3Loc = {}
+        starts = []
+        ends = []
+        ids = []
+        ongoingCount = 0
+        with open(gff3File, 'r') as fileIn:
+                for line in fileIn:
+                        # Skip unneccessary lines
+                        if line.startswith('#'):
+                                continue
+                        sl = line.split('\t')
+                        if sl[2] != 'mRNA':
+                                continue
+                        # Get details from line including start, stop, and orientation
+                        contigID = sl[0]
+                        contigStart = int(sl[3])
+                        contigStop = int(sl[4])
+                        orient = sl[6]
+                        details = sl[8].split(';')
+                        detailDict = {}
+                        for i in range(len(details)):
+                                splitDetail = details[i].split('=')
+                                detailDict[splitDetail[0]] = splitDetail[1]
+                        # Add to our NCLS
+                        starts.append(contigStart)
+                        ends.append(contigStop+1)       # NCLS indexes 0-based like a range (up to but not including end), so +1 to make this more logically compliant with gff3 1-based system.
+                        ids.append(ongoingCount)
+                        gff3Loc[ongoingCount] = [contigStart, contigStop, orient, detailDict['ID'], contigID]
+                        ongoingCount += 1
+        # Build the NCLS object
+        starts = pd.Series(starts)
+        ends = pd.Series(ends)
+        ids = pd.Series(ids)
+        ncls = NCLS(starts.values, ends.values, ids.values)
+        return ncls, gff3Loc
+
+def ncls_finder(ncls, locDict, start, stop, featureID, featureIndex, processType):
+        import copy
+        #from ncls import NCLS
+        overlaps = ncls.find_overlap(start, stop+1)                                                     # Although our ncls is 1-based, find_overlap acts as a range and is thus 0-based. We need to +1 to the stop to offset this.
+        dictEntries = []
+        for result in overlaps:
+                dictEntries.append(locDict[result[2]])
+        dictEntries = copy.deepcopy(dictEntries)                                                        # Any time we're deleting things from a section of a dictionary we need to build a deepcopy to keep the original dictionary intact.
+        # Narrow down our dictEntries to hits to the same feature
+        dictEntries = ncls_feature_narrowing(dictEntries, featureID, featureIndex)
+        # Return list
+        return dictEntries
+
+def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):
+        for k in range(len(nclsEntries)-1, -1, -1):
+                if nclsEntries[k][featureIndex] != featureID:
+                        del nclsEntries[k]
+        return nclsEntries
+
+## GFF3 RELATED
 def group_process(currGroup, gffExonDict, gffCDSDict):
         full_mrnaGroup = []                                                                     # This will hold processed mRNA positions.
         full_mrnaCDS = []
@@ -221,6 +334,10 @@ def group_process(currGroup, gffExonDict, gffCDSDict):
         # Put info into the coordDict and move on
         gffExonDict[geneID] = full_mrnaGroup
         gffCDSDict[geneID] = full_mrnaCDS
+        #for entry in full_mrnaCDS:
+        #        gffExonDict[entry[0]] = entry
+        #for entry in full_mrnaGroup:
+        #        gffCDSDict[entry[0]] = entry
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
@@ -258,25 +375,11 @@ def gff3_parse(gff3File):
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
-def parse_pasa_assemblies(pasaFile):
-        pasaDict = {}
-        # Loop through gff3 file
-        with open(pasaFile, 'r') as fileIn:
-                for line in fileIn:
-                        # Skip filler lines
-                        if line == '\n' or line.startswith('#'):
-                                continue
-                        sl = line.rstrip('\r\n').split('\t')
-                        # Extract details from comment column
-                        idTag, targetTag = sl[8].split(';')
-                        idTag = idTag.split('=')[1]
-                        targetTag = targetTag.split('=')[1].split(' ')[0]
-                        # Add to pasa dict
-                        if targetTag not in pasaDict:
-                                pasaDict[targetTag] = [[sl[3], sl[4], sl[6]]]
-                        else:
-                                pasaDict[targetTag].append([sl[3], sl[4], sl[6]])
-        return pasaDict
+def coord_extract(coord):
+        splitCoord = coord.split('-')
+        start = int(splitCoord[0])
+        stop = int(splitCoord[1])
+        return start, stop
 
 def output_func(inputDict, gmapFileName, outFileName):
         # Embed function for handling coords
@@ -348,22 +451,26 @@ the resultant gff3 file will be used.
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-gm", "-gmapFile", dest="gmapFile",
                    help="Input GMAP gene gff3 (-f 2) file name.")
-p.add_argument("-pa", "-pasaFile", dest="pasaFile",
-                   help="Input PASA gff3 file name.")
 p.add_argument("-cd", "-cdsFile", dest="cdsFile",
                    help="Input CDS fasta file name (this file was used for GMAP alignment).")
 p.add_argument("-ge", "-genomeFile", dest="genomeFile",
                    help="Input genome FASTA file name.")
+p.add_argument("-an", "-annotationFile", dest="annotationFile",
+                   help="Input current genome annotation gff3 file name.")
 p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
-                   help="Coverage cut-off (must have coverage >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
+                   help="Coverage cut-off (must have coverage >= provided value; accepted range 0.0->100.0; default == 70.0).", default=70.0)
 p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
-                   help="Identity cut-off (must have identity >= provided value; accepted range 0.0->100.0; default == 98.0).", default=98.0)
-p.add_argument("-in", "-indel", dest="indelCutoff", type=int,
-                   help="Number of indels allowed before cut-off (must have indels <= provided value; default == 0).", default=0)
+                   help="Identity cut-off (must have identity >= provided value; accepted range 0.0->100.0; default == 80.0).", default=80.0)
 p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
+## HARD CODED ##
+#args.gmapFile = r'cal_smart_pasaupdated_cds_gmap.gff3'
+#args.cdsFile =  r'cal_smart_pasaupdated_all_cds.nucl'
+#args.genomeFile = r'cal_smrtden.ar4.pil2.deGRIT2.fasta'
+#args.annotationFile = r'cal_smart.rnam-trna.final.sorted.gff3'
+#args.outputFileName = r'test_out.gff3'
 validate_args(args)
 
 # Load in genome fasta file as dict
@@ -375,8 +482,9 @@ cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFile, 'r'), 'fasta'))
 # Parse GMAP GFF3 for gene models
 gmapExonDict, gmapCDSDict = gff3_parse(args.gmapFile)
 
-# Parse PASA GFF3 for assemblies
-pasaDict = parse_pasa_assemblies(args.pasaFile)
+# Parse main annotation GFF3 as NCLS and model
+gff3Ncls, gff3Loc = gff3_parse_ncls(args.annotationFile)
+gff3ExonDict, gff3CDSDict = gff3_parse(args.annotationFile)
 
 # Detect well-suported multi-path models
 coordDict = {}
@@ -385,24 +493,76 @@ for key, value in gmapExonDict.items():
         baseID = key.rsplit('.', maxsplit=1)[0]
         if baseID + '.path2' not in gmapExonDict:
                 continue
-        # Check if this 
+        # Check if this
         for mrna in value:
-                # Skip if 1-exon gene
+                # Skip if the current path is a 1-exon gene
                 if len(mrna[1]) == 1:
                         continue
                 # Check that the main gene isn't a probable pseudogene/transposon-related ORF
-                mainExonNum = len(pasaDict[baseID])
+                mainExonNum = len(gmapExonDict[baseID + '.path1'][0][1])
                 if mainExonNum == 1:
                         continue
                 # Cut-off checks
-                decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff, args.indelCutoff)
-                result = cds_build(mrna[1], mrna[2], mrna[3], genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0])     # Split off the '.mrna#' suffix
+                decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
+                if decision == False:
+                        continue
+                result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0], args.identityCutoff)     # Split off the '.mrna#' suffix
+                #[coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, idCutoff] = [mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0], args.identityCutoff]
                 if result == False:
                         continue
                 else:
-                        coordDict[key] = result
+                        coordDict[key] = [result, mrna[2]]
+
+# Remove overlaps of existing genes? / existing near-identical genes?
+geneIDRegex = re.compile(r'_?evm.model.utg\d{1,10}.\d{1,10}')
+#geneIDRegex = re.compile(r'evm.model.utg\d{1,10}.\d{1,10}(_evm.model.utg\d{1,10}.\d{1,10})*')
+ovlCutoff = 0.60
+outputValues = {}
+for key, value in coordDict.items():
+        # Find overlaps for each exon
+        dictEntries = []
+        for coord in value[0]:
+                start, stop = coord_extract(coord)
+                # Find overlaps
+                dictEntries += ncls_finder(gff3Ncls, gff3Loc, start, stop, value[1], 4, 'boundary')    # 4 refers to the index position in the gff3Loc dictionary for the contigID
+        # Convert coordinates to set values for overlap calculation
+        valueSet = set()
+        for coord in value[0]:
+                start, stop = coord_extract(coord)
+                valueSet = valueSet.union(set(range(start, stop+1)))
+        # Compare overlaps to see if this gene shares significant similarity to existing genes
+        checked = []
+        overlapped = set()
+        for entry in dictEntries:
+                # Handle redundancy
+                if entry in checked:
+                        continue
+                checked.append(entry)
+                # Pull out the gene details of this hit and find the overlapping mRNA
+                #geneID = geneIDRegex.match(entry[3]).group(0).replace('model', 'TU')
+                geneID = ''.join(geneIDRegex.findall(entry[3])).replace('model', 'TU')
+                mrnaList = gff3CDSDict[geneID]
+                for mrna in mrnaList:
+                        if mrna[0] == entry[3]:
+                                mrnaHit = mrna
+                                break
+                # Calculate the overlap of the current value against this mRNA model
+                mrnaSet = set()
+                for coord in mrnaHit[1]:
+                        start, stop = coord_extract(coord)
+                        mrnaSet = mrnaSet.union(set(range(start, stop+1)))       
+                        # Store how much overlap is present
+                        overlapped = overlapped.union(valueSet & mrnaSet)
+        # Calculate the total overlap of this gene against existing models
+        ovlPct = (len(valueSet) - (len(valueSet) - len(overlapped))) / len(valueSet)
+        # Discard entries which obviously overlap existing genes (note that we are comparing exons from potentially different models which means we could skip an alternate isoform, but this is an acceptable outcome)
+        if ovlPct > ovlCutoff:
+                continue
+        # Hold onto things which pass this check
+        else:
+                outputValues[key] = value
 
 # Output to file
-output_func(coordDict, args.gmapFile, args.outputFileName)
+output_func(outputValues, args.gmapFile, args.outputFileName)
 # Done!
 print('Program completed successfully!')
