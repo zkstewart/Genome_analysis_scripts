@@ -93,16 +93,21 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
         #[seq1, cdsRecords, cdsID]=[cds, cdsRecords, cdsID]
         if result == False:
                 return False
+        # Find out if we've dropped any exons along the way
+        startChange = cds.find(result)
+        stopChange = len(cds) - len(result) - startChange
+        #coords = copy.deepcopy(backup)
+        coords, startExonLen, stopExonLen = coord_excess_cut(coords, startChange, stopChange, orientation)
+        startChange -= startExonLen
+        stopChange -= stopExonLen
         # Re-update our coordinates to reflect the new CDS
-        start = cds.find(result)
-        stopChange = len(cds) - len(result) - start
         for i in range(len(coords)):
                 splitCoord = coords[i].split('-')
                 if i == 0:
                         if orientation == '+':
-                                splitCoord[0] = str(int(splitCoord[0]) + start)
+                                splitCoord[0] = str(int(splitCoord[0]) + startChange)
                         else:
-                                splitCoord[1] = str(int(splitCoord[1]) - start)
+                                splitCoord[1] = str(int(splitCoord[1]) - startChange)
                         #coords[i] = '-'.join(splitCoords)
                 if i == len(coords) - 1:
                         if orientation == '+':
@@ -112,6 +117,40 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
                 coords[i] = '-'.join(splitCoord)
         # Return coordinates
         return coords
+
+def coord_excess_cut(coords, startChange, stopChange, orientation):
+        # Cull exons that aren't coding and chop into coding exons
+        startReduction = startChange
+        stopReduction = stopChange
+        startExonLen = 0
+        stopExonLen = 0
+        for i in range(2):
+                while True:
+                        if i == 0:
+                                exon = coords[0].split('-')
+                        else:
+                                exon = coords[-1].split('-')
+                        # Extract details
+                        rightCoord = int(exon[1])
+                        leftCoord = int(exon[0])
+                        exonLen = rightCoord - leftCoord + 1
+                        # Update our change values
+                        if i == 0:
+                                startReduction -= exonLen       # This helps us to keep track of how much we need to reduce startChange
+                                if startReduction > 0:          # when we begin chopping into the first exon - if the original first exon 
+                                        del coords[0]           # is the one we chop, we end up with reduction value == 0
+                                        startExonLen += exonLen
+                                else:
+                                        break
+                        else:
+                                stopReduction -= exonLen
+                                if stopReduction > 0:
+                                        del coords[-1]
+                                        stopExonLen += exonLen  # We hold onto exon lengths so we can calculate how much we chop into the new start exon
+                                else:                           # by calculating stopChange - stopExonLen... if we didn't remove an exon, stopExonLen == 0
+                                        break
+        return coords, startExonLen, stopExonLen
+                        
 
 def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
         # Find the starting codon w/r/t to the codon used for the original CDS
@@ -334,10 +373,6 @@ def group_process(currGroup, gffExonDict, gffCDSDict):
         # Put info into the coordDict and move on
         gffExonDict[geneID] = full_mrnaGroup
         gffCDSDict[geneID] = full_mrnaCDS
-        #for entry in full_mrnaCDS:
-        #        gffExonDict[entry[0]] = entry
-        #for entry in full_mrnaGroup:
-        #        gffCDSDict[entry[0]] = entry
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
@@ -384,7 +419,7 @@ def coord_extract(coord):
 def output_func(inputDict, gmapFileName, outFileName):
         # Embed function for handling coords
         def coord_adjust(inputDict, pathID, exonNum):
-                coords = inputDict[pathID]
+                coords = inputDict[pathID][0]
                 if exonNum == 0:        # This is used for gene / mRNA lines
                         firstCoord = coords[0].split('-')
                         lastCoord = coords[-1].split('-')
@@ -413,6 +448,7 @@ def output_func(inputDict, gmapFileName, outFileName):
                         if lineType == 'gene':
                                 if detailDict['ID'] in inputDict:
                                         sl[3], sl[4] = coord_adjust(inputDict, detailDict['ID'], 0)
+                                        #[inputDict, pathID, exonNum] = [inputDict, detailDict['ID'], 0]
                                         fileOut.write('###\n')
                                         fileOut.write('\t'.join(sl) + '\n')
                         elif lineType == 'mRNA':
@@ -466,11 +502,11 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
 
 args = p.parse_args()
 ## HARD CODED ##
-#args.gmapFile = r'cal_smart_pasaupdated_cds_gmap.gff3'
-#args.cdsFile =  r'cal_smart_pasaupdated_all_cds.nucl'
-#args.genomeFile = r'cal_smrtden.ar4.pil2.deGRIT2.fasta'
-#args.annotationFile = r'cal_smart.rnam-trna.final.sorted.gff3'
-#args.outputFileName = r'test_out.gff3'
+args.gmapFile = r'cal_smart_pasaupdated_cds_gmap.gff3'
+args.cdsFile =  r'cal_smart_pasaupdated_all_cds.nucl'
+args.genomeFile = r'cal_smrtden.ar4.pil2.deGRIT2.fasta'
+args.annotationFile = r'cal_smart.rnam-trna.final.sorted.gff3'
+args.outputFileName = r'test_out.gff3'
 validate_args(args)
 
 # Load in genome fasta file as dict
@@ -488,6 +524,7 @@ gff3ExonDict, gff3CDSDict = gff3_parse(args.annotationFile)
 
 # Detect well-suported multi-path models
 coordDict = {}
+
 for key, value in gmapExonDict.items():
         # Check if there is more than 1 path for this assembly
         baseID = key.rsplit('.', maxsplit=1)[0]
@@ -562,7 +599,19 @@ for key, value in coordDict.items():
         else:
                 outputValues[key] = value
 
+# Additional curation checks...
+
+# Perfect splice borders/mostly perfect with some allowance for known unconventional splices? - give leeway to longer sequences?
+
+# Collapse overlapping paths from the same model by selecting the 'best' according to splice rules / other rules?
+
+# Optional transcriptome support for the gene model to cull false merges (optional since, if the gmap paths are derived from transcriptome mapping, this would be redundant)
+
+# Cull weird looking models - one long exon with a tiny micro exon
+
 # Output to file
-output_func(outputValues, args.gmapFile, args.outputFileName)
+#output_func(outputValues, args.gmapFile, args.outputFileName)
+#[inputDict, gmapFileName, outFileName] = [outputValues, args.gmapFile, args.outputFileName]
+
 # Done!
 print('Program completed successfully!')
