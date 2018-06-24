@@ -115,6 +115,9 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
                         else:
                                 splitCoord[0] = str(int(splitCoord[0]) + stopChange)
                 coords[i] = '-'.join(splitCoord)
+        # Drop the model if we reduced it to a single exon
+        if len(coords) == 1:
+                return False
         # Return coordinates
         return coords
 
@@ -150,7 +153,98 @@ def coord_excess_cut(coords, startChange, stopChange, orientation):
                                 else:                           # by calculating stopChange - stopExonLen... if we didn't remove an exon, stopExonLen == 0
                                         break
         return coords, startExonLen, stopExonLen
-                        
+
+def cds_extension(coords, contigID, orientation, genomeRecords):
+        from Bio.Seq import Seq
+        # First: check the CDS to ensure it's real, and that we are looking at its start and end
+        cds = []
+        for i in range(len(coords)):
+                splitCoord = coords[i].split('-')
+                cdsBit = str(genomeRecords[contigID].seq)[int(splitCoord[0])-1:int(splitCoord[1])]
+                if orientation == '-':
+                        cdsBit = reverse_comp(cdsBit)
+                cds.append(cdsBit)
+        cds = ''.join(cds)
+        # Translate to protein
+        cdsRecord = Seq(cds, generic_dna)
+        with warnings.catch_warnings():
+                warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                cdsProt = str(cdsRecord.translate(table=1))
+        # Check that only 1 stop codon exists at the end ## REMOVE THIS AFTER TESTING COMPLETE?
+        if not (cdsProt.count('*') == 1 and cdsProt[-1] == '*'):
+                print('Something went wrong. How?')
+                stophere
+        # Crawl up the genome sequence looking for a way to extend the ORF to 1) an ATG, or 2) the same codon
+        stopCodonsPos = ['tag', 'taa', 'tga']
+        stopCodonsNeg = ['cta', 'tta', 'tca']
+        extensionLength = 90    # This is arbitrary; converts to 30 AA; can alter or consider making available as an argument
+        currentStart = cds[0:3]
+        currPos = None
+        atgPos = None
+        if orientation == '+':
+                # Crawl back looking for the first stop codon - this is our boundary
+                startCoord = int(coords[0].split('-')[0])
+                genomeSeq = genomeRecords[contigID][0:startCoord-1]     # startCoord is 1-based so we -1 to counter that
+                for i in range(len(genomeSeq)-1, -1, -3):
+                        codon = str(genomeSeq[i-2:i+1].seq)
+                        if codon.lower() in stopCodonsPos:
+                                break
+                # Crawl back up from the stop position looking for the first current start or ATG
+                for x in range(i+3, len(genomeSeq), 3):         # +3 to look at the next, non-stop codon
+                        codon = str(genomeSeq[x:x+3].seq)
+                        if codon.lower() == currentStart and currentStart == None:
+                                currPos = x                     # Note that this X represents the distance in from the stop codon boundary
+                        if codon.lower() == 'atg' and atgPos == None:
+                                atgPos = x      ## NEEDS TESTING WITH REAL SCENARIO
+                # Compare this position to the original based on length and codon type
+                if atgPos != None:
+                        if currentStart.lower() != 'atg':
+                                accepted = atgPos               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
+                        elif atgPos >= extensionLength:         # We'll only replace an ATG with another ATG if it increases length by a predefined amount
+                                accepted = atgPos
+                else:
+                        accepted = 0
+                if currPos != None:
+                        if currPos >= accepted + extensionLength:       # We always set accepted as a value above, whether it be an ATG start or 0
+                                accepted = currPos                      # When we get here, we assume we accepted an ATG start, so we want to extend upon it even further to accept it as a valid extension
+                # Recompute the accepted start position with reference to the entire contig
+                acceptedPos = startCoord + accepted + 1 # +1 to reconvert this to 1-based
+                # Update this in our coords value
+                coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
+        else:
+                # Crawl up looking for the first stop codon - this is our boundary
+                startCoord = int(coords[0].split('-')[1])
+                genomeSeq = genomeRecords[contigID][startCoord:]        # startCoord is 1-based; we want just after it, so accepting it as-is is correct
+                for i in range(0, len(genomeSeq), 3):
+                        codon = str(genomeSeq[i:i+3].seq)
+                        if codon.lower() in stopCodonsNeg:
+                                break
+                # Crawl back down from the stop position looking for the first current start or ATG
+                currentStart = reverse_comp(currentStart)       # '-' orientation means we need to reverse complement our cds' start codon
+                for x in range(i-1, -1, -3):
+                        codon = str(genomeSeq[x-2:x+1].seq)
+                        if codon.lower() == currentStart and currentStart == None:
+                                currPos = x                     # Note that this X represents the distance in from the stop codon boundary
+                        if codon.lower() == 'cat' and atgPos == None:
+                                atgPos = x
+                # Compare this position to the original based on length and codon type
+                if atgPos != None:
+                        if currentStart.lower() != 'cat':
+                                accepted = atgPos               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
+                        elif atgPos >= extensionLength:         # We'll only replace an ATG with another ATG if it increases length by a predefined amount
+                                accepted = atgPos
+                else:
+                        accepted = 0
+                if currPos != None:
+                        if currPos >= accepted + extensionLength:       # We always set accepted as a value above, whether it be an ATG start or 0
+                                accepted = currPos                      # When we get here, we assume we accepted an ATG start, so we want to extend upon it even further to accept it as a valid extension
+                # Recompute the accepted start position with reference to the entire contig
+                acceptedPos = startCoord + accepted + 1 # +1 to reconvert this to 1-based
+                # Update this in our coords value
+                coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
+        
+        ## Crawl DOWN??
+        
 
 def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
         # Find the starting codon w/r/t to the codon used for the original CDS
@@ -213,7 +307,7 @@ def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
         # If we have the same start codon and a stop codon, check length for consistency
         lowerBound = origLen - (origLen * 0.1)
         upperBound = origLen + (origLen * 0.1)
-        if lowerBound <= len(longest[1]) <= upperBound:
+        if lowerBound <= len(longest[1]) <= upperBound: ## TEST: Consider removing upperbound limitation AND stop codon requirement limitation - CDS extension can address these problems
                 return longest[1]
         else:
                 return False
