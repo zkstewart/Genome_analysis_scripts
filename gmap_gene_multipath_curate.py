@@ -96,7 +96,6 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
         # Find out if we've dropped any exons along the way
         startChange = cds.find(result)
         stopChange = len(cds) - len(result) - startChange
-        #coords = copy.deepcopy(backup)
         coords, startExonLen, stopExonLen = coord_excess_cut(coords, startChange, stopChange, orientation)
         startChange -= startExonLen
         stopChange -= stopExonLen
@@ -118,8 +117,79 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
         # Drop the model if we reduced it to a single exon
         if len(coords) == 1:
                 return False
+        # Extend the CDS where possible
+        coords = cds_extension(coords, contigID, orientation, genomeRecords)
         # Return coordinates
         return coords
+
+def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
+        # Find the starting codon w/r/t to the codon used for the original CDS
+        origCDS = str(cdsRecords[cdsID].seq)
+        origLen = len(origCDS)
+        firstCodon = origCDS[0:3]
+        # Translate into ORFs and grab the longest bits inbetween stop codons
+        longest = ['', '']
+        for frame in range(3):
+                record = Seq(seq1, generic_dna)
+                # Get nucleotide for this frame
+                nucl = str(record)[frame:]
+                nucl = Seq(nucl, generic_dna)
+                # Translate to protein
+                with warnings.catch_warnings():
+                        warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                        frameProt = str(nucl.translate(table=1))
+                #if '*' not in frameProt:
+                #        continue        # We only want complete ORFs; no stop codon means we don't accept the sequence
+                # Find the longest ORF
+                prots = frameProt.split('*')
+                tmpLongest = ['', '']
+                for i in range(len(prots)-1):   # Ignore the last section; this has no stop codon
+                        if len(prots[i]) > len(tmpLongest[0]):
+                                tmpLongest = [prots[i], i]
+                if tmpLongest == ['', '']:
+                        continue                # This means the sequence starts with a stop codon, and the ORF itself lacks a stop codon
+                # Convert this ORF back into its nucleotide sequence
+                beforeLength = len(''.join(prots[:tmpLongest[1]]))*3 + (3*tmpLongest[1])   # 3*tmpLongest adds back in the length of any stop codons
+                nuclOrf = nucl[beforeLength:beforeLength + len(tmpLongest[0])*3 + 3]    # +3 for the last stop codon
+                nucl = str(nuclOrf)
+                # Find the starting codon
+                codonIndex = -1
+                codons = re.findall('..?.?', nucl)                      # Pulls out a list of codons from the nucleotide
+                for codon in codons:
+                        if codon == firstCodon or codon == 'ATG':       # By adding an ATG check we ensure we don't stupidly skip the start codon looking for a silly codon start predicted by PASA
+                                codonIndex = codons.index(codon)
+                                break
+                if codonIndex == -1:
+                        continue
+                # Update the start position of this nucl
+                nucl = nucl[codonIndex*3:]
+                # Translate to amino acid
+                record = Seq(nucl, generic_dna)
+                with warnings.catch_warnings():
+                        warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                        frameOrf = str(record.translate(table=1))
+                if len(frameOrf) > len(longest[0]):
+                        longest = [frameOrf, nucl]
+        # If no result, return
+        if longest == ['', ''] or len(longest[0]) < 30: # This is a crude way of ensuring that ssw doesn't die
+                return False
+        # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
+        origProt = longest_orf(cdsRecords[cdsID])
+        newAlign, origAlign = ssw(longest[0], origProt)
+        #identity = prot_identity(newAlign, origAlign)
+        alignPct = len(newAlign) / len(longest[0])
+        #if identity < idCutoff or alignPct < 0.60:     # Use identity cut-off provided by user, and arbitrary value to ensure the alignment covers most of the original sequence
+        if alignPct < 0.60:                             # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
+                return False
+        # If we have the same start codon and a stop codon, check length for consistency
+        lowerBound = origLen - (origLen * 0.1)
+        #upperBound = origLen + (origLen * 0.1)
+        #if lowerBound <= len(longest[1]) <= upperBound: ## TEST: Consider removing upperbound limitation AND stop codon requirement limitation - CDS extension can address these problems
+        if lowerBound <= len(longest[1]):
+                return longest[1]
+        else:
+                return False
+
 
 def coord_excess_cut(coords, startChange, stopChange, orientation):
         # Cull exons that aren't coding and chop into coding exons
@@ -168,12 +238,10 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
         # Translate to protein
         cdsRecord = Seq(cds, generic_dna)
         with warnings.catch_warnings():
-                warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                 cdsProt = str(cdsRecord.translate(table=1))
-        # Check that only 1 stop codon exists at the end ## REMOVE THIS AFTER TESTING COMPLETE?
-        if not (cdsProt.count('*') == 1 and cdsProt[-1] == '*'):
-                print('Something went wrong. How?')
-                stophere
+        # Check that only 1 stop codon exists at the end
+        assert (cdsProt.count('*') == 1 and cdsProt[-1] == '*')
         # Crawl up the genome sequence looking for a way to extend the ORF to 1) an ATG, or 2) the same codon
         stopCodonsPos = ['tag', 'taa', 'tga']
         stopCodonsNeg = ['cta', 'tta', 'tca']
@@ -189,28 +257,32 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         codon = str(genomeSeq[i-2:i+1].seq)
                         if codon.lower() in stopCodonsPos:
                                 break
+                i = i - 2
                 # Crawl back up from the stop position looking for the first current start or ATG
-                for x in range(i+3, len(genomeSeq), 3):         # +3 to look at the next, non-stop codon
+                for x in range(i+3, len(genomeSeq), 3):                 # +3 to look at the next, non-stop codon
                         codon = str(genomeSeq[x:x+3].seq)
-                        if codon.lower() == currentStart and currentStart == None:
+                        if codon.lower() == currentStart.lower() and currPos == None:
                                 currPos = x                     # Note that this X represents the distance in from the stop codon boundary
                         if codon.lower() == 'atg' and atgPos == None:
-                                atgPos = x      ## NEEDS TESTING WITH REAL SCENARIO
+                                atgPos = x
                 # Compare this position to the original based on length and codon type
                 if atgPos != None:
                         if currentStart.lower() != 'atg':
-                                accepted = atgPos               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
-                        elif atgPos >= extensionLength:         # We'll only replace an ATG with another ATG if it increases length by a predefined amount
-                                accepted = atgPos
+                                accepted = [atgPos, True]               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
+                        elif (startCoord - atgPos) >= extensionLength:  # We'll only replace an ATG with another ATG if it increases length by a predefined amount
+                                accepted = [atgPos, True]
+                        else:
+                                accepted = [0, False]
                 else:
-                        accepted = 0
+                        accepted = [0, False]                           # The false tag lets us know that 0 is not an extension but the lack thereof
                 if currPos != None:
-                        if currPos >= accepted + extensionLength:       # We always set accepted as a value above, whether it be an ATG start or 0
-                                accepted = currPos                      # When we get here, we assume we accepted an ATG start, so we want to extend upon it even further to accept it as a valid extension
+                        if (startCoord - currPos) >= accepted[0] + extensionLength:     # We always set accepted as a value above, whether it be an ATG start or 0
+                                accepted = [currPos, True]
                 # Recompute the accepted start position with reference to the entire contig
-                acceptedPos = startCoord + accepted + 1 # +1 to reconvert this to 1-based
-                # Update this in our coords value
-                coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
+                acceptedPos = accepted[0] + 1                           # +1 to reconvert this to 1-based
+                # Update this in our coords value if relevant
+                if accepted[1] == True:
+                        coords[0] = str(acceptedPos) + '-' + coords[0].split('-')[1]
         else:
                 # Crawl up looking for the first stop codon - this is our boundary
                 startCoord = int(coords[0].split('-')[1])
@@ -220,97 +292,33 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         if codon.lower() in stopCodonsNeg:
                                 break
                 # Crawl back down from the stop position looking for the first current start or ATG
-                currentStart = reverse_comp(currentStart)       # '-' orientation means we need to reverse complement our cds' start codon
+                currentStart = reverse_comp(currentStart)               # '-' orientation means we need to reverse complement our cds' start codon
                 for x in range(i-1, -1, -3):
                         codon = str(genomeSeq[x-2:x+1].seq)
-                        if codon.lower() == currentStart and currentStart == None:
-                                currPos = x                     # Note that this X represents the distance in from the stop codon boundary
+                        if codon.lower() == currentStart.lower() and currPos == None:
+                                currPos = x                             # Note that this X represents the distance in from the stop codon boundary
                         if codon.lower() == 'cat' and atgPos == None:
                                 atgPos = x
                 # Compare this position to the original based on length and codon type
                 if atgPos != None:
                         if currentStart.lower() != 'cat':
-                                accepted = atgPos               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
-                        elif atgPos >= extensionLength:         # We'll only replace an ATG with another ATG if it increases length by a predefined amount
-                                accepted = atgPos
+                                accepted = [atgPos, True]               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
+                        elif atgPos >= extensionLength:                 # We'll only replace an ATG with another ATG if it increases length by a predefined amount
+                                accepted = [atgPos, True]
+                        else:
+                                accepted = [0, False]
                 else:
-                        accepted = 0
+                        accepted = [0, False]
                 if currPos != None:
-                        if currPos >= accepted + extensionLength:       # We always set accepted as a value above, whether it be an ATG start or 0
-                                accepted = currPos                      # When we get here, we assume we accepted an ATG start, so we want to extend upon it even further to accept it as a valid extension
+                        if currPos >= accepted[0] + extensionLength:    # We always set accepted as a value above, whether it be an ATG start or 0
+                                accepted = [currPos, True]              # When we get here, we assume we accepted an ATG start, so we want to extend upon it even further to accept it as a valid extension
                 # Recompute the accepted start position with reference to the entire contig
-                acceptedPos = startCoord + accepted + 1 # +1 to reconvert this to 1-based
+                acceptedPos = startCoord + accepted[0] + 1              # +1 to reconvert this to 1-based
                 # Update this in our coords value
-                coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
-        
+                if accepted[1] == True:
+                        coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
+        return coords
         ## Crawl DOWN??
-        
-
-def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
-        # Find the starting codon w/r/t to the codon used for the original CDS
-        origCDS = str(cdsRecords[cdsID].seq)
-        origLen = len(origCDS)
-        firstCodon = origCDS[0:3]
-        # Translate into ORFs and grab the longest bits inbetween stop codons
-        longest = ['', '']
-        for frame in range(3):
-                record = Seq(seq1, generic_dna)
-                # Get nucleotide for this frame
-                nucl = str(record)[frame:]
-                nucl = Seq(nucl, generic_dna)
-                # Translate to protein
-                with warnings.catch_warnings():
-                        warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
-                        frameProt = str(nucl.translate(table=1))
-                if '*' not in frameProt:
-                        continue        # We only want complete ORFs; no stop codon means we don't accept the sequence
-                # Find the longest ORF
-                prots = frameProt.split('*')
-                tmpLongest = ['', '']
-                for i in range(len(prots)-1):   # Ignore the last section; this has no stop codon
-                        if len(prots[i]) > len(tmpLongest[0]):
-                                tmpLongest = [prots[i], i]
-                if tmpLongest == ['', '']:
-                        continue                # This means the sequence starts with a stop codon, and the ORF itself lacks a stop codon
-                # Convert this ORF back into its nucleotide sequence
-                beforeLength = len(''.join(prots[:tmpLongest[1]]))*3 + (3*tmpLongest[1])   # 3*tmpLongest adds back in the length of any stop codons
-                nuclOrf = nucl[beforeLength:beforeLength + len(tmpLongest[0])*3 + 3]    # +3 for the last stop codon
-                nucl = str(nuclOrf)
-                # Find the starting codon
-                codonIndex = -1
-                codons = re.findall('..?.?', nucl)                      # Pulls out a list of codons from the nucleotide
-                for codon in codons:
-                        if codon == firstCodon or codon == 'ATG':       # By adding an ATG check we ensure we don't stupidly skip the start codon looking for a silly codon start predicted by PASA
-                                codonIndex = codons.index(codon)
-                                break
-                if codonIndex == -1:
-                        continue
-                # Update the start position of this nucl
-                nucl = nucl[codonIndex*3:]
-                # Translate to amino acid
-                record = Seq(nucl, generic_dna)
-                with warnings.catch_warnings():
-                        warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
-                        frameOrf = str(record.translate(table=1))
-                if len(frameOrf) > len(longest[0]):
-                        longest = [frameOrf, nucl]
-        # If no result, return
-        if longest == ['', ''] or len(longest[0]) < 30: # This is a crude way of ensuring that ssw doesn't die
-                return False
-        # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
-        origProt = longest_orf(cdsRecords[cdsID])
-        newAlign, origAlign = ssw(longest[0], origProt)
-        identity = prot_identity(newAlign, origAlign)
-        alignPct = len(newAlign) / len(longest[0])
-        if identity < idCutoff or alignPct < 0.60:      # Use identity cut-off provided by user, and arbitrary value to ensure the alignment covers most of the original sequence
-                return False
-        # If we have the same start codon and a stop codon, check length for consistency
-        lowerBound = origLen - (origLen * 0.1)
-        upperBound = origLen + (origLen * 0.1)
-        if lowerBound <= len(longest[1]) <= upperBound: ## TEST: Consider removing upperbound limitation AND stop codon requirement limitation - CDS extension can address these problems
-                return longest[1]
-        else:
-                return False
 
 def longest_orf(record):
         longest = ''
@@ -618,7 +626,8 @@ gff3ExonDict, gff3CDSDict = gff3_parse(args.annotationFile)
 
 # Detect well-suported multi-path models
 coordDict = {}
-
+#key = 'evm.model.utg329.18.path8'
+#value = gmapExonDict[key]
 for key, value in gmapExonDict.items():
         # Check if there is more than 1 path for this assembly
         baseID = key.rsplit('.', maxsplit=1)[0]
