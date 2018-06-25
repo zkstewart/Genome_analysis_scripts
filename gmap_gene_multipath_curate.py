@@ -55,7 +55,7 @@ def check_model(commentLine, covCutoff, idCutoff):
         # Passed all cutoffs!
         return True
 
-def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, idCutoff):
+def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID):
         def correct_overshoots(splitCoord):
                 if int(splitCoord[0]) < 1:
                         splitCoord[0] = '1'
@@ -89,7 +89,7 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
         # Join our CDS bits together
         cds = ''.join(cds)
         # Translate to protein and validate
-        result = validate_translated_cds(cds, cdsRecords, cdsID, idCutoff)
+        result = validate_translated_cds(cds, cdsRecords, cdsID)
         #[seq1, cdsRecords, cdsID]=[cds, cdsRecords, cdsID]
         if result == False:
                 return False
@@ -97,9 +97,12 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
         startChange = cds.find(result)
         stopChange = len(cds) - len(result) - startChange
         coords, startExonLen, stopExonLen = coord_excess_cut(coords, startChange, stopChange, orientation)
+        # Drop the model if we reduced it to a single exon
+        if len(coords) == 1:
+                return False
+        # Re-update our coordinates to reflect the new CDS
         startChange -= startExonLen
         stopChange -= stopExonLen
-        # Re-update our coordinates to reflect the new CDS
         for i in range(len(coords)):
                 splitCoord = coords[i].split('-')
                 if i == 0:
@@ -107,22 +110,18 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, i
                                 splitCoord[0] = str(int(splitCoord[0]) + startChange)
                         else:
                                 splitCoord[1] = str(int(splitCoord[1]) - startChange)
-                        #coords[i] = '-'.join(splitCoords)
                 if i == len(coords) - 1:
                         if orientation == '+':
                                 splitCoord[1] = str(int(splitCoord[1]) - stopChange)
                         else:
                                 splitCoord[0] = str(int(splitCoord[0]) + stopChange)
                 coords[i] = '-'.join(splitCoord)
-        # Drop the model if we reduced it to a single exon
-        if len(coords) == 1:
-                return False
         # Extend the CDS where possible
         coords = cds_extension(coords, contigID, orientation, genomeRecords)
         # Return coordinates
         return coords
 
-def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
+def validate_translated_cds(seq1, cdsRecords, cdsID):
         # Find the starting codon w/r/t to the codon used for the original CDS
         origCDS = str(cdsRecords[cdsID].seq)
         origLen = len(origCDS)
@@ -139,18 +138,18 @@ def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                         frameProt = str(nucl.translate(table=1))
                 #if '*' not in frameProt:
-                #        continue        # We only want complete ORFs; no stop codon means we don't accept the sequence
+                #        continue                                        # We only want (mostly) complete ORFs; no stop codon means we don't accept the sequence
                 # Find the longest ORF
                 prots = frameProt.split('*')
                 tmpLongest = ['', '']
-                for i in range(len(prots)-1):   # Ignore the last section; this has no stop codon
+                for i in range(len(prots)-1):                           # Ignore the last section; this has no stop codon
                         if len(prots[i]) > len(tmpLongest[0]):
                                 tmpLongest = [prots[i], i]
                 if tmpLongest == ['', '']:
-                        continue                # This means the sequence starts with a stop codon, and the ORF itself lacks a stop codon
+                        continue                                        # This means the sequence starts with a stop codon, and the ORF itself lacks a stop codon
                 # Convert this ORF back into its nucleotide sequence
-                beforeLength = len(''.join(prots[:tmpLongest[1]]))*3 + (3*tmpLongest[1])   # 3*tmpLongest adds back in the length of any stop codons
-                nuclOrf = nucl[beforeLength:beforeLength + len(tmpLongest[0])*3 + 3]    # +3 for the last stop codon
+                beforeLength = len(''.join(prots[:tmpLongest[1]]))*3 + (3*tmpLongest[1])        # 3*tmpLongest adds back in the length of any stop codons
+                nuclOrf = nucl[beforeLength:beforeLength + len(tmpLongest[0])*3 + 3]            # +3 for the last stop codon
                 nucl = str(nuclOrf)
                 # Find the starting codon
                 codonIndex = -1
@@ -176,20 +175,15 @@ def validate_translated_cds(seq1, cdsRecords, cdsID, idCutoff):
         # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
         origProt = longest_orf(cdsRecords[cdsID])
         newAlign, origAlign = ssw(longest[0], origProt)
-        #identity = prot_identity(newAlign, origAlign)
         alignPct = len(newAlign) / len(longest[0])
-        #if identity < idCutoff or alignPct < 0.60:     # Use identity cut-off provided by user, and arbitrary value to ensure the alignment covers most of the original sequence
-        if alignPct < 0.60:                             # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
+        if alignPct < 0.60:                                             # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
                 return False
         # If we have the same start codon and a stop codon, check length for consistency
         lowerBound = origLen - (origLen * 0.1)
-        #upperBound = origLen + (origLen * 0.1)
-        #if lowerBound <= len(longest[1]) <= upperBound: ## TEST: Consider removing upperbound limitation AND stop codon requirement limitation - CDS extension can address these problems
         if lowerBound <= len(longest[1]):
                 return longest[1]
         else:
                 return False
-
 
 def coord_excess_cut(coords, startChange, stopChange, orientation):
         # Cull exons that aren't coding and chop into coding exons
@@ -197,6 +191,7 @@ def coord_excess_cut(coords, startChange, stopChange, orientation):
         stopReduction = stopChange
         startExonLen = 0
         stopExonLen = 0
+        microExonSize = -3      # This value is an arbitrary measure where, if a terminal exon is less than this size, we consider it 'fake' and delete it
         for i in range(2):
                 while True:
                         if i == 0:
@@ -213,6 +208,10 @@ def coord_excess_cut(coords, startChange, stopChange, orientation):
                                 if startReduction > 0:          # when we begin chopping into the first exon - if the original first exon 
                                         del coords[0]           # is the one we chop, we end up with reduction value == 0
                                         startExonLen += exonLen
+                                # Handle microexons at gene terminal
+                                elif startReduction > microExonSize:
+                                        del coords[0]
+                                        startExonLen += exonLen
                                 else:
                                         break
                         else:
@@ -220,32 +219,21 @@ def coord_excess_cut(coords, startChange, stopChange, orientation):
                                 if stopReduction > 0:
                                         del coords[-1]
                                         stopExonLen += exonLen  # We hold onto exon lengths so we can calculate how much we chop into the new start exon
+                                # Handle microexons at gene terminal
+                                elif stopReduction > microExonSize:
+                                        del coords[-1]
+                                        stopExonLen += exonLen
                                 else:                           # by calculating stopChange - stopExonLen... if we didn't remove an exon, stopExonLen == 0
                                         break
         return coords, startExonLen, stopExonLen
 
 def cds_extension(coords, contigID, orientation, genomeRecords):
         from Bio.Seq import Seq
-        # First: check the CDS to ensure it's real, and that we are looking at its start and end
-        cds = []
-        for i in range(len(coords)):
-                splitCoord = coords[i].split('-')
-                cdsBit = str(genomeRecords[contigID].seq)[int(splitCoord[0])-1:int(splitCoord[1])]
-                if orientation == '-':
-                        cdsBit = reverse_comp(cdsBit)
-                cds.append(cdsBit)
-        cds = ''.join(cds)
-        # Translate to protein
-        cdsRecord = Seq(cds, generic_dna)
-        with warnings.catch_warnings():
-                warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
-                cdsProt = str(cdsRecord.translate(table=1))
-        # Check that only 1 stop codon exists at the end
-        assert (cdsProt.count('*') == 1 and cdsProt[-1] == '*')
         # Crawl up the genome sequence looking for a way to extend the ORF to 1) an ATG, or 2) the same codon
         stopCodonsPos = ['tag', 'taa', 'tga']
         stopCodonsNeg = ['cta', 'tta', 'tca']
         extensionLength = 90    # This is arbitrary; converts to 30 AA; can alter or consider making available as an argument
+        cds = make_cds(coords, genomeRecords, contigID, orientation)
         currentStart = cds[0:3]
         currPos = None
         atgPos = None
@@ -317,8 +305,50 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 # Update this in our coords value
                 if accepted[1] == True:
                         coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
+        # Determine if we need to a stop codon crawl
+        cds = make_cds(coords, genomeRecords, contigID, orientation)
+        cdsRecord = Seq(cds, generic_dna)
+        with warnings.catch_warnings():
+                warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                cdsProt = str(cdsRecord.translate(table=1))
+        assert cdsProt.count('*') < 2                                   # Make sure the CDS is correct - it should be!
+        if cdsProt.count('*') == 1:
+                assert cdsProt[-1] == '*'                               # If we have a stop codon, it should be at the end
+                return coords                                           # No need for a backwards crawl
+        # Begin the stop codon crawl
+        if orientation == '+':
+                endCoord = int(coords[-1].split('-')[1])
+                # Trim off excess from the CDS to make sure we're in frame
+                endCoord -= len(cds) % 3
+                genomeSeq = genomeRecords[contigID][endCoord:]          # endCoord is 1-based; we want just after it, so accepting it as-is is correct
+                for i in range(0, len(genomeSeq), 3):
+                        codon = str(genomeSeq[i:i+3].seq)
+                        if codon.lower() in stopCodonsPos:
+                                break
+                i = endCoord + i + 2 + 1                                # +2 to go to the end of the stop codon; +1 to make it 1-based
+                coords[-1] = coords[-1].split('-')[0] + '-' + str(i)
+        else:
+                endCoord = int(coords[-1].split('-')[0])
+                genomeSeq = genomeRecords[contigID][0:endCoord-1]       # endCoord is 1-based so we -1 to counter that
+                for i in range(len(genomeSeq)-1, -1, -3):
+                        codon = str(genomeSeq[i-2:i+1].seq)
+                        if codon.lower() in stopCodonsNeg:
+                                break
+                i = i - 2 + 1   # -2 to go to the start of the codon; +1 to make it 1-based
+                acceptedPos = accepted[0] + 1
+                coords[-1] = str(i) + '-' + coords[-1].split('-')[1]
         return coords
-        ## Crawl DOWN??
+
+def make_cds(coords, genomeRecords, contigID, orientation):
+        cds = []
+        for i in range(len(coords)):
+                splitCoord = coords[i].split('-')
+                cdsBit = str(genomeRecords[contigID].seq)[int(splitCoord[0])-1:int(splitCoord[1])]
+                if orientation == '-':
+                        cdsBit = reverse_comp(cdsBit)
+                cds.append(cdsBit)
+        cds = ''.join(cds)
+        return cds
 
 def longest_orf(record):
         longest = ''
@@ -348,15 +378,6 @@ def ssw(querySeq, targetSeq):
         queryAlign = alignment.aligned_query_sequence
         targetAlign = alignment.aligned_target_sequence
         return [queryAlign, targetAlign]
-
-def prot_identity(prot1, prot2):
-        identical = 0
-        for x in range(len(prot1)):
-                if prot1[x] == prot2[x]:
-                        identical += 1
-        # Calculate the (rough) identity score between the alignments
-        pctIdentity = (identical / len(prot1)) * 100
-        return pctIdentity
 
 def reverse_comp(seq):
         reversedSeq = seq[::-1].lower()
@@ -518,62 +539,44 @@ def coord_extract(coord):
         stop = int(splitCoord[1])
         return start, stop
 
-def output_func(inputDict, gmapFileName, outFileName):
-        # Embed function for handling coords
-        def coord_adjust(inputDict, pathID, exonNum):
-                coords = inputDict[pathID][0]
-                if exonNum == 0:        # This is used for gene / mRNA lines
-                        firstCoord = coords[0].split('-')
-                        lastCoord = coords[-1].split('-')
-                        start = str(min(int(firstCoord[0]), int(firstCoord[1]), int(lastCoord[0]), int(lastCoord[1])))
-                        stop = str(max(int(firstCoord[0]), int(firstCoord[1]), int(lastCoord[0]), int(lastCoord[1])))
-                        return start, stop
-                else:
-                        exonCoord = coords[exonNum-1].split('-')
-                        return exonCoord[0], exonCoord[1]
-        # Output function
-        prevExonNum = 1
-        with open(gmapFileName, 'r') as fileIn, open(outFileName, 'w') as fileOut:
-                for line in fileIn:
-                        # Skip filler lines
-                        if line == '\n' or line.startswith('#'):
-                                continue
-                        # Get details
-                        sl = line.rstrip('\r\n').split('\t')
-                        lineType = sl[2]
-                        details = sl[8].split(';')
-                        detailDict = {}
-                        for i in range(len(details)):
-                                splitDetail = details[i].split('=')
-                                detailDict[splitDetail[0]] = splitDetail[1]
-                        # Handle specific lines
-                        if lineType == 'gene':
-                                if detailDict['ID'] in inputDict:
-                                        sl[3], sl[4] = coord_adjust(inputDict, detailDict['ID'], 0)
-                                        #[inputDict, pathID, exonNum] = [inputDict, detailDict['ID'], 0]
-                                        fileOut.write('###\n')
-                                        fileOut.write('\t'.join(sl) + '\n')
-                        elif lineType == 'mRNA':
-                                if detailDict['Parent'] in inputDict:
-                                        sl[3], sl[4] = coord_adjust(inputDict, detailDict['Parent'], 0)
-                                        fileOut.write('\t'.join(sl) + '\n')
-                        elif lineType == 'exon':
-                                if detailDict['Parent'].replace('.mrna', '.path') in inputDict:
-                                        exonNum = int(detailDict['ID'].split('.exon')[-1])
-                                        # Handle unusual GMAP scenario: sometimes GMAP skips an exon in a hidden manner, the result is a file with .exon1, .exon3 sequentially with skipped .exon2 for example
-                                        if exonNum > prevExonNum + 1:
-                                                exonNum = prevExonNum + 1
-                                        prevExonNum = exonNum
-                                        sl[3], sl[4] = coord_adjust(inputDict, detailDict['Parent'].replace('.mrna', '.path'), exonNum)
-                                        fileOut.write('\t'.join(sl) + '\n')
-                        elif lineType == 'CDS':
-                                if detailDict['Parent'].replace('.mrna', '.path') in inputDict:
-                                        exonNum = int(detailDict['ID'].split('.cds')[-1])
-                                        if exonNum > prevExonNum + 1:
-                                                exonNum = prevExonNum + 1
-                                        prevExonNum = exonNum
-                                        sl[3], sl[4] = coord_adjust(inputDict, detailDict['Parent'].replace('.mrna', '.path'), exonNum)
-                                        fileOut.write('\t'.join(sl) + '\n')
+def output_func(inputDict, cdsFileName, outFileName):
+        with open(outFileName, 'w') as fileOut:
+                for key, value in inputDict.items():
+                        fileOut.write('###\n')
+                        # Format base name details
+                        pathID = key
+                        name = key.rsplit('.', maxsplit=1)[0]
+                        mrnaID = pathID.replace('.path', '.mrna')       # Could theoretically be a problem if the gene name contains .path in its actual name, but this isn't the case with my data and shouldn't be with others
+                        # Extract details
+                        firstCoord = value[0][0].split('-')
+                        firstInts = [int(firstCoord[0]), int(firstCoord[1])]
+                        lastCoord = value[0][-1].split('-')
+                        lastInts = [int(lastCoord[0]), int(lastCoord[1])]
+                        # Determine gene start and end coordinates with respect to orientation
+                        if value[2] == '+':
+                                start = min(firstInts)
+                                end = max(lastInts)
+                        else:
+                                end = max(firstInts)
+                                start = min(lastInts)
+                        # Format gene line
+                        geneLine = '\t'.join([value[1], cdsFileName + '.gmap.curated', 'gene', str(start), str(end), '.', value[2], '.', 'ID=' + pathID +';Name=' + name])
+                        fileOut.write(geneLine + '\n')
+                        # Format mRNA line
+                        mrnaLine = '\t'.join([value[1], cdsFileName + '.gmap.curated', 'mRNA', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID +';Name=' + name + ';Parent=' + pathID])
+                        fileOut.write(mrnaLine + '\n')
+                        # Iterate through coordinates and write exon/CDS lines
+                        ongoingCount = 1
+                        for coord in value[0]:
+                                start, end = coord.split('-')
+                                # Format exon line
+                                exonLine = '\t'.join([value[1], cdsFileName + '.gmap.curated', 'exon', start, end, '.', value[2], '.', 'ID=' + mrnaID + '.exon' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
+                                fileOut.write(exonLine + '\n')
+                                # Format CDS line
+                                cdsLine = '\t'.join([value[1], cdsFileName + '.gmap.curated', 'CDS', start, end, '.', value[2], '.', 'ID=' + mrnaID + '.cds' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
+                                fileOut.write(cdsLine + '\n')
+                                ongoingCount += 1
+        
 
 # Set up regex for later use
 idRegex = re.compile(r'ID=(.+?);')
@@ -626,7 +629,7 @@ gff3ExonDict, gff3CDSDict = gff3_parse(args.annotationFile)
 
 # Detect well-suported multi-path models
 coordDict = {}
-#key = 'evm.model.utg329.18.path8'
+#key = 'evm.model.utg62.40.path2'
 #value = gmapExonDict[key]
 for key, value in gmapExonDict.items():
         # Check if there is more than 1 path for this assembly
@@ -646,16 +649,15 @@ for key, value in gmapExonDict.items():
                 decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
                 if decision == False:
                         continue
-                result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0], args.identityCutoff)     # Split off the '.mrna#' suffix
-                #[coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, idCutoff] = [mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0], args.identityCutoff]
+                result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0])     # Split off the '.mrna#' suffix
+                #[coords, contigID, orientation, cdsRecords, genomeRecords, cdsID] = [mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0]]
                 if result == False:
                         continue
                 else:
-                        coordDict[key] = [result, mrna[2]]
+                        coordDict[key] = [result, mrna[2], mrna[3]]
 
 # Remove overlaps of existing genes? / existing near-identical genes?
 geneIDRegex = re.compile(r'_?evm.model.utg\d{1,10}.\d{1,10}')
-#geneIDRegex = re.compile(r'evm.model.utg\d{1,10}.\d{1,10}(_evm.model.utg\d{1,10}.\d{1,10})*')
 ovlCutoff = 0.60
 outputValues = {}
 for key, value in coordDict.items():
@@ -679,7 +681,6 @@ for key, value in coordDict.items():
                         continue
                 checked.append(entry)
                 # Pull out the gene details of this hit and find the overlapping mRNA
-                #geneID = geneIDRegex.match(entry[3]).group(0).replace('model', 'TU')
                 geneID = ''.join(geneIDRegex.findall(entry[3])).replace('model', 'TU')
                 mrnaList = gff3CDSDict[geneID]
                 for mrna in mrnaList:
@@ -707,14 +708,12 @@ for key, value in coordDict.items():
 # Perfect splice borders/mostly perfect with some allowance for known unconventional splices? - give leeway to longer sequences?
 
 # Collapse overlapping paths from the same model by selecting the 'best' according to splice rules / other rules?
-
-# Optional transcriptome support for the gene model to cull false merges (optional since, if the gmap paths are derived from transcriptome mapping, this would be redundant)
+## Example: utg1000
 
 # Cull weird looking models - one long exon with a tiny micro exon
 
 # Output to file
-#output_func(outputValues, args.gmapFile, args.outputFileName)
-#[inputDict, gmapFileName, outFileName] = [outputValues, args.gmapFile, args.outputFileName]
-
+output_func(outputValues, args.cdsFile, args.outputFileName)
+#[inputDict, cdsFileName, outFileName] = [outputValues, args.cdsFile, args.outputFileName]
 # Done!
 print('Program completed successfully!')
