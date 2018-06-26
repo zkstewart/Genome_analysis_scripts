@@ -11,13 +11,19 @@ from Bio.Alphabet import generic_dna
 # Define functions for later use
 def validate_args(args):
         # Validate input file locations
-        if not os.path.isfile(args.gmapFile):
-                print('I am unable to locate the input GMAP gff3 file (' + args.gmapFile + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
-        if not os.path.isfile(args.cdsFile):
-                print('I am unable to locate the input CDS FASTA file (' + args.cdsFile + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
+        for gmapFile in args.gmapFiles:
+                if not os.path.isfile(gmapFile):
+                        print('I am unable to locate the input GMAP gff3 file (' + gmapFile + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+        for cdsFile in args.cdsFiles:
+                if not os.path.isfile(cdsFile):
+                        print('I am unable to locate the input CDS FASTA file (' + cdsFile + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+        if len(args.gmapFiles) != len(args.cdsFiles):
+                print('There is a different number of arguments provided for gmapFiles and cdsFiles.')
+                print('Each gmap GFF3 file should be matched with its respective CDS FASTA file. Try again.')
                 quit()
         if not os.path.isfile(args.genomeFile):
                 print('I am unable to locate the input genome FASTA file (' + args.genomeFile + ')')
@@ -171,11 +177,14 @@ def validate_translated_cds(seq1, cdsRecords, cdsID):
                 if len(frameOrf) > len(longest[0]):
                         longest = [frameOrf, nucl]
         # If no result, return
-        if longest == ['', ''] or len(longest[0]) < 30: # This is a crude way of ensuring that ssw doesn't die
+        if longest == ['', ''] or len(longest[0]) < 30:                 # This is a crude way of ensuring that ssw doesn't die; it also serves to make sure our models are likely to be real by excluding very short ORFs
                 return False
         # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
         origProt = longest_orf(cdsRecords[cdsID])
-        newAlign, origAlign = ssw(longest[0], origProt)
+        try:
+                newAlign, origAlign = ssw(longest[0], origProt)
+        except:
+                return False                                            # SSW still dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
         alignPct = len(newAlign) / len(longest[0])
         if alignPct < 0.60:                                             # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
                 return False
@@ -421,105 +430,100 @@ def compare_novels(inputDict, genomeRecords):
                                 for x in range(i+1, len(modelSets)):
                                         set1 = modelSets[i][1]
                                         set2 = modelSets[x][1]
-                                        # Calculate overlap
+                                        # Check for overlap
                                         ovl = set1 & set2
-                                        ovlPct1 = len(ovl) / len(set1)
-                                        ovlPct2 = len(ovl) / len(set2)
                                         # If no overlap, continue
                                         if ovl == set():
                                                 continue
                                         # Extract details for comparison
                                         spliceTypes1 = splice_sites(modelSets[i][2], genomeRecords, modelSets[i][3], modelSets[i][4])
                                         spliceTypes2 = splice_sites(modelSets[x][2], genomeRecords, modelSets[x][3], modelSets[x][4])
-                                        # Handle near-complete overlaps
-                                        if ovlPct1 >= 0.95 or ovlPct2 >= 0.95:
-                                                # Filter 1: Splice rules
-                                                ## Extract details
-                                                canonPct1 = spliceTypes1[0] / sum(spliceTypes1)
-                                                canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
-                                                noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
-                                                noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
-                                                ## Compare
-                                                if canonPct1 != canonPct2:
-                                                        if canonPct1 > canonPct2:
-                                                                del modelSets[x]
-                                                                loopEnd = False
-                                                                break
-                                                        else:
-                                                                del modelSets[i]
-                                                                loopEnd = False
-                                                                break
-                                                elif noncanonPct1 != noncanonPct2:
-                                                        if noncanonPct1 > noncanonPct2:
-                                                                del modelSets[x]
-                                                                loopEnd = False
-                                                                break
-                                                        else:
-                                                                del modelSets[i]
-                                                                loopEnd = False
-                                                                break
-                                                # Filter 2: Microexons
-                                                shortestExon1 = None
-                                                shortestExon2 = None
-                                                microLen = 30   # Arbitrary; exons longer than 30bp aren't considered microexons (this seems to be agreed upon in literature I briefly viewed)
-                                                for coord in modelSets[i][2]:
-                                                        splitCoord = coord.split('-')
-                                                        exonLen = int(splitCoord[1]) - int(splitCoord[0]) + 1
-                                                        if shortestExon1 == None:
-                                                                shortestExon1 = exonLen
-                                                        elif exonLen < shortestExon1:
-                                                                shortestExon1 = exonLen
-                                                for coord in modelSets[x][2]:
-                                                        splitCoord = coord.split('-')
-                                                        exonLen = int(splitCoord[1]) - int(splitCoord[0]) + 1
-                                                        if shortestExon2 == None:
-                                                                shortestExon2 = exonLen
-                                                        elif exonLen < shortestExon2:
-                                                                shortestExon2 = exonLen
-                                                if shortestExon1 > shortestExon2:
-                                                        if shortestExon2 < microLen:
-                                                                del modelSets[x]
-                                                                loopEnd = False
-                                                                break
-                                                elif shortestExon2 > shortestExon1:
-                                                        if shortestExon1 < microLen:
-                                                                del modelSets[i]
-                                                                loopEnd = False
-                                                                break
-                                                # Filter 3: Length
-                                                if len(set1) > len(set2):
+                                        canonPct1 = spliceTypes1[0] / sum(spliceTypes1)
+                                        canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
+                                        noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
+                                        noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
+                                        # Handle overlaps
+                                        ## Filter 1: Splice rules
+                                        if canonPct1 != canonPct2:
+                                                if canonPct1 > canonPct2:
                                                         del modelSets[x]
                                                         loopEnd = False
                                                         break
-                                                elif len(set2) > len(set1):
+                                                else:
                                                         del modelSets[i]
                                                         loopEnd = False
                                                         break
-                                                # If we pass all of these filters, we need to make a decision somehow
-                                                ## Final decision 1: Shortest exon length
-                                                if shortestExon1 > shortestExon2:
+                                        elif noncanonPct1 != noncanonPct2:
+                                                if noncanonPct1 > noncanonPct2:
                                                         del modelSets[x]
                                                         loopEnd = False
                                                         break
-                                                elif shortestExon2 > shortestExon1:
+                                                else:
                                                         del modelSets[i]
                                                         loopEnd = False
                                                         break
-                                                ## Final decision 2: Lower path number
-                                                pathNum1 = int(modelSets[i][0].rsplit('.path', maxsplit=1)[1])
-                                                pathNum2 = int(modelSets[x][0].rsplit('.path', maxsplit=1)[1])
-                                                if pathNum1 < pathNum2:
+                                        # Filter 2: Microexons
+                                        shortestExon1 = None
+                                        shortestExon2 = None
+                                        microLen = 30   # Arbitrary; exons longer than 30bp aren't considered microexons (this seems to be agreed upon in literature I briefly viewed)
+                                        for coord in modelSets[i][2]:
+                                                splitCoord = coord.split('-')
+                                                exonLen = int(splitCoord[1]) - int(splitCoord[0]) + 1
+                                                if shortestExon1 == None:
+                                                        shortestExon1 = exonLen
+                                                elif exonLen < shortestExon1:
+                                                        shortestExon1 = exonLen
+                                        for coord in modelSets[x][2]:
+                                                splitCoord = coord.split('-')
+                                                exonLen = int(splitCoord[1]) - int(splitCoord[0]) + 1
+                                                if shortestExon2 == None:
+                                                        shortestExon2 = exonLen
+                                                elif exonLen < shortestExon2:
+                                                        shortestExon2 = exonLen
+                                        if shortestExon1 > shortestExon2:
+                                                if shortestExon2 < microLen:
                                                         del modelSets[x]
                                                         loopEnd = False
                                                         break
-                                                elif pathNum2 < pathNum1:
+                                        elif shortestExon2 > shortestExon1:
+                                                if shortestExon1 < microLen:
                                                         del modelSets[i]
                                                         loopEnd = False
                                                         break
-                                                ## Final decision 2: How!?!? Just kill x
+                                        # Filter 3: Length
+                                        if len(set1) > len(set2):
                                                 del modelSets[x]
                                                 loopEnd = False
                                                 break
+                                        elif len(set2) > len(set1):
+                                                del modelSets[i]
+                                                loopEnd = False
+                                                break
+                                        # If we pass all of these filters, we need to make a decision somehow
+                                        ## Final decision 1: Shortest exon length
+                                        if shortestExon1 > shortestExon2:
+                                                del modelSets[x]
+                                                loopEnd = False
+                                                break
+                                        elif shortestExon2 > shortestExon1:
+                                                del modelSets[i]
+                                                loopEnd = False
+                                                break
+                                        ## Final decision 2: Lower path number
+                                        pathNum1 = int(modelSets[i][0].rsplit('.path', maxsplit=1)[1])
+                                        pathNum2 = int(modelSets[x][0].rsplit('.path', maxsplit=1)[1])
+                                        if pathNum1 < pathNum2:
+                                                del modelSets[x]
+                                                loopEnd = False
+                                                break
+                                        elif pathNum2 < pathNum1:
+                                                del modelSets[i]
+                                                loopEnd = False
+                                                break
+                                        ## Final decision 3: How!?!? Just kill x
+                                        del modelSets[x]
+                                        loopEnd = False
+                                        break
                 # Hold onto accepted models
                 for entry in modelSets:
                         acceptedModels.append(entry[0])
@@ -580,6 +584,14 @@ def splice_sites(coords, genomeRecords, contigID, orientation):
                         spliceTypes[3] += 1
         # Return value
         return spliceTypes
+
+def merge_dictionaries(dictList):
+        mergedDict = {}
+        for dictionary in dictList:
+                for key, value in dictionary.items():
+                        assert key not in mergedDict    # This is the reason we have this as a function
+                        mergedDict[key] = value         # The input files shouldn't have redundant names
+        return mergedDict
 
 ## NCLS RELATED
 def gff3_parse_ncls(gff3File):
@@ -775,18 +787,15 @@ def output_func(inputDict, outFileName):
 idRegex = re.compile(r'ID=(.+?);')
                 
 #### USER INPUT SECTION
-usage = """%(prog)s will extend upon an annotation file to include various details about each gene model. This includes
-the length of transcript and CDS, exon regions, intron sizes, and the type of transcriptional support for each exon. 
-Transcriptional support analysis requires GMAP alignment of the full transcripts (including UTRs) to the genome;
-the resultant gff3 file will be used.
+usage = """%(prog)s
 """
 
 # Reqs
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("-gm", "-gmapFile", dest="gmapFile",
-                   help="Input GMAP gene gff3 (-f 2) file name.")
-p.add_argument("-cd", "-cdsFile", dest="cdsFile",
-                   help="Input CDS fasta file name (this file was used for GMAP alignment).")
+p.add_argument("-gm", "-gmapFiles", dest="gmapFiles", nargs="+",
+                   help="Input GMAP gene gff3 (-f 2) file name(s).")
+p.add_argument("-cd", "-cdsFiles", dest="cdsFiles", nargs="+",
+                   help="Input CDS fasta file name(s) (these file[s] were used for GMAP alignment).")
 p.add_argument("-ge", "-genomeFile", dest="genomeFile",
                    help="Input genome FASTA file name.")
 p.add_argument("-an", "-annotationFile", dest="annotationFile",
@@ -800,8 +809,8 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
 
 args = p.parse_args()
 ## HARD CODED ##
-args.gmapFile = r'cal_smart_pasaupdated_cds_gmap.gff3'
-args.cdsFile =  r'cal_smart_pasaupdated_all_cds.nucl'
+args.gmapFiles = ['cal_smart_pasaupdated_cds_gmap.gff3', 'cal_smart_okay-okalt_cds_gmap.gff3']
+args.cdsFiles =  ['cal_smart_pasaupdated_all_cds.nucl', 'cal_smart_okay-okalt.cds']
 args.genomeFile = r'cal_smrtden.ar4.pil2.deGRIT2.fasta'
 args.annotationFile = r'cal_smart.rnam-trna.final.sorted.gff3'
 args.outputFileName = r'test_out.gff3'
@@ -810,102 +819,103 @@ validate_args(args)
 # Load in genome fasta file as dict
 genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
 
-# Load in CDS fasta file as dict
-cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFile, 'r'), 'fasta'))
-
-# Parse GMAP GFF3 for gene models
-gmapExonDict, gmapCDSDict = gff3_parse(args.gmapFile)
-
 # Parse main annotation GFF3 as NCLS and model
 gff3Ncls, gff3Loc = gff3_parse_ncls(args.annotationFile)
 gff3ExonDict, gff3CDSDict = gff3_parse(args.annotationFile)
 
-# Detect well-suported multi-path models
-coordDict = {}
-for key, value in gmapExonDict.items():
-        # Check if there is more than 1 path for this assembly
-        baseID = key.rsplit('.', maxsplit=1)[0]
-        if baseID + '.path2' not in gmapExonDict:
-                continue
-        # Check if this
-        for mrna in value:
-                # Skip if the current path is a 1-exon gene
-                if len(mrna[1]) == 1:
-                        continue
-                # Check that the main gene isn't a probable pseudogene/transposon-related ORF
-                mainExonNum = len(gmapExonDict[baseID + '.path1'][0][1])
-                if mainExonNum == 1:
-                        continue
-                # Cut-off checks
-                decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
-                if decision == False:
-                        continue
-                result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0])     # Split off the '.mrna#' suffix
-                #[coords, contigID, orientation, cdsRecords, genomeRecords, cdsID] = [mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0]]
-                if result == False:
-                        continue
-                else:
-                        coordDict[key] = [result, mrna[2], mrna[3]]
-
-# Remove overlaps of existing genes? / existing near-identical genes?
+# Set up values for the main loop
 geneIDRegex = re.compile(r'_?evm.model.utg\d{1,10}.\d{1,10}')
-ovlCutoff = 0.60
-outputValues = {}
-for key, value in coordDict.items():
-        # Find overlaps for each exon
-        dictEntries = []
-        for coord in value[0]:
-                start, stop = coord_extract(coord)
-                # Find overlaps
-                dictEntries += ncls_finder(gff3Ncls, gff3Loc, start, stop, value[1], 4, 'boundary')    # 4 refers to the index position in the gff3Loc dictionary for the contigID
-        # Convert coordinates to set values for overlap calculation
-        valueSet = set()
-        for coord in value[0]:
-                start, stop = coord_extract(coord)
-                valueSet = valueSet.union(set(range(start, stop+1)))
-        # Compare overlaps to see if this gene overlaps existing genes
-        checked = []
-        overlapped = set()
-        for entry in dictEntries:
-                # Handle redundancy
-                if entry in checked:
+
+# Main loop: find good multipath gene models
+gmapDicts = []  # Hold onto dictionaries from each iteration of gmap files
+for i in range(len(args.gmapFiles)):
+        # Load in CDS fasta file as dict
+        cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFiles[i], 'r'), 'fasta'))
+        # Parse GMAP GFF3 for gene models
+        gmapExonDict, gmapCDSDict = gff3_parse(args.gmapFiles[i])
+        # Detect well-suported multi-path models
+        coordDict = {}
+        for key, value in gmapExonDict.items():
+                # Check if there is more than 1 path for this assembly
+                baseID = key.rsplit('.', maxsplit=1)[0] ## CONSIDER REMOVING
+                if baseID + '.path2' not in gmapExonDict:
                         continue
-                checked.append(entry)
-                # Pull out the gene details of this hit and find the overlapping mRNA
-                geneID = ''.join(geneIDRegex.findall(entry[3])).replace('model', 'TU')
-                mrnaList = gff3CDSDict[geneID]
-                for mrna in mrnaList:
-                        if mrna[0] == entry[3]:
-                                mrnaHit = mrna
-                                break
-                # Calculate the overlap of the current value against this mRNA model
-                mrnaSet = set()
-                for coord in mrnaHit[1]:
+                for mrna in value:
+                        # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
+                        if len(mrna[1]) == 1:
+                                continue
+                        # Check that the main gene isn't a probable pseudogene/transposon-related ORF
+                        mainExonNum = len(gmapExonDict[baseID + '.path1'][0][1]) ## CONSIDER REMOVING?
+                        if mainExonNum == 1:
+                                continue
+                        # Cut-off checks
+                        decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
+                        if decision == False:
+                                continue
+                        result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0])     # Split off the '.mrna#' suffix
+                        #[coords, contigID, orientation, cdsRecords, genomeRecords, cdsID] = [mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0]]
+                        if result == False:
+                                continue
+                        else:
+                                coordDict[key] = [result, mrna[2], mrna[3]]
+        # Remove overlaps of existing genes
+        outputValues = {}
+        for key, value in coordDict.items():
+                # Find overlaps for each exon
+                dictEntries = []
+                for coord in value[0]:
                         start, stop = coord_extract(coord)
-                        mrnaSet = mrnaSet.union(set(range(start, stop+1)))       
-                        # Store how much overlap is present
-                        overlapped = overlapped.union(valueSet & mrnaSet)
-        # Drop any models which overlap existing (could mean we miss some true positives, but it makes things so much easier I'm willing to take this loss)
-        if overlapped != set():
-                continue
-        # Hold onto things which pass this check
-        else:
-                outputValues[key] = value
+                        # Find overlaps
+                        dictEntries += ncls_finder(gff3Ncls, gff3Loc, start, stop, value[1], 4, 'boundary')    # 4 refers to the index position in the gff3Loc dictionary for the contigID
+                # Convert coordinates to set values for overlap calculation
+                valueSet = set()
+                for coord in value[0]:
+                        start, stop = coord_extract(coord)
+                        valueSet = valueSet.union(set(range(start, stop+1)))
+                # Compare overlaps to see if this gene overlaps existing genes
+                checked = []
+                overlapped = set()
+                for entry in dictEntries:
+                        # Handle redundancy
+                        if entry in checked:
+                                continue
+                        checked.append(entry)
+                        # Pull out the gene details of this hit and find the overlapping mRNA
+                        geneID = ''.join(geneIDRegex.findall(entry[3])).replace('model', 'TU')
+                        mrnaList = gff3CDSDict[geneID]
+                        for mrna in mrnaList:
+                                if mrna[0] == entry[3]:
+                                        mrnaHit = mrna
+                                        break
+                        # Calculate the overlap of the current value against this mRNA model
+                        mrnaSet = set()
+                        for coord in mrnaHit[1]:
+                                start, stop = coord_extract(coord)
+                                mrnaSet = mrnaSet.union(set(range(start, stop+1)))       
+                                # Store how much overlap is present
+                                overlapped = overlapped.union(valueSet & mrnaSet)
+                # Drop any models which overlap existing (could mean we miss some true positives, but it makes things so much easier I'm willing to take this loss)
+                if overlapped != set():
+                        continue
+                # Hold onto things which pass this check
+                else:
+                        outputValues[key] = value
+        # Hold onto the result
+        gmapDicts.append(outputValues)
 
-# Additional curation checks...
+# Merge dictionaries together
+mergedDict = merge_dictionaries(gmapDicts)
 
-## Consider a specific check for single-exon genes?
+# Collapse overlapping paths by selecting the 'best' according to canonical splicing and other rules
+mergedDict = compare_novels(mergedDict, genomeRecords)
 
-# Perfect splice borders/mostly perfect with some allowance for known unconventional splices? - give leeway to longer sequences?
-
-
-# Collapse overlapping paths from the same model by selecting the 'best' according to canonical splicing and other rules
-outputValues = compare_novels(outputValues, genomeRecords)
 ## Examples to consider: utg103 170,000
 
 
-# Cull weird looking models - one long exon with a tiny micro exon
-## Unnecessary now?
+# Cull weird looking models
+## one long exon with a tiny micro exon - Unnecessary now?
+
+## TBD - Tiny intron models (utg0)
 
 # Output to file
 output_func(outputValues, args.outputFileName)
