@@ -125,7 +125,10 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID):
                 coords[i] = '-'.join(splitCoord)
         # Extend the CDS where possible
         coords = cds_extension(coords, contigID, orientation, genomeRecords)
-        # Return coordinates
+        # If we encountered a problem with our CDS, drop the model
+        if coords == False:
+                return False
+        # Return coordinates otherwise
         return coords
 
 def validate_translated_cds(seq1, cdsRecords, cdsID):
@@ -186,8 +189,8 @@ def validate_translated_cds(seq1, cdsRecords, cdsID):
         except:
                 return False                                            # SSW still dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
         alignPct = len(newAlign) / len(longest[0])
-        if alignPct < 0.60:                                             # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
-                return False
+        if alignPct < 0.85:                                             # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
+                return False                                            # Originally I tried 0.60; I think a good "maximum strictness" value would be 0.85; Currently, I think 0.75 strikes a good balance ensuring that the ORF is mostly supported
         # If we have the same start codon and a stop codon, check length for consistency
         lowerBound = origLen - (origLen * 0.1)
         if lowerBound <= len(longest[1]):
@@ -315,13 +318,14 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 # Update this in our coords value
                 if accepted[1] == True:
                         coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
-        # Determine if we need to a stop codon crawl
+        # Determine if we need to do a stop codon crawl
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         cdsRecord = Seq(cds, generic_dna)
         with warnings.catch_warnings():
                 warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                 cdsProt = str(cdsRecord.translate(table=1))
-        assert cdsProt.count('*') < 2                                   # Make sure the CDS is correct - it should be!
+        if not cdsProt.count('*') < 2:                                  # Make sure the CDS is correct - it should be!
+                return False                                            # This can happen when we strip off a micro exon prior to the ORF and, when extended, the first codon is immediately a stop.
         if cdsProt.count('*') == 1:
                 assert cdsProt[-1] == '*'                               # If we have a stop codon, it should be at the end
                 return coords                                           # No need for a backwards crawl
@@ -401,7 +405,6 @@ def reverse_comp(seq):
 
 ## Overlap collapsing
 def compare_novels(inputDict, genomeRecords):
-        #inputDict = outputValues
         # Find our contig IDs from the genome
         contigIDs = list(genomeRecords.keys())
         # Loop through our contigs and compare gene models
@@ -593,6 +596,68 @@ def merge_dictionaries(dictList):
                         mergedDict[key] = value         # The input files shouldn't have redundant names
         return mergedDict
 
+## Curation checks
+def remove_bad_splices(inputDict, genomeRecords):
+        outputDict = {}
+        for key, value in inputDict.items():
+                # Arbitrary cutoffs
+                minimumSize = 200       # An ORF that is >= 200 AA long is probably real assuming it is highly similar to its origin (which it is with a 0.85 cutoff elsewhere in the code)
+                unknownCutoff = 0.33    # If more than 1/3 introns have unknown splices, there's a good chance this model isn't real
+                # Extract details
+                spliceTypes = splice_sites(value[0], genomeRecords, value[1], value[2])
+                unknownPct = spliceTypes[3] / sum(spliceTypes)
+                seqLen = 0
+                for coord in value[0]:
+                        splitCoord = coord.split('-')
+                        seqLen += int(splitCoord[1]) - int(splitCoord[0]) + 1
+                # Drop any models that lack canonical splices entirely
+                if spliceTypes[0] == 0: # This works really well, since it forces 2-exon genes to have a canonical splice and hence removes most obviously bad models
+                        continue
+                # Drop any short models with unknown splices
+                if spliceTypes[3] != 0 and seqLen/3 < minimumSize:
+                        continue
+                # Drop any models with > cutoff percent of unknown splices
+                if round(unknownPct, 2) > unknownCutoff:
+                        continue
+                # Hold onto anything that passes cutoff
+                outputDict[key] = value
+        return outputDict
+
+def remove_weird_models(inputDict):
+        outputDict = {}
+        # Set up arbitrary cutoffs
+        intronLenMin = 50       # Any model which only contains super short introns is probably not a good model
+        for key, value in inputDict.items():
+                # Check 1: Only micro introns (probably a sign that GMAP has done some weird stuff to get an in-frame match)
+                intronCoords, intronLens = intron_detail_extract(value[0], value[2])
+                if max(intronLens) < intronLenMin:
+                        continue
+                # If we pass the above checks, hold onto this result
+                outputDict[key] = value
+        return outputDict
+
+def intron_detail_extract(coords, orientation):
+        intronCoords = []
+        intronLens = []
+        for i in range(0, len(coords)-1):
+                # Extract details
+                splitCoord1 = coords[i].split('-')
+                start1 = int(splitCoord1[0])
+                stop1 = int(splitCoord1[1])
+                splitCoord2 = coords[i+1].split('-')
+                start2 = int(splitCoord2[0])
+                stop2 = int(splitCoord2[1])
+                # Identify intron gap depending on orientation
+                if orientation == '+':
+                        intronCoord = str(stop1+1) + '-' + str(start2-1)
+                        intronLen = (start2-1) - (stop1+1)
+                else:
+                        intronCoord = str(stop2+1) + '-' + str(start1-1)
+                        intronLen = (start1-1) - (stop2+1)
+                intronCoords.append(intronCoord)
+                intronLens.append(intronLen)
+        return intronCoords, intronLens
+
 ## NCLS RELATED
 def gff3_parse_ncls(gff3File):
         import pandas as pd
@@ -744,6 +809,7 @@ def coord_extract(coord):
         stop = int(splitCoord[1])
         return start, stop
 
+## Needs update
 def output_func(inputDict, outFileName):
         with open(outFileName, 'w') as fileOut:
                 for key, value in inputDict.items():
@@ -765,7 +831,7 @@ def output_func(inputDict, outFileName):
                                 end = max(firstInts)
                                 start = min(lastInts)
                         # Format gene line
-                        typeCol = 'gmap_multipath_curated'
+                        typeCol = 'gmap_automatic_curated'
                         geneLine = '\t'.join([value[1], typeCol, 'gene', str(start), str(end), '.', value[2], '.', 'ID=' + pathID +';Name=' + name])
                         fileOut.write(geneLine + '\n')
                         # Format mRNA line
@@ -787,7 +853,12 @@ def output_func(inputDict, outFileName):
 idRegex = re.compile(r'ID=(.+?);')
                 
 #### USER INPUT SECTION
-usage = """%(prog)s
+usage = """%(prog)s reads in 1 or more input GMAP GFF3 files built using -f 2 formatting and will compare
+these against the current annotation, returning a GFF3 file of curated gene models that pass a variety of checks.
+These include intron splicing checks, overlap checks between new models and existing, and checks that the new model
+is similar to the old one. The result should need minimal manual curation, and likely contains many models that are
+either inside introns or are extra copies of other models that weren't assembled due to PASA's default GMAP settings
+resulting in only 1 path.
 """
 
 # Reqs
@@ -808,12 +879,6 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
-## HARD CODED ##
-args.gmapFiles = ['cal_smart_pasaupdated_cds_gmap.gff3', 'cal_smart_okay-okalt_cds_gmap.gff3']
-args.cdsFiles =  ['cal_smart_pasaupdated_all_cds.nucl', 'cal_smart_okay-okalt.cds']
-args.genomeFile = r'cal_smrtden.ar4.pil2.deGRIT2.fasta'
-args.annotationFile = r'cal_smart.rnam-trna.final.sorted.gff3'
-args.outputFileName = r'test_out.gff3'
 validate_args(args)
 
 # Load in genome fasta file as dict
@@ -836,24 +901,15 @@ for i in range(len(args.gmapFiles)):
         # Detect well-suported multi-path models
         coordDict = {}
         for key, value in gmapExonDict.items():
-                # Check if there is more than 1 path for this assembly
-                baseID = key.rsplit('.', maxsplit=1)[0] ## CONSIDER REMOVING
-                if baseID + '.path2' not in gmapExonDict:
-                        continue
                 for mrna in value:
                         # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
                         if len(mrna[1]) == 1:
-                                continue
-                        # Check that the main gene isn't a probable pseudogene/transposon-related ORF
-                        mainExonNum = len(gmapExonDict[baseID + '.path1'][0][1]) ## CONSIDER REMOVING?
-                        if mainExonNum == 1:
                                 continue
                         # Cut-off checks
                         decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
                         if decision == False:
                                 continue
                         result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0])     # Split off the '.mrna#' suffix
-                        #[coords, contigID, orientation, cdsRecords, genomeRecords, cdsID] = [mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0]]
                         if result == False:
                                 continue
                         else:
@@ -894,8 +950,9 @@ for i in range(len(args.gmapFiles)):
                                 mrnaSet = mrnaSet.union(set(range(start, stop+1)))       
                                 # Store how much overlap is present
                                 overlapped = overlapped.union(valueSet & mrnaSet)
-                # Drop any models which overlap existing (could mean we miss some true positives, but it makes things so much easier I'm willing to take this loss)
-                if overlapped != set():
+                # Drop any models which overlap existing genes enough to suggest that it's either 1) fragmented, or 2) an isoform
+                ovlPct = (len(valueSet) - (len(valueSet) - len(overlapped))) / len(valueSet)    # Originally I was going to drop anything with overlap, but manual inspection shows there's justification for allowing some overlap (but not much)
+                if ovlPct > 0.35:
                         continue
                 # Hold onto things which pass this check
                 else:
@@ -909,16 +966,13 @@ mergedDict = merge_dictionaries(gmapDicts)
 # Collapse overlapping paths by selecting the 'best' according to canonical splicing and other rules
 mergedDict = compare_novels(mergedDict, genomeRecords)
 
-## Examples to consider: utg103 170,000
-
+# Cull models with poor splicing
+mergedDict = remove_bad_splices(mergedDict, genomeRecords)
 
 # Cull weird looking models
-## one long exon with a tiny micro exon - Unnecessary now?
-
-## TBD - Tiny intron models (utg0)
+mergedDict = remove_weird_models(mergedDict)
 
 # Output to file
-output_func(outputValues, args.outputFileName)
-#[inputDict, cdsFileName, outFileName] = [outputValues, args.cdsFile, args.outputFileName]
+output_func(mergedDict, args.outputFileName)
 # Done!
 print('Program completed successfully!')
