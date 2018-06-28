@@ -40,10 +40,15 @@ def validate_args(args):
         if not 0 <= args.identityCutoff <= 100.0:
                 print('Identity cut-off must be any number >= 0.0 and <= 100.0. Try again.')
                 quit()
+        if not 0 <= args.alignPctCutoff <= 100.0:
+                print('Identity cut-off must be any number >= 0.0 and <= 100.0. Try again.')
+                quit()
+        args.alignPctCutoff = args.alignPctCutoff / 100 # I think it's more intuitive on the commandline to deal with percentages 0-100 rather than ratios 0-1
         # Handle file overwrites
         if os.path.isfile(args.outputFileName):
                 print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
                 quit()
+        return args
 
 ## Checking and validation of models
 def check_model(commentLine, covCutoff, idCutoff):
@@ -62,7 +67,7 @@ def check_model(commentLine, covCutoff, idCutoff):
         # Passed all cutoffs!
         return True
 
-def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID):
+def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, alignPctCutoff):
         def correct_overshoots(splitCoord):
                 if int(splitCoord[0]) < 1:
                         splitCoord[0] = '1'
@@ -95,14 +100,16 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID):
                 coords[i] = '-'.join(splitCoord)
         # Join our CDS bits together
         cds = ''.join(cds)
-        # Translate to protein and validate
-        result = validate_translated_cds(cds, cdsRecords, cdsID)
-        #[seq1, cdsRecords, cdsID]=[cds, cdsRecords, cdsID]
-        if result == False:
+        # Find the starting codon w/r/t to the codon used for the original CDS
+        origCDS = str(cdsRecords[cdsID].seq)
+        firstCodon = origCDS[0:3]
+        # Pull out the longest ORF present in the CDS region
+        orfProt, orfNucl = find_longest_orf(cds, firstCodon)    #seq=cds
+        if orfNucl == '':       # This means we didn't find 
                 return False
         # Find out if we've dropped any exons along the way
-        startChange = cds.find(result)
-        stopChange = len(cds) - len(result) - startChange
+        startChange = cds.find(orfNucl)
+        stopChange = len(cds) - len(orfNucl) - startChange
         coords, startExonLen, stopExonLen = coord_excess_cut(coords, startChange, stopChange, orientation)
         # Drop the model if we reduced it to a single exon
         if len(coords) == 1:
@@ -124,22 +131,22 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID):
                                 splitCoord[0] = str(int(splitCoord[0]) + stopChange)
                 coords[i] = '-'.join(splitCoord)
         # Extend the CDS where possible
-        coords = cds_extension(coords, contigID, orientation, genomeRecords)
-        # If we encountered a problem with our CDS, drop the model
-        if coords == False:
+        result = cds_extension(coords, contigID, orientation, genomeRecords)
+        if result == False:
+                return False    # If we encountered a problem with our CDS, drop the model
+        coords, cds = result
+        # Validate the ORF to see that it is sufficiently similar to its origin
+        result = validate_translated_cds(cds, cdsRecords, cdsID, alignPctCutoff)
+        if result == False:
                 return False
-        # Return coordinates otherwise
-        return coords
+        # Return coordinates and protein sequence otherwise
+        return coords, result
 
-def validate_translated_cds(seq1, cdsRecords, cdsID):
-        # Find the starting codon w/r/t to the codon used for the original CDS
-        origCDS = str(cdsRecords[cdsID].seq)
-        origLen = len(origCDS)
-        firstCodon = origCDS[0:3]
+def find_longest_orf(seq, firstCodon):
         # Translate into ORFs and grab the longest bits inbetween stop codons
         longest = ['', '']
         for frame in range(3):
-                record = Seq(seq1, generic_dna)
+                record = Seq(seq, generic_dna)
                 # Get nucleotide for this frame
                 nucl = str(record)[frame:]
                 nucl = Seq(nucl, generic_dna)
@@ -147,8 +154,6 @@ def validate_translated_cds(seq1, cdsRecords, cdsID):
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                         frameProt = str(nucl.translate(table=1))
-                #if '*' not in frameProt:
-                #        continue                                        # We only want (mostly) complete ORFs; no stop codon means we don't accept the sequence
                 # Find the longest ORF
                 prots = frameProt.split('*')
                 tmpLongest = ['', '']
@@ -179,22 +184,37 @@ def validate_translated_cds(seq1, cdsRecords, cdsID):
                         frameOrf = str(record.translate(table=1))
                 if len(frameOrf) > len(longest[0]):
                         longest = [frameOrf, nucl]
-        # If no result, return
-        if longest == ['', ''] or len(longest[0]) < 30:                 # This is a crude way of ensuring that ssw doesn't die; it also serves to make sure our models are likely to be real by excluding very short ORFs
+        return longest
+
+def validate_translated_cds(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
+        # Arbitrary preset values
+        cdsLenCutoff = 30
+        # Get the original sequence's details
+        origCDS = str(cdsRecords[cdsID].seq)
+        origProt = longest_orf(cdsRecords[cdsID])
+        origLen = len(origCDS)
+        # Convert the new sequence to protein
+        record = Seq(cdsNucl, generic_dna)
+        with warnings.catch_warnings():
+                warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
+                cdsProt = str(record.translate(table=1))
+        assert cdsProt[-1] == '*' and cdsProt.count('*') == 1   # Make sure things are all good
+        # If the ORF isn't long enough, it doesn't pass validation
+        if len(cdsProt) < cdsLenCutoff:
                 return False
         # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
-        origProt = longest_orf(cdsRecords[cdsID])
         try:
-                newAlign, origAlign = ssw(longest[0], origProt)
+                newAlign, origAlign = ssw(cdsProt, origProt)
         except:
-                return False                                            # SSW still dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
-        alignPct = len(newAlign) / len(longest[0])
-        if alignPct < 0.85:                                             # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
+                return False                                            # SSW dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
+        alignPct = len(newAlign) / len(cdsProt)
+        if alignPct < alignPctCutoff:                                   # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
                 return False                                            # Originally I tried 0.60; I think a good "maximum strictness" value would be 0.85; Currently, I think 0.75 strikes a good balance ensuring that the ORF is mostly supported
         # If we have the same start codon and a stop codon, check length for consistency
         lowerBound = origLen - (origLen * 0.1)
-        if lowerBound <= len(longest[1]):
-                return longest[1]
+        upperBound = origLen + (origLen * 0.1)
+        if lowerBound <= len(cdsNucl) <= upperBound:
+                return cdsProt
         else:
                 return False
 
@@ -328,7 +348,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 return False                                            # This can happen when we strip off a micro exon prior to the ORF and, when extended, the first codon is immediately a stop.
         if cdsProt.count('*') == 1:
                 assert cdsProt[-1] == '*'                               # If we have a stop codon, it should be at the end
-                return coords                                           # No need for a backwards crawl
+                return coords, cds                                      # No need for a backwards crawl
         # Begin the stop codon crawl
         if orientation == '+':
                 endCoord = int(coords[-1].split('-')[1])
@@ -351,7 +371,9 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 i = i - 2 + 1                                           # -2 to go to the start of the codon; +1 to make it 1-based
                 acceptedPos = accepted[0] + 1
                 coords[-1] = str(i) + '-' + coords[-1].split('-')[1]
-        return coords
+        # Make the final CDS and return
+        cds = make_cds(coords, genomeRecords, contigID, orientation)
+        return coords, cds
 
 ## Basic sequence operations
 def make_cds(coords, genomeRecords, contigID, orientation):
@@ -809,20 +831,19 @@ def coord_extract(coord):
         stop = int(splitCoord[1])
         return start, stop
 
-## Needs update
 def output_func(inputDict, outFileName):
         with open(outFileName, 'w') as fileOut:
                 for key, value in inputDict.items():
-                        fileOut.write('###\n')
                         # Format base name details
                         pathID = key
-                        name = key.rsplit('.', maxsplit=1)[0]
+                        name = 'gmap_gene_find_' + key
                         mrnaID = pathID.replace('.path', '.mrna')       # Could theoretically be a problem if the gene name contains .path in its actual name, but this isn't the case with my data and shouldn't be with others
                         # Extract details
                         firstCoord = value[0][0].split('-')
                         firstInts = [int(firstCoord[0]), int(firstCoord[1])]
                         lastCoord = value[0][-1].split('-')
                         lastInts = [int(lastCoord[0]), int(lastCoord[1])]
+                        protein = value[3]
                         # Determine gene start and end coordinates with respect to orientation
                         if value[2] == '+':
                                 start = min(firstInts)
@@ -830,8 +851,11 @@ def output_func(inputDict, outFileName):
                         else:
                                 end = max(firstInts)
                                 start = min(lastInts)
+                        # Format start comment
+                        startComment = '# GMAP_GENE_FIND: ' + pathID + ' automatic model build'
+                        fileOut.write(startComment + '\n')
                         # Format gene line
-                        typeCol = 'gmap_automatic_curated'
+                        typeCol = 'gmap_gene_find'
                         geneLine = '\t'.join([value[1], typeCol, 'gene', str(start), str(end), '.', value[2], '.', 'ID=' + pathID +';Name=' + name])
                         fileOut.write(geneLine + '\n')
                         # Format mRNA line
@@ -848,6 +872,9 @@ def output_func(inputDict, outFileName):
                                 cdsLine = '\t'.join([value[1], typeCol, 'CDS', start, end, '.', value[2], '.', 'ID=' + mrnaID + '.cds' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
                                 fileOut.write(cdsLine + '\n')
                                 ongoingCount += 1
+                        # Format end comment
+                        endComment = '#PROT ' + mrnaID + ' ' + pathID + '\t' + protein
+                        fileOut.write(endComment + '\n')
 
 # Set up regex for later use
 idRegex = re.compile(r'ID=(.+?);')
@@ -874,12 +901,14 @@ p.add_argument("-an", "-annotationFile", dest="annotationFile",
 p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
                    help="Coverage cut-off (must have coverage >= provided value; accepted range 0.0->100.0; default == 70.0).", default=70.0)
 p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
-                   help="Identity cut-off (must have identity >= provided value; accepted range 0.0->100.0; default == 80.0).", default=80.0)
+                   help="Identity cut-off (must have identity >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
+p.add_argument("-al", "-alignPctCutoff", dest="alignPctCutoff", type=float,
+                   help="Alignment percent cut-off (new sequence must align against original >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
 p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
-validate_args(args)
+args = validate_args(args)
 
 # Load in genome fasta file as dict
 genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
@@ -892,7 +921,8 @@ gff3ExonDict, gff3CDSDict = gff3_parse(args.annotationFile)
 geneIDRegex = re.compile(r'_?evm.model.utg\d{1,10}.\d{1,10}')
 
 # Main loop: find good multipath gene models
-gmapDicts = []  # Hold onto dictionaries from each iteration of gmap files
+gmapDicts = []          # Hold onto dictionaries from each iteration of gmap files
+ovlCutoff = 0.35        # Arbitrary value; only sharing about 1/3 of its length with known genes seems appropriate
 for i in range(len(args.gmapFiles)):
         # Load in CDS fasta file as dict
         cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFiles[i], 'r'), 'fasta'))
@@ -909,11 +939,12 @@ for i in range(len(args.gmapFiles)):
                         decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
                         if decision == False:
                                 continue
-                        result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0])     # Split off the '.mrna#' suffix
+                        result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0], args.alignPctCutoff)     # Split off the '.mrna#' suffix
                         if result == False:
                                 continue
                         else:
-                                coordDict[key] = [result, mrna[2], mrna[3]]
+                                coords, protein = result
+                                coordDict[key] = [coords, mrna[2], mrna[3], protein]
         # Remove overlaps of existing genes
         outputValues = {}
         for key, value in coordDict.items():
@@ -952,7 +983,7 @@ for i in range(len(args.gmapFiles)):
                                 overlapped = overlapped.union(valueSet & mrnaSet)
                 # Drop any models which overlap existing genes enough to suggest that it's either 1) fragmented, or 2) an isoform
                 ovlPct = (len(valueSet) - (len(valueSet) - len(overlapped))) / len(valueSet)    # Originally I was going to drop anything with overlap, but manual inspection shows there's justification for allowing some overlap (but not much)
-                if ovlPct > 0.35:
+                if ovlPct > ovlCutoff:
                         continue
                 # Hold onto things which pass this check
                 else:
