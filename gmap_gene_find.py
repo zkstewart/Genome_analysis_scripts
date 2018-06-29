@@ -645,14 +645,18 @@ def remove_bad_splices(inputDict, genomeRecords):
                 outputDict[key] = value
         return outputDict
 
-def remove_weird_models(inputDict):
+def remove_weird_models(inputDict, ovlDict):
         outputDict = {}
         # Set up arbitrary cutoffs
         intronLenMin = 50       # Any model which only contains super short introns is probably not a good model
+        intronLenMax = 10000    # Models which overlap existing ones with large introns are often GMAP fishing for a domain alignment - not a good model
         for key, value in inputDict.items():
                 # Check 1: Only micro introns (probably a sign that GMAP has done some weird stuff to get an in-frame match)
                 intronCoords, intronLens = intron_detail_extract(value[0], value[2])
                 if max(intronLens) < intronLenMin:
+                        continue
+                # Check 2: Huge introns when gene overlaps existing (probably a sign that we're incorrectly aligning against a domain region)
+                if ovlDict[key] != 0 and max(intronLens) > intronLenMax:
                         continue
                 # If we pass the above checks, hold onto this result
                 outputDict[key] = value
@@ -923,6 +927,7 @@ geneIDRegex = re.compile(r'_?evm.model.utg\d{1,10}.\d{1,10}')
 # Main loop: find good multipath gene models
 gmapDicts = []          # Hold onto dictionaries from each iteration of gmap files
 ovlCutoff = 0.35        # Arbitrary value; only sharing about 1/3 of its length with known genes seems appropriate
+ovlDict = {}            # Hold onto ovl percentages for bad model checking
 for i in range(len(args.gmapFiles)):
         # Load in CDS fasta file as dict
         cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFiles[i], 'r'), 'fasta'))
@@ -988,6 +993,7 @@ for i in range(len(args.gmapFiles)):
                 # Hold onto things which pass this check
                 else:
                         outputValues[key] = value
+                        ovlDict[key] = ovlPct
         # Hold onto the result
         gmapDicts.append(outputValues)
 
@@ -1001,9 +1007,13 @@ mergedDict = compare_novels(mergedDict, genomeRecords)
 mergedDict = remove_bad_splices(mergedDict, genomeRecords)
 
 # Cull weird looking models
-mergedDict = remove_weird_models(mergedDict)
+mergedDict = remove_weird_models(mergedDict, ovlDict)
 
 # Output to file
 output_func(mergedDict, args.outputFileName)
+
 # Done!
 print('Program completed successfully!')
+
+# Give some extra info
+print(str(len(mergedDict)) + ' models were discovered.')
