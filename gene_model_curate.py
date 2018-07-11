@@ -737,7 +737,9 @@ def text_file_to_list(textFile):
         return outList
 
 ##### USER INPUT SECTION
-usage = """%(prog)s
+usage = """%(prog)s reads in files relating to a genome annotation and curates
+gene models to remove confirmed transposons and gene models that are obviously
+of poor quality (as determined by close proximity in the genome).
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-gff", "-gff3", dest="gff3File",
