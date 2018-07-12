@@ -278,7 +278,10 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         codon = str(genomeSeq[i-2:i+1].seq)
                         if codon.lower() in stopCodonsPos:
                                 break
-                i = i - 2
+                if str(genomeSeq.seq) == '':    # Handles scenario where the gene model starts at the first base of the contig
+                        i = 0
+                else:
+                        i = i - 2
                 # Crawl back up from the stop position looking for the first current start or ATG
                 for x in range(i+3, len(genomeSeq), 3):                 # +3 to look at the next, non-stop codon
                         codon = str(genomeSeq[x:x+3].seq)
