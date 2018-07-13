@@ -321,6 +321,7 @@ for k1, v1 in rnaGenes.items():
                             sharedPos = sv1[0] & sv2[0]
                             if sharedPos != set():
                                     removeList.append(sv2[1])
+removeList = list(set(removeList))      # Remove any redundancy that might have crept in
 
 # Print an output letting the user know which sequences are being removed (handy in case they aren't producing a text file)
 print('We\'re removing the following sequences:\n' + '\n'.join(removeList))
