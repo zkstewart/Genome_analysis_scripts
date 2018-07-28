@@ -943,11 +943,16 @@ for i in range(len(args.gmapFiles)):
                         # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
                         if len(mrna[1]) == 1:
                                 continue
+                        # Skip if the transcript lacks a stop codon and thus is guaranteed to be a fragment
+                        transcriptID = mrna[0].rsplit('.', maxsplit=1)[0]
+                        lastCodon = str(cdsRecords[transcriptID].seq)[-3:]
+                        if lastCodon.lower() not in ['tag', 'taa', 'tga']:
+                                continue
                         # Cut-off checks
                         decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
                         if decision == False:
                                 continue
-                        result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, mrna[0].rsplit('.', maxsplit=1)[0], args.alignPctCutoff)     # Split off the '.mrna#' suffix
+                        result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff)     # Split off the '.mrna#' suffix
                         if result == False:
                                 continue
                         else:
