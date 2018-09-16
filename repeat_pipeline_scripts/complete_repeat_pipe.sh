@@ -1,9 +1,9 @@
 #!/bin/bash -l
 
-#PBS -N repeat_pipe
+#PBS -N rep_pipe
 #PBS -l walltime=100:00:00
-#PBS -l mem=15G
-#PBS -l ncpus=8
+#PBS -l mem=30G
+#PBS -l ncpus=12
 
 cd $PBS_O_WORKDIR
 PARENTDIR=$PBS_O_WORKDIR
@@ -12,32 +12,31 @@ module load hmmer/3.1b2-foss-2016a
 module load matlab/2016b
 module load cd-hit/4.6.4-foss-2016a-2015-0603
 
-MHDIR=/home/stewarz3/various_programs/MITE-Hunter
-DMDIR=/home/stewarz3/various_programs/detectMITE
-REPMODDIR=/home/stewarz3/various_programs/RepeatModeler-open-1.0.10
-GTDIR=/home/stewarz3/various_programs/genometools-1.5.10/bin
-MUSCLEDIR=/home/stewarz3/various_programs/muscle
-LTRFINDDIR=/home/stewarz3/various_programs/ltr-finder
-LTRRETDIR=/home/stewarz3/various_programs/LTR_retriever
-REPMASKDIR=/home/stewarz3/various_programs/RepeatMasker
+MHDIR=/home/n8942188/various_programs/MITE-Hunter
+DMDIR=/home/n8942188/various_programs/detectMITE
+REPMODDIR=/home/n8942188/various_programs/RepeatModeler-open-1.0.11
+GTDIR=/home/n8942188/various_programs/genometools-1.5.10/bin
+MUSCLEDIR=/home/n8942188/various_programs/muscle
+LTRFINDDIR=/home/n8942188/various_programs/ltr-finder
+LTRRETDIR=/home/n8942188/various_programs/LTR_retriever
+REPMASKDIR=/home/n8942188/various_programs/RepeatMasker
 
-PROTEXCLDIR=/home/stewarz3/genome_assembly/protein_exclusion/clean
+PROTEXCLDIR=/home/n8942188/genome_assembly/protein_exclusion/clean
 NONTEDB=reference_notransposons_curated.fasta
 TEMODELDB=Pfam-CD-transposons.hmm
 
-DMSETTINGS=detectMITE_settings.m
-GENOMEDIR=/home/stewarz3/actinia_illumina
-GENOMENAME=final_clean.assembly.fasta
-CPUS=8
+GENOMEDIR=/home/n8942188/act_assembly/joki_new
+GENOMENAME=allpaths.final.assembly.fasta
+CPUS=12
 
-PREFIX=act_illum
+PREFIX=act_AP
 MITEDIR=mite_prediction
 LTRDIR=ltr_prediction
 
 export PATH="$MUSCLEDIR:$REPMASKDIR:$PATH"
 
 # Run MITE-HUNTER
-#mkdir -p $MITEDIR
+mkdir -p $MITEDIR
 cd $MITEDIR
 #perl $MHDIR/MITE_Hunter_manager.pl -i $GENOMEDIR/$GENOMENAME -g ${PREFIX}_mhunt -c $CPUS -S 12345678
 #cat ${PREFIX}_mhunt_Step8_*.fa ${PREFIX}_mhunt_Step8_singlet.fa > ${PREFIX}.MITE-Hunter.lib
@@ -46,13 +45,11 @@ cd $PARENTDIR
 
 # Run detectMITE
 cd $DMDIR
-#mkdir -p result
-#./dmitescriptgen.sh -d=$GENOMEDIR -n=$GENOMENAME -p=$PREFIX -c=$CPUS -s=${PREFIX}_settings.m -dm=$DMDIR
+mkdir -p result
+#$DMDIR/dmitescriptgen.sh -d=$GENOMEDIR -n=$GENOMENAME -p=$PREFIX -c=$CPUS -s=${PREFIX}_settings.m -dm=$DMDIR
 #matlab < ${PREFIX}_settings.m > ${PREFIX}_dmite.out
 #mv ${PREFIX}.mite.fasta $PARENTDIR
-#rm ${PREFIX}.miteSet.fasta
-#rm -r result
-#mkdir result
+#mv ${PREFIX}.miteSet.fasta $PARENTDIR
 cd $PARENTDIR
 
 # Cluster MITE predictions
@@ -60,7 +57,7 @@ cd $PARENTDIR
 #cd-hit-est -i ${PREFIX}.all.MITEs.lib -o ${PREFIX}.all.nrMITEs.lib -c 0.8 -s 0.8 -aL 0.99 -n 5 -T $CPUS -M 5000
 
 # Run LTRharvest
-#mkdir -p $LTRDIR
+mkdir -p $LTRDIR
 cd $LTRDIR
 #cp $GENOMEDIR/$GENOMENAME $GENOMENAME
 #$GTDIR/gt suffixerator -db $GENOMENAME -indexname ${PREFIX}_ltrindex -tis -suf -lcp -des -ssp -sds -dna
@@ -71,13 +68,16 @@ cd $LTRDIR
 #$LTRFINDDIR/ltr_finder -D 15000 -d 1000 -L 7000 -l 100 -p 20 -C -M 0.9 $GENOMENAME > $PREFIX.ltrfinder.scn
 
 # Run LTR_retriever
-#$LTRRETDIR/LTR_retriever -genome $GENOMENAME -inharvest ${PREFIX}_ltrharv.result -infinder ${PREFIX}.ltrfinder.scn -nonTGCA ${PREFIX}_ltrharv.result_nontgca -threads $CPUS -notrunc
+#$LTRRETDIR/LTR_retriever -genome $GENOMENAME -inharvest ${PREFIX}_ltrharv.result -infinder ${PREFIX}.ltrfinder.scn -nonTGCA ${PREFIX}_ltrharv.result_nontgca -threads $CPUS
+### Note: sometimes LTR_retriever will create a .mod genome file, so the output will also have this suffix; we can just move both - one will not work but the other will. Expect an error here which doesn't interrupt any processes.
 #mv ${GENOMENAME}.LTRlib.fa $PARENTDIR
+#mv ${GENOMENAME}.mod.LTRlib.fa $PARENTDIR
 cd $PARENTDIR
 
 # Mask MITEs and LTRs
-#cat ${PREFIX}.all.nrMITEs.lib ${GENOMENAME}.LTRlib.fa > ${PREFIX}_miteLTRlib.fasta
-#mkdir -p ${PREFIX}_miteltrmask
+#cat ${PREFIX}.all.nrMITEs.lib ${GENOMENAME}.LTRlib.fa ${GENOMENAME}.mod.LTRlib.fa > ${PREFIX}_miteLTRlib.fasta
+### Note: as above, one of these files (.mod or without) won't exist, and that's fine
+mkdir -p ${PREFIX}_miteltrmask
 #$REPMASKDIR/RepeatMasker -pa $CPUS -lib ${PREFIX}_miteLTRlib.fasta -dir ${PREFIX}_miteltrmask -e ncbi -nolow -no_is -norna $GENOMEDIR/$GENOMENAME
 
 # Run RepeatModeler
@@ -89,15 +89,15 @@ cd $PARENTDIR
 # Curate repeat library
 ### Make sure you have run makeblastdb on the non-TE DB file and run hmmpress on the TE models files prior to this step ###
 #python $PROTEXCLDIR/repeat_lib_only_potentials.py -i ${PREFIX}.complete.repeats.lib -o ${PREFIX}.unconfident.repeats.lib
-#python $PROTEXCLDIR/biopython_orf_find_repeatlib.py -i ${PREFIX}.unconfident.repeats.lib -o ${PREFIX}.unconfident.repeatsPROT.lib -min 25 -max 0 -num 1 -alt 19 -no 39 -st prot -u 5
+#python $PROTEXCLDIR/biopython_orf_find_repeatlib.py -i ${PREFIX}.unconfident.repeats.lib -o ${PREFIX}.unconfident.repeatsPROT.lib -st prot
 #hmmsearch --cpu $CPUS -E 1 --domtblout ${PREFIX}.repeatsLibTEModels.results $PROTEXCLDIR/$TEMODELDB ${PREFIX}.unconfident.repeatsPROT.lib
 #python $PROTEXCLDIR/prot_excl_hmmparse.py -i ${PREFIX}.repeatsLibTEModels.results -t $PROTEXCLDIR/transposon_models.txt -e 1 -o ${PREFIX}.verifiedRepeats.txt
 #python $PROTEXCLDIR/contigSeqFromFasta_Txt_everythingBut_exactMatching.py -f ${PREFIX}.unconfident.repeats.lib -i ${PREFIX}.verifiedRepeats.txt -o ${PREFIX}.unverified.lib
-#blastx -query ${PREFIX}.unverified.lib -db $NONTEDBDIR/$NONTEDB -outfmt 6 -evalue 10 -num_threads $CPUS -out ${PREFIX}.repeatBlast.outfmt6
+#blastx -query ${PREFIX}.unverified.lib -db $PROTEXCLDIR/$NONTEDB -outfmt 6 -evalue 10 -num_threads $CPUS -out ${PREFIX}.repeatBlast.outfmt6
 #python $PROTEXCLDIR/prot_excl_refblastparse.py -i ${PREFIX}.repeatBlast.outfmt6 -e 0.01 -o ${PREFIX}.falsePositiveRepeats.txt
 #python $PROTEXCLDIR/contigSeqFromFasta_Txt_everythingBut_exactMatching.py -f ${PREFIX}.complete.repeats.lib -i ${PREFIX}.falsePositiveRepeats.txt -o ${PREFIX}.finalcurated.repeats.lib
 
 # Run softmasking
-#mkdir -p ${PREFIX}_softmask
+mkdir -p ${PREFIX}_softmask
 #$REPMASKDIR/RepeatMasker -pa $CPUS -lib ${PREFIX}.finalcurated.repeats.lib -dir ${PREFIX}_softmask -e ncbi -s -nolow -no_is -norna -xsmall $GENOMEDIR/$GENOMENAME
 ### DONE ###
