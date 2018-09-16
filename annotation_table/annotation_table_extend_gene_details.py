@@ -7,7 +7,7 @@
 import os, argparse
 
 # Define functions for later use
-def uniref_xml_parse(tableFile, xmlFile):
+def uniref_xml_parse(tableFile, xmlFile, lenType):
         # Preliminary parse through the table file to identify which entries we need to hold onto
         accDict = {}
         with open(tableFile, 'r') as fileIn:
@@ -56,6 +56,8 @@ def uniref_xml_parse(tableFile, xmlFile):
                                 xmlBlock[2] = taxon
                         elif '<sequence length="' in line:
                                 length = line.split('"')[1]
+                                if lenType == 'nucl':
+                                        length = str(int(length)*3)
                                 xmlBlock[3] = length
         return accDict
 
@@ -92,7 +94,7 @@ args = p.parse_args()
 validate_args(args)
 
 # Parse the xml file to extract relevant information for the extended table
-accDict = uniref_xml_parse(args.inputTable, args.xmlFile)
+accDict = uniref_xml_parse(args.inputTable, args.xmlFile, 'nucl')
 
 # Update annotations file
 ongoingCount = 0
