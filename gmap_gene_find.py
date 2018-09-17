@@ -278,10 +278,10 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         codon = str(genomeSeq[i-2:i+1].seq)
                         if codon.lower() in stopCodonsPos:
                                 break
-                if str(genomeSeq.seq) == '':    # Handles scenario where the gene model starts at the first base of the contig
+                if str(genomeSeq.seq) == '':                            # Handles scenario where the gene model starts at the first base of the contig
                         i = 0
                 else:
-                        i = i - 2
+                        i = i - 2                                       # This walks our coordinate value back to the start of the codon (Atg) since our index currently corresponds to (atG)
                 # Crawl back up from the stop position looking for the first current start or ATG
                 for x in range(i+3, len(genomeSeq), 3):                 # +3 to look at the next, non-stop codon
                         codon = str(genomeSeq[x:x+3].seq)
@@ -315,6 +315,8 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         codon = str(genomeSeq[i:i+3].seq)
                         if codon.lower() in stopCodonsNeg:
                                 break
+                if str(genomeSeq.seq) == '':                            # Handles scenario where the gene model starts at the last base of the contig
+                        i = startCoord
                 # Crawl back down from the stop position looking for the first current start or ATG
                 currentStart = reverse_comp(currentStart)               # '-' orientation means we need to reverse complement our cds' start codon
                 for x in range(i-1, -1, -3):
@@ -750,7 +752,9 @@ def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):
         return nclsEntries
 
 ## GFF3 RELATED
-def group_process(currGroup, gffExonDict, gffCDSDict):
+def group_process_exoncds(currGroup, gffExonDict, gffCDSDict):
+        import re
+        idRegex = re.compile(r'ID=(.+?);')
         full_mrnaGroup = []                                                              # This will hold processed mRNA positions.
         full_mrnaCDS = []
         mrnaGroup = []                                                                   # This will be a temporary storage for mRNA lines.
@@ -801,7 +805,7 @@ def group_process(currGroup, gffExonDict, gffCDSDict):
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
-def gff3_parse(gff3File):
+def gff3_parse_exoncds(gff3File):
         # Establish values for storing results
         currGroup = []
         gffExonDict = {}
@@ -823,7 +827,7 @@ def gff3_parse(gff3File):
                                         continue
                                 else:
                                         # Process group if we're encountering a new group
-                                        gffExonDict, gffCDSDict = group_process(currGroup, gffExonDict, gffCDSDict)
+                                        gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
                                         currGroup = [sl]
                         elif lineType == 'rRNA' or lineType == 'tRNA':          # Skip lines that aren't coding
                                 continue
@@ -831,7 +835,7 @@ def gff3_parse(gff3File):
                                 # Keep building group until we encounter another 'gene' lineType
                                 currGroup.append(sl)
                 # Process the last mrnaGroup
-                gffExonDict, gffCDSDict = group_process(currGroup, gffExonDict, gffCDSDict)
+                gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
@@ -918,6 +922,13 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
+## HARDCODED
+args.gmapFiles = [r'E:\joki_actinia\RE\act_RE_okay-okalt.cds_gmap.gff3', r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.nucl_gmap.gff3']
+args.cdsFiles = [r'E:\joki_actinia\RE\act_RE_okay-okalt.cds', r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.nucl']
+args.genomeFile = r'E:\joki_actinia\RE\redundans.scaffolds.reduced.fixed.fa'
+args.annotationFile = r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.gff3'
+args.outputFileName = r'E:\joki_actinia\RE\act_RE_gmap_gene_find.gff3'
+
 args = validate_args(args)
 
 # Load in genome fasta file as dict
@@ -925,7 +936,7 @@ genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
 
 # Parse main annotation GFF3 as NCLS and model
 gff3Ncls, gff3Loc = gff3_parse_ncls(args.annotationFile)
-gff3ExonDict, gff3CDSDict = gff3_parse(args.annotationFile)
+gff3ExonDict, gff3CDSDict = gff3_parse_exoncds(args.annotationFile)
 
 # Set up values for the main loop
 geneIDRegex = re.compile(r'_?evm.model.utg\d{1,10}.\d{1,10}')
@@ -938,7 +949,7 @@ for i in range(len(args.gmapFiles)):
         # Load in CDS fasta file as dict
         cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFiles[i], 'r'), 'fasta'))
         # Parse GMAP GFF3 for gene models
-        gmapExonDict, gmapCDSDict = gff3_parse(args.gmapFiles[i])
+        gmapExonDict, gmapCDSDict = gff3_parse_exoncds(args.gmapFiles[i])
         # Detect well-suported multi-path models
         coordDict = {}
         for key, value in gmapExonDict.items():
