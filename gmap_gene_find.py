@@ -932,7 +932,7 @@ gff3Ncls, gff3Loc = gff3_parse_ncls(args.annotationFile)
 gff3ExonDict, gff3CDSDict = gff3_parse_exoncds(args.annotationFile)
 
 # Set up values for the main loop
-geneIDRegex = re.compile(r'_?evm.model.utg\d{1,10}.\d{1,10}')
+geneIDRegex = re.compile(r'_?evm.model.\w+?\d{1,10}.\d{1,10}')
 
 # Main loop: find good multipath gene models
 gmapDicts = []          # Hold onto dictionaries from each iteration of gmap files
