@@ -215,12 +215,6 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
-## HARDCODED
-args.gff3File = r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.gff3'
-args.textFile = r'E:\joki_actinia\RE\transIDs.txt'
-args.behaviour = 'remove'
-args.outputFileName = r'E:\joki_actinia\RE\test_out.gff3'
-
 validate_args(args)
 
 # Parse annotation GFF3
