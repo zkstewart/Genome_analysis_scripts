@@ -699,9 +699,12 @@ def gff3_parse_ncls(gff3File):
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
                         # Skip unneccessary lines
-                        if line.startswith('#'):
+                        if line.startswith('#') or line == '\n' or line == '\r\n':
                                 continue
                         sl = line.split('\t')
+                        if len(sl) < 3:
+                                continue
+                        # Skip non-mRNA lines
                         if sl[2] != 'mRNA':
                                 continue
                         # Get details from line including start, stop, and orientation
