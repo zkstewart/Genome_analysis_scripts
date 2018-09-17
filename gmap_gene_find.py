@@ -922,13 +922,6 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
-## HARDCODED
-args.gmapFiles = [r'E:\joki_actinia\RE\act_RE_okay-okalt.cds_gmap.gff3', r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.nucl_gmap.gff3']
-args.cdsFiles = [r'E:\joki_actinia\RE\act_RE_okay-okalt.cds', r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.nucl']
-args.genomeFile = r'E:\joki_actinia\RE\redundans.scaffolds.reduced.fixed.fa'
-args.annotationFile = r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.gff3'
-args.outputFileName = r'E:\joki_actinia\RE\act_RE_gmap_gene_find.gff3'
-
 args = validate_args(args)
 
 # Load in genome fasta file as dict
