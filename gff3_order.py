@@ -116,4 +116,5 @@ with open(args.outputFileName, 'w') as fileOut:
                         fileOut.write(chunk[0])                         # Chunks maintain all the original \n positions etc.
         fileOut.write(restOfFile)                                       # If restOfFile is empty then this will do nothing
 
-#### SCRIPT ALL DONE, GO HOME
+# All done!
+print('Program completed successfully!')

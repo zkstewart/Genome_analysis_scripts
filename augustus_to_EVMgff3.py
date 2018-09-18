@@ -1,7 +1,24 @@
 #! python3
-# scallop_to_EVMgff3.py
+# augustus_to_EVMgff3.py
+# This script will make minor modifications to the Augustus GTF file so that
+# EVM's conversion script will be able to handle it correctly. It is possible that
+# EVM's conversion script will be updated to handle more recent Augustus verions
+# but until that point this script is necessary.
 
-import os, argparse, re
+import os, argparse
+
+# Define functions for later use
+## Validate arguments
+def validate_args(args):
+        # Validate input file locations
+        if not os.path.isfile(args.gtfFile):
+                print('I am unable to locate the input Augustus GTF file (' + args.gtfFile + ')')
+                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        # Handle file overwrites
+        if os.path.isfile(args.outputFileName):
+                print(args.output + ' already exists. Delete/move/rename this file and run the program again.')
+                quit()
 
 ##### USER INPUT SECTION
 
@@ -10,29 +27,16 @@ usage = """%(prog)s reads in an Augustus gtf file and converts this to a format 
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-g", "-gtf", dest="gtfFile",
                   help="Specify augustus gtf file")
-p.add_argument("-o", "-output", dest="outputFile",
+p.add_argument("-o", "-output", dest="outputFileName",
                help="Output file name")
-p.add_argument("-f", "-force", dest="force", choices = ['y', 'n', 'Y', 'N'],
-               help="default == 'n', which means the program will not overwrite existing files. Specify 'y' to allow this behaviour at your own risk.", default='n')
 
 args = p.parse_args()
-
-# Obtain data from arguments
-gtfFile = args.gtfFile
-outputFileName = args.outputFile
-force = args.force
-
-# Format output names and check that output won't overwrite another file
-if os.path.isfile(outputFileName) and force.lower() != 'y':
-        print('There is already a file named ' + outputFileName + '. Either specify a new file name, delete these older file(s), or provide the -force argument either "Y" or "y"')
-        quit()
-elif os.path.isfile(outputFileName) and force.lower() == 'y':
-        os.remove(outputFileName)
+validate_args(args)
 
 # Parse the gtf file
 ongoingCount = 1
 currGroup = []
-with open(gtfFile, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
+with open(args.gtfFile, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
                 sl = line.rstrip('\n').split('\t')
                 typeCol = sl[2]
@@ -72,7 +76,7 @@ with open(gtfFile, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
                                         elif entry[2] == 'initial' or entry[2] == 'terminal' or entry[2] == 'single' or entry[2] == 'intron' or entry[2] == 'internal':
                                                 continue
                                         else:
-                                                print('Didn\'t recognise this Augustus value (' + entry[2] + '). What do?')
+                                                print('Didn\'t recognise this Augustus value (' + entry[2] + '). Need to make corrections to the code.')
                                                 print(entry)
                                                 quit()
                                 # Put new group into output file
@@ -82,3 +86,6 @@ with open(gtfFile, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
                 else:
                         # Build group
                         currGroup.append(sl)
+
+# All done!
+print('Program completed successfully!')

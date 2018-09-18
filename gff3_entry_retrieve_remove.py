@@ -115,10 +115,10 @@ def gff3_parse_exoncds(gff3File):
         return gffExonDict, gffCDSDict
 
 ## Retrieve/remove function
-def gff3_retrieve_remove(gff3File, outputFileName, idList, identifiers, behaviour):
+def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, behaviour):
         # Ensure behaviour value makes sense
         if behaviour.lower() not in ['retrieve', 'remove']:
-                print('gff3_cull_output: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
+                print('gff3_retrieve_remove_tofile: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
                 print('Fix the code for this section.')
                 quit()
         # Main function
@@ -227,7 +227,7 @@ idList = text_file_to_list(args.textFile)
 idList = gff3_idlist_compare(exonDict, idList)
 
 # Produce output file
-gff3_retrieve_remove(args.gff3File, args.outputFileName, idList, ['.path', '.model'], args.behaviour) # At least one of these identifiers should be present in every gene annotation line
+gff3_retrieve_remove_tofile(args.gff3File, args.outputFileName, idList, ['.path', '.model'], args.behaviour) # At least one of these identifiers should be present in every gene annotation line
 
 # All done!
 print('Program completed successfully!')

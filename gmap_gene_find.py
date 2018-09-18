@@ -973,7 +973,7 @@ for i in range(len(args.gmapFiles)):
                 for coord in value[0]:
                         start, stop = coord_extract(coord)
                         # Find overlaps
-                        dictEntries += ncls_finder(gff3Ncls, gff3Loc, start, stop, value[1], 4, 'boundary')    # 4 refers to the index position in the gff3Loc dictionary for the contigID
+                        dictEntries += ncls_finder(gff3Ncls, gff3Loc, start, stop, value[1], 4)         # 4 refers to the index position in the gff3Loc dictionary for the contigID
                 # Convert coordinates to set values for overlap calculation
                 valueSet = set()
                 for coord in value[0]:

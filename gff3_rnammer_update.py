@@ -43,15 +43,15 @@ def validate_args(args):
                                 quit()
                 elif choice == '2':
                         if os.path.isfile(args.outputFileName + '.gff3'):
-                                print(args.outputFileName + '.txt already exists. Delete/move/rename this file and run the program again.')
+                                print(args.outputFileName + '.gff3 already exists. Delete/move/rename this file and run the program again.')
                                 quit()
                 elif choice == '3':
                         if os.path.isfile(args.outputFileName + '.gff3'):
-                                print(args.outputFileName + '.txt already exists. Delete/move/rename this file and run the program again.')
+                                print(args.outputFileName + '.gff3 already exists. Delete/move/rename this file and run the program again.')
                                 quit()
 
-## GFF3 RELATED
-def group_process(currGroup, gffExonDict, gffCDSDict):
+## GFF3 parsing
+def group_process_exoncds(currGroup, gffExonDict, gffCDSDict):
         import re
         idRegex = re.compile(r'ID=(.+?);')
         full_mrnaGroup = []                                                              # This will hold processed mRNA positions.
@@ -104,7 +104,7 @@ def group_process(currGroup, gffExonDict, gffCDSDict):
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
-def gff3_parse(gff3File):
+def gff3_parse_exoncds(gff3File):
         # Establish values for storing results
         currGroup = []
         gffExonDict = {}
@@ -126,7 +126,7 @@ def gff3_parse(gff3File):
                                         continue
                                 else:
                                         # Process group if we're encountering a new group
-                                        gffExonDict, gffCDSDict = group_process(currGroup, gffExonDict, gffCDSDict)
+                                        gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
                                         currGroup = [sl]
                         elif lineType == 'rRNA' or lineType == 'tRNA':          # Skip lines that aren't coding
                                 continue
@@ -134,10 +134,11 @@ def gff3_parse(gff3File):
                                 # Keep building group until we encounter another 'gene' lineType
                                 currGroup.append(sl)
                 # Process the last mrnaGroup
-                gffExonDict, gffCDSDict = group_process(currGroup, gffExonDict, gffCDSDict)
+                gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
+## GFF3 data structure manipulation
 def coord_extract(coord):
         splitCoord = coord.split('-')
         start = int(splitCoord[0])
@@ -152,8 +153,8 @@ def gff3_to_sets(gff3Dict):
                         for pair in mrna[1]:
                                 start, stop = coord_extract(pair)
                                 mrnaSet = mrnaSet.union(set(range(start, stop+1)))      # +1 to offset 0-based nature of Python range()
-                        if mrna[2] not in gffSetDict:             # mrna[2] == the contig ID
-                                gffSetDict[mrna[2]]=[[mrnaSet, mrna[0]]]
+                        if mrna[2] not in gffSetDict:                                   # mrna[2] == the contig ID
+                                gffSetDict[mrna[2]]=[[mrnaSet, mrna[0]]]                # mrna[0] == the mRNA ID
                         else:
                                 gffSetDict[mrna[2]].append([mrnaSet, mrna[0]])
         return gffSetDict
@@ -203,11 +204,16 @@ def rnammer_list_append(gff3List, rnaAnnot):
                         gff3List.append('\t'.join(val))
         return gff3List
 
-## Culling function
-def gff3_cull_lines(gff3File, dropList, identifiers):
-        # Set up
-        gff3Lines = []  # Normally we'd directly output lines to file; in this case we potentially want to 
-        # Main loop
+## Retrieve/remove function
+def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
+        # Setup
+        outList = []
+        # Ensure behaviour value makes sense
+        if behaviour.lower() not in ['retrieve', 'remove']:
+                print('gff3_cull_output: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
+                print('Fix the code for this section.')
+                quit()
+        # Main function
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
                         geneID = None   # This lets us perform a check to ensure we pulled out a gene ID
@@ -218,9 +224,9 @@ def gff3_cull_lines(gff3File, dropList, identifiers):
                         # Handle comment lines
                         elif '#' in line:
                                 for section in sl:
-                                        for ident in identifiers:
-                                                if ident in section:
-                                                        geneID = section
+                                        for ident in identifiers:               # Identifiers should be a list that contains values that will occur in every line that contains values we want to retrieve/remove
+                                                if ident in section:            # By default this should be '.model' or '.path'; .model appears in every '#' and full GFF3 line of PASA-formatted files; .path is for GMAP
+                                                        geneID = section.rstrip(',')    # PASA-formatted comments are written human-like and contain commas; we want to remove these
                         # Handle gene annotation lines
                         elif sl[2] == 'gene':
                                 gffComment = sl[8].split(';')
@@ -234,40 +240,43 @@ def gff3_cull_lines(gff3File, dropList, identifiers):
                                         if section.startswith('Parent='):
                                                 geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
                                                 break
-                        # Write non-gene lines (e.g., rRNA or tRNA annotations) to list
+                        # Write non-gene lines (e.g., rRNA or tRNA annotations) to file
                         if geneID == None:
-                                gff3Lines.append(line)
-                        # Decide if we're writing this gene line to list
-                        elif geneID not in dropList:
-                                gff3Lines.append(line)
-        return gff3Lines
+                                outList.append(line)
+                        # Decide if we're writing this gene line to file based on behaviour
+                        if behaviour.lower() == 'retrieve':
+                                if geneID in idList:
+                                        outList.append(line)
+                        elif behaviour.lower() == 'remove':
+                                if geneID not in idList:
+                                        outList.append(line)
 
-def gff3_id_retrieve(gff3Dict, idList):
+def gff3_idlist_compare(gff3Dict, idList):
         # Set up
         outList = []
         # Main loop
         for key, value in gff3Dict.items():
-                # If gene ID is what we have in our idList, add it to our out list
-                #if key in idList:
-                #        outList.append(key)
+                # Extract parent details from comment-containing value
+                mrnaParent = None
+                comment = value[-1][4].split(';')               # Our last value will always contain the GFF3 comment; we only need this once to get the parent ID
+                for section in comment:
+                        if section.startswith('Parent='):
+                                mrnaParent = section[7:]
+                assert mrnaParent != None
+                # Check if the user specified a gene ID for removal/retrieval
+                found = False
+                if mrnaParent in idList:
+                        found = True
+                # Check if the user specified a mRNA ID for removal/retrieval
                 for mrna in value:
-                        mrnaID, mrnaParent = None, None
-                        # Handle mrnas that aren't the last value (last one gets an extra comment entry)
-                        if len(mrna) == 4:
-                                mrnaID = mrna[0]
-                                mrnaParent = mrna[0]    # Just double it up so we can do the None check with the comment entries, no real harm
-                        # Handle comment-containing mrnas
-                        else:
-                                comment = mrna[4].split(';')
-                                for section in comment:
-                                        if section.startswith('ID='):
-                                                mrnaID = section[3:]
-                                        elif section.startswith('Parent='):
-                                                mrnaParent = section[7:]
-                        assert mrnaID != None and mrnaParent != None
-                        # If this mrna / gene ID matches our list entry, it's something we want to drop
-                        if mrnaID in idList or mrnaParent in idList:
-                                outList += [mrnaID, mrnaParent]
+                        mrnaID = mrna[0]
+                        if mrnaID in idList:
+                                found = True
+                # If we found this ID in some capacity (as a gene or mRNA ID) within our idList, put the parent and all mRNAs in this list
+                if found == True:
+                        outList.append(mrnaParent)
+                        for mrna in value:
+                                outList.append(mrna[0])
         # Remove redundancy that may have crept in
         outList = list(set(outList))
         return outList
@@ -286,7 +295,9 @@ non-mutually-exclusive options exist for output. The first is to produce a text 
 of gene models which overlap rRNA predictions (1). The second is to remove the entries
 from the GFF3 directly (2). The third is to append the formatted RNAmmer results to
 the output GFF3 (3). Any combination of these options can be provided, so long as you
-provide at least one.
+provide at least one e.g., "-t 1 2 3" or "-t 1 3" or "-t 2" are all valid options;
+combining 2 and 3 will mean you produce a single GFF3 minus genes with RNAmmer results
+appended.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-gff3", dest="gff3File",
@@ -302,7 +313,7 @@ args = p.parse_args()
 validate_args(args)
 
 # Parse annotation GFF3
-exonDict, cdsDict = gff3_parse(args.gff3File)
+exonDict, cdsDict = gff3_parse_exoncds(args.gff3File)
 
 # Convert GFF3 dictionary into set dictionary
 gffGenes = gff3_to_sets(exonDict)
@@ -336,11 +347,11 @@ if '1' in args.outputType:
 if '2' in args.outputType or '3' in args.outputType:
         if '2' in args.outputType:
                 # Get gene and mRNA IDs properly from the GFF3 dict object
-                removeList = gff3_id_retrieve(exonDict, removeList)
+                removeList = gff3_idlist_compare(exonDict, removeList)
         else:
                 removeList = [] # Producing an empty list will let us grab GFF3 lines without removing anything
         # Produce a GFF3 lines list
-        gff3Lines = gff3_cull_lines(args.gff3File, removeList, ['.path', '.model'])     # At least one of these identifiers should be present in every gene annotation line
+        gff3Lines = gff3_retrieve_remove_tolist(args.gff3File, removeList, ['.path', '.model'], 'remove')       # At least one of these identifiers should be present in every gene annotation line
         if '3' in args.outputType:
                 # Append RNAmmer entries to gff3Lines object
                 gff3Lines = rnammer_list_append(gff3Lines, rnaAnnot)

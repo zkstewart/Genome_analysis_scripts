@@ -8,25 +8,32 @@ from Bio import SeqIO
 from statistics import median, mean
 locale.setlocale(locale.LC_ALL, '')
 
+# Define functions for later use
+## Validate arguments
+def validate_args(args):
+        # Validate input file locations
+        if not os.path.isfile(args.input):
+                print('I am unable to locate the input FASTA file (' + args.input + ')')
+                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        # Handle file overwrites
+        if os.path.isfile(args.output):
+                print(args.output + ' already exists. Delete/move/rename this file and run the program again.')
+                quit()
+
 ##### USER INPUT SECTION
 
 usage = """%(prog)s reads in a provided fasta file and calculates the proportion of
 the genome that is gapped based on the amount of 'N' characters
 """
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("-i", "--input", dest="input",
+p.add_argument("-i", dest="input",
                   help="fasta file name")
-p.add_argument("-o", "--output", dest="output",
+p.add_argument("-o", dest="output",
                   help="output file name")
 
-# Parse arguments
 args = p.parse_args()
-inName = args.input
-outName = args.output
-
-if os.path.isfile(outName):
-        print(outName + ' already exists, specify a new name')
-        quit()
+validate_args(args)
 
 ##### CORE PROCESS
 
@@ -35,7 +42,7 @@ nchar = 0
 gaplens = []
 total = 0
 gapregex = re.compile(r'n+|N+')
-with open(inName, 'rU') as inFile, open(outName, 'w') as outFile:
+with open(args.input, 'rU') as inFile, open(args.output, 'w') as outFile:
         records = SeqIO.parse(inFile, 'fasta')
         for record in records:
                 seq = str(record.seq)
@@ -43,11 +50,6 @@ with open(inName, 'rU') as inFile, open(outName, 'w') as outFile:
                 # Get gap details
                 gapseqs = gapregex.findall(seq)
                 gaplens += (len(s) for s in gapseqs)
-                #nchar += sum(len(s) for s in gapseqs)
-                #nchar += seq.count('n') + seq.count('N')        # Handle lower and uppercase characters
-                # Calculate number of gaps
-                #numgaps = re.split(r'n+|N+', seq)
-                #noccurrence += len(numgaps) - 1                 # The number of gaps is equal to the number of entries in numgaps - 1 since, if there is a single gap (e.g., 'atcgNNatcg'), the result of the regex split will be ['atcg', 'atcg']
         # Compute gap statistics
         nchar = locale.format("%d", sum(gaplens), grouping=True)
         numgaps = locale.format("%d", len(gaplens), grouping=True)

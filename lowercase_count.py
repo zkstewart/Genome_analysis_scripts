@@ -6,6 +6,20 @@
 import os, argparse, locale
 locale.setlocale(locale.LC_ALL, '')
 
+# Define functions for later use
+## Validate arguments
+def validate_args(args):
+        # Validate input file locations
+        if not os.path.isfile(args.input):
+                print('I am unable to locate the input FASTA file (' + args.input + ')')
+                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        # Handle file overwrites
+        if os.path.isfile(args.output):
+                print(args.output + ' already exists. Delete/move/rename this file and run the program again.')
+                quit()
+
+## Lowercase character counting
 def n_lower_chars(string):
     return sum(1 for c in string if c.islower())
 
@@ -15,26 +29,20 @@ usage = """%(prog)s reads in a provided fasta file and calculates the proportion
 the genome that is lowercase
 """
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("-i", "--input", dest="input",
+p.add_argument("-i", dest="input",
                   help="fasta file name")
-p.add_argument("-o", "--output", dest="output",
+p.add_argument("-o", dest="output",
                   help="output file name")
 
-# Parse arguments
 args = p.parse_args()
-inName = args.input
-outName = args.output
-
-if os.path.isfile(outName):
-        print(outName + ' already exists, specify a new name')
-        quit()
+validate_args(args)
 
 ##### CORE PROCESS
 
 # Count the number of lowercase characters
 lowercase = 0
 total = 0
-with open(inName, 'rU') as inFile, open(outName, 'w') as outFile:
+with open(args.input, 'rU') as inFile, open(args.output, 'w') as outFile:
         for line in inFile:
                 if line.startswith('>'):
                         continue
