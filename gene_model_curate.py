@@ -470,7 +470,7 @@ def only_transposon_domain_models(inputDict, transposonList):
 def tranposon_evidence_check(modelList, modelDict, repeatDict, cutoffRatio):
         # Set up
         import re
-        geneIDRegex = re.compile(r'_?evm.[TUmodel]+?.utg\d{1,10}.\d{1,10}')
+        geneIDRegex = re.compile(r'_?evm.[TUmodel]+?.\w+?\d{1,10}.\d{1,10}')
         outputList = []
         # Main loop
         for model in modelList:
@@ -671,7 +671,7 @@ def blast_support_fasta(blastQueryID, blastQuerySeq, blastResultDict, targetReco
 def gff3_cull_output(gff3File, outputFileName, dropList):
         # Set up
         import re
-        geneIDRegex = re.compile(r'_?evm.[TUmodel]+?.utg\d{1,10}.\d{1,10}')
+        geneIDRegex = re.compile(r'_?evm.[TUmodel]+?.\w+?\d{1,10}.\d{1,10}')
         # Convert dropList to have gene names
         geneDropList = []
         for entry in dropList:
