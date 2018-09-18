@@ -241,7 +241,7 @@ def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
         outList = []
         # Ensure behaviour value makes sense
         if behaviour.lower() not in ['retrieve', 'remove']:
-                print('gff3_retrieve_remove_tolist: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
+                print('gff3_cull_output: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
                 print('Fix the code for this section.')
                 quit()
         # Main function
@@ -281,6 +281,7 @@ def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
                         elif behaviour.lower() == 'remove':
                                 if geneID not in idList:
                                         outList.append(line)
+        return outList
 
 ## NCLS-related functions
 def gff3_parse_ncls(gff3File):                                  # This function will make a NCLS object which can be used to find gene model overlaps; note that this is the whole gene's range, not separate exon ranges

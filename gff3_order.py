@@ -14,10 +14,9 @@ def validate_args(args):
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         # Handle file overwrites
-        if not args.force:
-                if os.path.isfile(args.outputFileName):
-                        print(args.outputFileName + '.txt already exists. Delete/move/rename this file and run the program again (or provide -f tag to overwrite).')
-                        quit()
+        if os.path.isfile(args.outputFileName):
+                print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again (or provide -f tag to overwrite).')
+                quit()
 
 ## GFF3 related
 def gff3_parse_blocks(gff3File, sorting):
@@ -97,12 +96,9 @@ It will also strip out empty lines.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-g", dest="gff3File",
-                  help="gff3 file")
+                  help="Input GFF3 file name")
 p.add_argument("-o", dest="outputFileName",
-             help="output fasta file name containing transcript sequences")
-p.add_argument("-f", dest="force", action = "store_true", default = False,
-               help="Specify this tag to allow this program to overwrite files at your own risk.")
-
+             help="Output ordered GFF3 file name")
 args = p.parse_args()
 validate_args(args)
 

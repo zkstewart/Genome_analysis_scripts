@@ -59,10 +59,6 @@ p.add_argument("-o", dest="outputFileName",
                help="Output GFF3 file name")
 
 args = p.parse_args()
-args.gff3File = r'E:\joki_actinia\RE\RE_pasa.gene_structures_post_PASA_updates.iter2.gff3'
-args.tRNAFile = r'E:\joki_actinia\RE\act_RE_trnascan-SE_predictions.results'
-args.outputFileName = r'E:\joki_actinia\RE\test_trna.gff3'
-
 validate_args(args)
 
 ### CORE PROCESS

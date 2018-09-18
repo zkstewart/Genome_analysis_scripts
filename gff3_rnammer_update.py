@@ -250,6 +250,7 @@ def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
                         elif behaviour.lower() == 'remove':
                                 if geneID not in idList:
                                         outList.append(line)
+        return outList
 
 def gff3_idlist_compare(gff3Dict, idList):
         # Set up
