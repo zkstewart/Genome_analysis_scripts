@@ -1,11 +1,27 @@
 #! python3
 # genome_stats.py
-# A simple python program which reads a genome fasta file and calculates a handful of assembly statistics
+# A simple python program which reads a FASTA file and calculates a handful of statistics
+# While its name is "genome_stats", it can be used for all sorts of FASTA files
 
 import os, argparse, locale
 from Bio import SeqIO
 from statistics import median, mean
+locale.setlocale(locale.LC_ALL, '')
 
+###### FUNCTION DEFINITION
+# Validate arguments
+def validate_args(args):
+        # Validate input file locations
+        if not os.path.isfile(args.input):
+                print('I am unable to locate the input FASTA file (' + args.input + ')')
+                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        # Handle file overwrites
+        if os.path.isfile(args.output):
+                print(args.output + ' already exists. Delete/move/rename this file and run the program again.')
+                quit()
+
+# N50 calculation
 def N50(numlist): 
   """ 
   Abstract: Returns the N50 value of the passed list of numbers. 
@@ -28,33 +44,22 @@ def N50(numlist):
     if s <= limit: 
       return l
 
-# Set up global expressions for later use
-locale.setlocale(locale.LC_ALL, '')
-
 ##### USER INPUT SECTION
 
-usage = """%(prog)s reads in fasta file and calculates a handful of assembly statistics
+usage = """%(prog)s reads in fasta file and calculates a handful of assembly statistics,
+printing these to terminal and producing a text file
 """
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("-f", "--f", "-fasta", "--fasta", dest="fasta",
-                  help="fasta file")
-p.add_argument("-o", "--o", "--output", "-output", dest="output",
-             help="output statistics file name")
+p.add_argument("-i", dest="input",
+                  help="Input fasta file")
+p.add_argument("-o",dest="output",
+             help="Output statistics text file name")
 
 args = p.parse_args()
-
-# Obtain data from arguments
-fileName = args.fasta
-outputFileName = args.output
-
-# Check that output won't overwrite another file
-if os.path.isfile(outputFileName):
-        print('This file already exists, specify another name')
-        quit()
+validate_args(args)
 
 # Load the fasta file and parse its contents
-seqFile = open(fileName, 'rU')
-records = SeqIO.parse(seqFile, 'fasta')
+records = SeqIO.parse(open(args.input, 'r'), 'fasta')
 
 ##### CORE LOOP
 
@@ -92,7 +97,7 @@ print('Mean: ' + meanStat)
 ##### FILE OUTPUT
 
 # Dump the results to .txt
-with open(outputFileName, 'w') as output:
+with open(args.output, 'w') as output:
         output.write('Genome size: ' + genomeSize + '\n')
         output.write('Number of contigs: ' + numSeqs + '\n')
         output.write('Shortest contig: ' + shortest + '\n')
