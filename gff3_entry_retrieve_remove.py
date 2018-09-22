@@ -152,7 +152,7 @@ def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, b
                         if geneID == None:
                                 fileOut.write(line)
                         # Decide if we're writing this gene line to file based on behaviour
-                        if behaviour.lower() == 'retrieve':
+                        elif behaviour.lower() == 'retrieve':
                                 if geneID in idList:
                                         fileOut.write(line)
                         elif behaviour.lower() == 'remove':
@@ -176,11 +176,17 @@ def gff3_idlist_compare(gff3Dict, idList):
                 if mrnaParent in idList:
                         found = True
                 # Check if the user specified a mRNA ID for removal/retrieval
-                for mrna in value:
-                        mrnaID = mrna[0]
-                        if mrnaID in idList:
-                                found = True
-                # If we found this ID in some capacity (as a gene or mRNA ID) within our idList, put the parent and all mRNAs in this list
+                if found == False:      # Don't need to waste time looking through each mRNA if we've already found the gene ID
+                        for mrna in value:
+                                mrnaID = mrna[0]
+                                if mrnaID in idList:
+                                        found = True
+                                        break
+                # Check if the user specified a contig ID for removal/retrieval
+                contigID = value[0][2]
+                if contigID in idList:
+                        found = True
+                # If we found this ID in some capacity (as a gene or mRNA ID or contig ID) within our idList, put the parent and all mRNAs in this list
                 if found == True:
                         outList.append(mrnaParent)
                         for mrna in value:
@@ -199,10 +205,10 @@ def text_file_to_list(textFile):
 
 ##### USER INPUT SECTION
 usage = """%(prog)s reads in a GFF3 file in PASA-like format in addition to a text
-file listing mRNA or gene IDs to be removed from the GFF3 file. This script should
-be robust to slightly different GFF3 styles, but this likely hasn't been tested
-for GFF3 files produced by different programs. Note that providing a mRNA ID
-will result in the whole gene being removed.
+file listing mRNA or gene IDs or contig IDs (can be a combination) to be retrieved
+or removed from the GFF3 file. This script should be robust to slightly different
+GFF3 styles, but this likely hasn't been tested for GFF3 files produced by different
+programs. Note that providing a mRNA ID will result in the whole gene being removed.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-g", "-gff3", dest="gff3File",

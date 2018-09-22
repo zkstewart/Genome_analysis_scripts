@@ -229,7 +229,7 @@ def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, b
                         if geneID == None:
                                 fileOut.write(line)
                         # Decide if we're writing this gene line to file based on behaviour
-                        if behaviour.lower() == 'retrieve':
+                        elif behaviour.lower() == 'retrieve':
                                 if geneID in idList:
                                         fileOut.write(line)
                         elif behaviour.lower() == 'remove':
@@ -275,7 +275,7 @@ def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
                         if geneID == None:
                                 outList.append(line)
                         # Decide if we're writing this gene line to file based on behaviour
-                        if behaviour.lower() == 'retrieve':
+                        elif behaviour.lower() == 'retrieve':
                                 if geneID in idList:
                                         outList.append(line)
                         elif behaviour.lower() == 'remove':
