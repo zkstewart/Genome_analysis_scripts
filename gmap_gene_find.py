@@ -732,7 +732,7 @@ def gff3_parse_ncls(gff3File):
         ncls = NCLS(starts.values, ends.values, ids.values)
         return ncls, gff3Loc
 
-def ncls_finder(ncls, locDict, start, stop, featureID, featureIndex, processType):
+def ncls_finder(ncls, locDict, start, stop, featureID, featureIndex):
         import copy
         #from ncls import NCLS
         overlaps = ncls.find_overlap(start, stop+1)             # Although our ncls is 1-based, find_overlap acts as a range and is thus 0-based. We need to +1 to the stop to offset this.
