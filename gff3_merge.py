@@ -253,6 +253,9 @@ def ggf_pasa_gff3_line_parse(gff3File):
                                         gff3GeneDict['remaining_lines'] = [line]
                                 else:
                                         gff3GeneDict['remaining_lines'].append(line)
+        # If there is no 'remaining_lines' value in gff3GeneDict, add a blank one here [this acts as an 'end-of-file' marker for later on]
+        if 'remaining_lines' not in gff3GeneDict:
+                gff3GeneDict['remaining_lines'] = []
         return gff3GeneDict
 
 ## Output function
@@ -272,11 +275,16 @@ def edit_parent(gff3Line, parentID):
         return gff3Line
 
 def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, outFileName):
+        # Set up
+        newCount = 0                    # This will let us know how many new gene models we add
+        isoCount = 0                    # This will let us know how many isoform models we add
         processedPaths = []
+        # Main function
         with open(outFileName, 'w') as fileOut:
                 # Merging isoform clusters
                 for key, value in mainGff3Lines.items():
                         if key in isoformDict:
+                                isoCount += 1
                                 # Write opening comments for main gene
                                 fileOut.write(''.join(value[0]))
                                 # Loop into associated isoforms and write opening comments & hold onto coordinates
@@ -313,16 +321,17 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, outFileNam
                                 # Loop into associated isoforms and write their closing comments
                                 for mrna in isoformDict[key]:
                                         mrna = mrna.replace('.mrna', '.path')
-                                        fileOut.write(''.join(newGff3Lines[mrna][2]))       # Skip the first gene line
-                        elif key == 'remaining_lines':  # The new GFF3 should not have remaining_lines, so we won't bother handling it here
+                                        fileOut.write(''.join(newGff3Lines[mrna][2]))           # Skip the first gene line
+                        elif key == 'remaining_lines':
                                 # Drop any new values not clustered as isoforms into the file
                                 for k, v in newGff3Lines.items():
-                                        if k in processedPaths:
+                                        if k in processedPaths or k == 'remaining_lines':       # The new GFF3 should not have remaining_lines, so we won't bother handling it here
                                                 continue
                                         fileOut.write(''.join(v[0]))
                                         fileOut.write(''.join(v[1]))
                                         fileOut.write(''.join(v[2]))
                                         mrna = k.replace('.path', '.mrna')
+                                        newCount += 1
                                 # Dump remaining lines from main GFF3 to file
                                 fileOut.write(''.join(value))
                         else:
@@ -330,6 +339,9 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, outFileNam
                                 fileOut.write(''.join(value[0]))
                                 fileOut.write(''.join(value[1]))
                                 fileOut.write(''.join(value[2]))
+        # Present basic statistics
+        print('gff3_merge_and_isoclust: ' + str(isoCount) + ' new models were added as isoforms of existing genes.')
+        print('gff3_merge_and_isoclust: ' + str(newCount) + ' new models were added as stand-alone genes.')
 
 ## General purpose
 def coord_extract(coord):
