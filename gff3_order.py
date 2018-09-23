@@ -3,7 +3,7 @@
 # Reorders a gff file such that lower number contigs are presented
 # first, and features along the contigs are ordered
 
-import os, argparse
+import os, argparse, re
 
 # Define functions for later use
 ## Validate arguments
@@ -21,7 +21,6 @@ def validate_args(args):
 ## GFF3 related
 def gff3_parse_blocks(gff3File, sorting):
         # Set up
-        import re
         geneDict = {}
         currGroup = []
         restOfFile = ''
@@ -78,13 +77,8 @@ def gff3_parse_blocks(gff3File, sorting):
                                 currGroup.append(line)
         # If sorting is specified, do so now
         if sorting:
-                # Get the sorted contig names
-                numRegex = re.compile(r'\d+')
-                contigIDs = list(geneDict.keys())
-                contigIDs.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
-                # Sort each dict entry
-                for entry in contigIDs:
-                        geneDict[entry].sort(key = lambda x: x[1])
+                for k in geneDict.keys():
+                        geneDict[k].sort(key = lambda x: x[1])
         return geneDict, restOfFile
 
 ##### USER INPUT SECTION
@@ -105,10 +99,15 @@ validate_args(args)
 # Parse the gff3 file as blocks & sort
 geneDict, restOfFile = gff3_parse_blocks(args.gff3File, True)           # This True statement means we'll sort the genes internally within the function
 
+# Get the sorted contig names
+numRegex = re.compile(r'\d+')
+contigIDs = list(geneDict.keys())
+contigIDs.sort(key = lambda x: int(numRegex.search(x).group()))
+
 # Get the sorted gff entries for each contig and put into the output file
 with open(args.outputFileName, 'w') as fileOut:
-        for key in geneDict.keys():
-                for chunk in geneDict[key]:
+        for entry in contigIDs:
+                for chunk in geneDict[entry]:
                         fileOut.write(chunk[0])                         # Chunks maintain all the original \n positions etc.
         fileOut.write(restOfFile)                                       # If restOfFile is empty then this will do nothing
 

@@ -94,7 +94,6 @@ def gff3_parse_exoncds(gff3File):
 ## GFF3 - block parsing
 def gff3_parse_blocks(gff3File, sorting):
         # Set up
-        import re
         geneDict = {}
         currGroup = []
         restOfFile = ''
@@ -151,13 +150,8 @@ def gff3_parse_blocks(gff3File, sorting):
                                 currGroup.append(line)
         # If sorting is specified, do so now
         if sorting:
-                # Get the sorted contig names
-                numRegex = re.compile(r'\d+')
-                contigIDs = list(geneDict.keys())
-                contigIDs.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a100" and have the latter come first
-                # Sort each dict entry
-                for entry in contigIDs:
-                        geneDict[entry].sort(key = lambda x: x[1])
+                for k in geneDict.keys():
+                        geneDict[k].sort(key = lambda x: x[1])
         return geneDict, restOfFile
 
 ## GFF3 - gene ID manipulation
