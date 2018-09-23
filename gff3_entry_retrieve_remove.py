@@ -126,6 +126,7 @@ def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, b
                 for line in fileIn:
                         geneID = None   # This lets us perform a check to ensure we pulled out a gene ID
                         sl = line.split()
+                        contigID = None # Similarly lets us check to see if this line has a contig ID in it
                         # Skip filler lines
                         if line == '\n' or line == '\r\n':
                                 continue
@@ -148,9 +149,19 @@ def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, b
                                         if section.startswith('Parent='):
                                                 geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
                                                 break
-                        # Write non-gene lines (e.g., rRNA or tRNA annotations) to file
+                        # Get the contig ID if applicable
+                        if '#' not in line:
+                                contigID = sl[0]
+                        # Decide if we're writing this non-gene line (e.g., rRNA or tRNA annotations) to file based on behaviour
                         if geneID == None:
-                                fileOut.write(line)
+                                if contigID == None:                    # If this is a pure comment line without gene details in it (e.g., PASA head/foot comments) then just write it to file
+                                        fileOut.write(line)
+                                elif behaviour.lower() == 'retrieve':   # If we get here, it's not a pure comment line; it is likely a rRNA or tRNA annotation line (or just something non-genic)
+                                        if contigID in idList:          # In this case we want to only retain (or below, remove) if there is a contigID match
+                                                fileOut.write(line)
+                                elif behaviour.lower() == 'remove':
+                                        if contigID not in idList:
+                                                fileOut.write(line)
                         # Decide if we're writing this gene line to file based on behaviour
                         elif behaviour.lower() == 'retrieve':
                                 if geneID in idList:
@@ -186,6 +197,7 @@ def gff3_idlist_compare(gff3Dict, idList):
                 contigID = value[0][2]
                 if contigID in idList:
                         found = True
+                        outList.append(contigID)
                 # If we found this ID in some capacity (as a gene or mRNA ID or contig ID) within our idList, put the parent and all mRNAs in this list
                 if found == True:
                         outList.append(mrnaParent)

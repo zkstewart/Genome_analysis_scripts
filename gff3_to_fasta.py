@@ -10,9 +10,15 @@ from Bio import SeqIO
 # Define functions for later use
 def validate_args(args):
         # Validate input file locations
+        if args.fasta == None:
+                print('No fasta argument was provided. Fix this and try again.')
+                quit()
         if not os.path.isfile(args.fasta):
                 print('I am unable to locate the genome fasta file (' + args.fasta + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        if args.gff3 == None:
+                print('No gff3 argument was provided. Fix this and try again.')
                 quit()
         if not os.path.isfile(args.gff3):
                 print('I am unable to locate the input gff3 gene annotation file (' + args.gff3 + ')')
