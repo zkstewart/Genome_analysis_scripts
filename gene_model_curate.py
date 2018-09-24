@@ -623,6 +623,84 @@ def blast_support_fasta(blastQueryID, blastQuerySeq, blastResultDict, targetReco
                 return len(extraGoodResults)
 
 ## Output function
+def gff3_idlist_compare_altsplice(gff3Dict, idList):
+        '''This is a slightly modified version of the function to allow for
+        "rescuing" alternatively spliced genes'''
+        # Set up
+        outList = []
+        # Main loop
+        for key, value in gff3Dict.items():
+                # Extract parent details from comment-containing value
+                mrnaParent = None
+                comment = value[-1][4].split(';')               # Our last value will always contain the GFF3 comment; we only need this once to get the parent ID
+                for section in comment:
+                        if section.startswith('Parent='):
+                                mrnaParent = section[7:]
+                assert mrnaParent != None
+                # Check if the user specified a gene ID for removal/retrieval
+                found = False
+                if mrnaParent in idList:
+                        found = True
+                # Check if the user specified a mRNA ID for removal/retrieval
+                altSplicing = False
+                if found == False:      # Don't need to waste time looking through each mRNA if we've already found the gene ID
+                        for mrna in value:
+                                mrnaID = mrna[0]
+                                if mrnaID in idList:
+                                        found = True
+                                        if len(value) > 1:
+                                                altSplicing = True
+                                        break
+                # Check if the user specified a contig ID for removal/retrieval
+                contigID = value[0][2]
+                if contigID in idList and altSplicing == False: # We want to rescuse "transposons" that have alternative splicing since there's a chance they are co-opted, functional genes
+                        found = True
+                        outList.append(contigID)
+                # If we found this ID in some capacity (as a gene or mRNA ID or contig ID) within our idList, put the parent and all mRNAs in this list
+                if found == True and altSplicing == False:
+                        #outList.append(mrnaParent)
+                        outList.append(value[0][0])
+        # Remove redundancy that may have crept in
+        outList = list(set(outList))
+        return outList
+
+def gff3_idlist_compare(gff3Dict, idList):
+        # Set up
+        outList = []
+        # Main loop
+        for key, value in gff3Dict.items():
+                # Extract parent details from comment-containing value
+                mrnaParent = None
+                comment = value[-1][4].split(';')               # Our last value will always contain the GFF3 comment; we only need this once to get the parent ID
+                for section in comment:
+                        if section.startswith('Parent='):
+                                mrnaParent = section[7:]
+                assert mrnaParent != None
+                # Check if the user specified a gene ID for removal/retrieval
+                found = False
+                if mrnaParent in idList:
+                        found = True
+                # Check if the user specified a mRNA ID for removal/retrieval
+                if found == False:      # Don't need to waste time looking through each mRNA if we've already found the gene ID
+                        for mrna in value:
+                                mrnaID = mrna[0]
+                                if mrnaID in idList:
+                                        found = True
+                                        break
+                # Check if the user specified a contig ID for removal/retrieval
+                contigID = value[0][2]
+                if contigID in idList:
+                        found = True
+                        outList.append(contigID)
+                # If we found this ID in some capacity (as a gene or mRNA ID or contig ID) within our idList, put the parent and all mRNAs in this list
+                if found == True:
+                        outList.append(mrnaParent)
+                        for mrna in value:
+                                outList.append(mrna[0])
+        # Remove redundancy that may have crept in
+        outList = list(set(outList))
+        return outList
+
 def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, behaviour):
         # Ensure behaviour value makes sense
         if behaviour.lower() not in ['retrieve', 'remove']:
@@ -677,50 +755,6 @@ def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, b
                         elif behaviour.lower() == 'remove':
                                 if geneID not in idList:
                                         fileOut.write(line)
-
-def gff3_cull_output(gff3File, outputFileName, dropList):
-        # Set up
-        import re
-        geneIDRegex = re.compile(r'_?evm.[TUmodel]+?.\w+?\d{1,10}.\d{1,10}')
-        # Convert dropList to have gene names
-        geneDropList = []
-        for entry in dropList:
-                geneID = ''.join(geneIDRegex.findall(entry)).replace('model', 'TU')
-                geneDropList.append(geneID)
-        # Main loop
-        with open(gff3File, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
-                for line in fileIn:
-                        # Skip filler lines
-                        if line == '\n' or line == '\r\n':
-                                continue
-                        # Handle opening comment lines
-                        elif '# ' in line:
-                                geneID = ''.join(geneIDRegex.findall(line)).replace('model', 'TU')
-                        # Handle closing comment lines
-                        elif '#PROT' in line:
-                                geneID = line.split('\t')[0].split(' ')[2].strip('\n')
-                        # Handle annotation lines
-                        elif 'ID=' in line:
-                                gffComment = line.split('\t')[8].split(';')
-                                # mRNA line
-                                if 'mRNA' in line:
-                                        for section in gffComment:
-                                                if section.startswith('ID='):
-                                                        geneID = section[3:].replace('.model.', '.TU.')    # Skip the ID= at start
-                                                        break
-                                # Other lines
-                                else:
-                                        for section in gffComment:
-                                                if section.startswith('Parent='):
-                                                        geneID = section[7:].replace('.model.', '.TU.').strip('\n')    # Skip the Parent= at start
-                                                        break
-                        else:
-                                geneID = ''
-                        # Decide if we're writing this file to output
-                        if geneID == '':
-                                fileOut.write(line)
-                        elif geneID not in geneDropList:
-                                fileOut.write(line)
 
 def file_name_gen(prefix, suffix):
         ongoingCount = 2
@@ -782,14 +816,15 @@ finalDict = hmm_db_selection_flatten(finalDict, 0.25)
 # Check that the program worked correctly
 dom_dict_check(finalDict, False)        # False means we handle the dictionary as a single list rather than separated by database
 
+# Parse annotation GFF3
+exonDict, cdsDict = gff3_parse(args.gff3File)
+
 # Parse text file for transposon-associated domains
 transposonList = text_file_to_list(args.transposonsFile)
 
 # Detect models that ONLY have transposon-associated domains
 transposonModels = only_transposon_domain_models(finalDict, transposonList)
-
-# Parse annotation GFF3
-exonDict, cdsDict = gff3_parse(args.gff3File)
+transposonModels = gff3_idlist_compare_altsplice(exonDict, transposonModels)    # This will rescue putative transposons which have alternate splices
 
 # Identify bad models on account of exon number and proximity
 proximityCutoff = 50    # Arbitrary; probably doesn't need to be accessible to the user
@@ -802,9 +837,11 @@ acceptedChains = transcriptome_support_check(chainedGenes, modelRecords, args.cd
 droppedChains = set(chainedGenes) - set(acceptedChains)
 dropList = list(set(transposonModels).union(droppedChains))
 
+# Get gene and mRNA IDs properly from the GFF3 dict object
+tmpDropList = gff3_idlist_compare(exonDict, dropList)           # We want to keep dropList nice and presentable to the user; this is the list we need for the internal functioning
+
 # Produce output file
-gff3_cull_output(args.gff3File, args.outputFileName, dropList)
-gff3_retrieve_remove_tofile(args.gff3File, args.outputFileName + '1', dropList, ['.path', '.model'], 'remove') # At least one of these identifiers should be present in every gene annotation line
+gff3_retrieve_remove_tofile(args.gff3File, args.outputFileName + '1', tmpDropList, ['.path', '.model'], 'remove') # At least one of these identifiers should be present in every gene annotation line
 
 # Let the user know what we dropped
 print('# ' + str(len(dropList)) + ' models were dropped from the annotation.')
