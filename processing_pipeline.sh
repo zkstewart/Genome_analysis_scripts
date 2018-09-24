@@ -6,11 +6,11 @@
 
 cd $PBS_O_WORKDIR
 
+## SETUP: BUSCO-related values
 module load blast+/2.3.0-foss-2016a-python-2.7.11
-
 export BUSCO_CONFIG_FILE="/home/n8942188/various_programs/busco/config/config.ini"
 LINEAGE=/home/n8942188/various_programs/busco/lineage/metazoa_odb9
-
+MODE=prot
 mkdir -p busco_results
 
 ## SETUP: Prefixes and other values
@@ -49,28 +49,28 @@ python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFI
 cd ..
 
 ## STEP 4: run HMMER
-hmmsearch --cpu $CPUS -E 1 --domtblout ${PREFIX}.merged.ggf.domtblout $HMMDB ${PREFIX}.merged.ggf.aa
+hmmsearch --cpu $CPUS -E 1 --domtblout ${PREFIX}.merged.ggf.domtblout $HMMDB ${PREFIX}.merged.ggf.aa > ${PREFIX}.merged.ggf.hmmer.stdout
 
 ## STEP 4.5: curate
 python gene_model_curate.py -gff ${PREFIX}.merged.ggf.gff3 -gcd ${PREFIX}.merged.ggf.nucl -cds $TRANSCRIPTCDS -dom ${PREFIX}.merged.ggf.domtblout -tra $TRANSPOSONS -out ${PREFIX}.merged.ggf.curated.gff3
 
 ## STEP 5: rnam fix
-python gff3_rnammer_update.py -gff3 ${PREFIX}.merged.ggf.curated.gff3 -gff2 $RNAMGFF2 -t 1 2 3 -o ${PREFIX}.rnam.merged.curated.ggf
+python gff3_rnammer_update.py -gff3 ${PREFIX}.merged.ggf.curated.gff3 -gff2 $RNAMGFF2 -t 1 2 3 -o ${PREFIX}.rnam.merged.ggf.curated
 
 ## STEP 6: trna append
 python gff3_trnascan-se_update.py -g ${PREFIX}.rnam.merged.ggf.curated.gff3 -t $TRNARESULT -o ${PREFIX}.rnam-trna.merged.ggf.curated.gff3
 
 ## STEP 7: make_cds
-python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -l isoforms -s cds -o ${PREFIX}.rnam-trna.merged.curated.ggf
+python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -l isoforms -s cds -o ${PREFIX}.rnam-trna.merged.ggf.curated
 cd busco_results
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.curated.ggf.aa -o ${PREFIX}.rnam-trna.merged.curated.ggf -l $LINEAGE -m $MODE -c $CPUS
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated -l $LINEAGE -m $MODE -c $CPUS
 cd ..
 
 ## STEP 8: redun_remove
-python gff3_entry_retrieve_remove.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -t $HAPLOTIGIDS -b remove -o ${PREFIX}.rnam-trna.merged.curated.remredun.ggf.gff3
+python gff3_entry_retrieve_remove.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -t $HAPLOTIGIDS -b remove -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3
 
 ## STEP 9: make_cds
-python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.curated.remredun.ggf.gff3 -l isoforms -s cds -o ${PREFIX}.rnam-trna.merged.curated.remredun.ggf
+python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3 -l isoforms -s cds -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun
 cd busco_results
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.curated.remredun.ggf.aa -o ${PREFIX}.rnam-trna.merged.curated.remredun.ggf -l $LINEAGE -m $MODE -c $CPUS
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun -l $LINEAGE -m $MODE -c $CPUS
 cd ..
