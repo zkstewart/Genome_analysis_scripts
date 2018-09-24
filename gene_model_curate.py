@@ -132,21 +132,6 @@ def gff3_parse(gff3File):
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
-## Repeat mask related
-def genome_masked_positions(maskedFile):
-        from Bio import SeqIO
-        records = SeqIO.parse(open(maskedFile, 'r'), 'fasta')
-        coordDict = {}
-        for record in records:
-                seqid = record.description
-                seq = str(record.seq)
-                lowerPos = set()
-                for i in range(len(seq)):
-                        if seq[i].islower():
-                                lowerPos.add(i+1) # GFF3 files are 1-based so we +1 to conform to that.              
-                coordDict[seqid] = lowerPos
-        return coordDict
-
 ## Domain overlap handling
 def findMiddle(input_list):             # https://stackoverflow.com/questions/38130895/find-middle-of-a-list
     middle = float(len(input_list))/2
@@ -467,36 +452,6 @@ def only_transposon_domain_models(inputDict, transposonList):
                         outputList.append(key)
         return outputList
 
-def tranposon_evidence_check(modelList, modelDict, repeatDict, cutoffRatio):
-        # Set up
-        import re
-        geneIDRegex = re.compile(r'_?evm.[TUmodel]+?.\w+?\d{1,10}.\d{1,10}')
-        outputList = []
-        # Main loop
-        for model in modelList:
-                # Pull out entry from dictionary
-                geneID = ''.join(geneIDRegex.findall(model)).replace('model', 'TU')      # Convert mRNA to gene ID
-                geneEntry = modelDict[geneID]
-                # Relate this back to the mrna model
-                mrnaHit = None
-                for mrna in geneEntry:
-                        if mrna[0] == model:
-                                mrnaHit = mrna
-                                break
-                assert mrnaHit != None
-                # Extract coordinates as set
-                mrnaSet = set()
-                for coord in mrnaHit[1]:
-                        start, stop = coord_extract(coord)
-                        mrnaSet = mrnaSet.union(set(range(start, stop+1)))    # +1 to make it 1-based
-                # Get intersection with repeatDict and calculate proportion of model that was masked
-                maskedSet = mrnaSet.intersection(repeatDict[mrnaHit[2]])
-                maskedRatio = len(maskedSet) / len(mrnaSet)
-                # Compare against cutoff and determine if this model needs to be dropped
-                if maskedRatio > cutoffRatio:
-                        outputList.append(model)        # Append geneID?
-        return outputList
-
 def gff3_proximity_chain(gff3Dict, proximityCutoff):
         mrnaDict = {}
         for key, value in gff3Dict.items():
@@ -668,6 +623,61 @@ def blast_support_fasta(blastQueryID, blastQuerySeq, blastResultDict, targetReco
                 return len(extraGoodResults)
 
 ## Output function
+def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, behaviour):
+        # Ensure behaviour value makes sense
+        if behaviour.lower() not in ['retrieve', 'remove']:
+                print('gff3_retrieve_remove_tofile: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
+                print('Fix the code for this section.')
+                quit()
+        # Main function
+        with open(gff3File, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
+                for line in fileIn:
+                        geneID = None   # This lets us perform a check to ensure we pulled out a gene ID
+                        sl = line.split()
+                        contigID = None # Similarly lets us check to see if this line has a contig ID in it
+                        # Skip filler lines
+                        if line == '\n' or line == '\r\n':
+                                continue
+                        # Handle comment lines
+                        elif '#' in line:
+                                for section in sl:
+                                        for ident in identifiers:               # Identifiers should be a list that contains values that will occur in every line that contains values we want to retrieve/remove
+                                                if ident in section:            # By default this should be '.model' or '.path'; .model appears in every '#' and full GFF3 line of PASA-formatted files; .path is for GMAP
+                                                        geneID = section.rstrip(',')    # PASA-formatted comments are written human-like and contain commas; we want to remove these
+                        # Handle gene annotation lines
+                        elif sl[2] == 'gene':
+                                gffComment = sl[8].split(';')
+                                for section in gffComment:
+                                        if section.startswith('ID='):
+                                                geneID = section[3:]                    # Skip the ID= at start
+                                                break
+                        else:
+                                gffComment = sl[8].split(';')
+                                for section in gffComment:
+                                        if section.startswith('Parent='):
+                                                geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
+                                                break
+                        # Get the contig ID if applicable
+                        if '#' not in line:
+                                contigID = sl[0]
+                        # Decide if we're writing this non-gene line (e.g., rRNA or tRNA annotations) to file based on behaviour
+                        if geneID == None:
+                                if contigID == None:                    # If this is a pure comment line without gene details in it (e.g., PASA head/foot comments) then just write it to file
+                                        fileOut.write(line)
+                                elif behaviour.lower() == 'retrieve':   # If we get here, it's not a pure comment line; it is likely a rRNA or tRNA annotation line (or just something non-genic)
+                                        if contigID in idList:          # In this case we want to only retain (or below, remove) if there is a contigID match
+                                                fileOut.write(line)
+                                elif behaviour.lower() == 'remove':
+                                        if contigID not in idList:
+                                                fileOut.write(line)
+                        # Decide if we're writing this gene line to file based on behaviour
+                        elif behaviour.lower() == 'retrieve':
+                                if geneID in idList:
+                                        fileOut.write(line)
+                        elif behaviour.lower() == 'remove':
+                                if geneID not in idList:
+                                        fileOut.write(line)
+
 def gff3_cull_output(gff3File, outputFileName, dropList):
         # Set up
         import re
@@ -746,8 +756,6 @@ p.add_argument("-gff", "-gff3", dest="gff3File",
                   help="Specify the gene model GFF3 file")
 p.add_argument("-gcd", "-geneCDS", dest="geneCDSFile",
                   help="Specify the gene model CDS file")
-p.add_argument("-gen", "-genome", dest="genomeFile",
-                  help="Specify the masked genome fasta file associated with the GFF3 file")
 p.add_argument("-cds", "-cdsTranscripts", dest="cdsTranscripts",
                   help="Specify CDS-prediction transcriptome file")
 p.add_argument("-dom", "-domtblout", dest="domtbloutFile",
@@ -778,17 +786,10 @@ dom_dict_check(finalDict, False)        # False means we handle the dictionary a
 transposonList = text_file_to_list(args.transposonsFile)
 
 # Detect models that ONLY have transposon-associated domains
-suspectModels = only_transposon_domain_models(hmmDict, transposonList)
-
-# Get repeat masked positions
-maskDict = genome_masked_positions(args.genomeFile)
+transposonModels = only_transposon_domain_models(finalDict, transposonList)
 
 # Parse annotation GFF3
 exonDict, cdsDict = gff3_parse(args.gff3File)
-
-# Check models suspected of being transposons against the repeat prediction to identify putative transposons
-cutoffRatio = 0.50      # Arbitrary; probably doesn't need to be accessible to the user
-dropList = tranposon_evidence_check(suspectModels, cdsDict, maskDict, cutoffRatio)
 
 # Identify bad models on account of exon number and proximity
 proximityCutoff = 50    # Arbitrary; probably doesn't need to be accessible to the user
@@ -799,15 +800,20 @@ modelRecords = SeqIO.to_dict(SeqIO.parse(open(args.geneCDSFile, 'r'), 'fasta'))
 transRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsTranscripts, 'r'), 'fasta'))
 acceptedChains = transcriptome_support_check(chainedGenes, modelRecords, args.cdsTranscripts, transRecords)
 droppedChains = set(chainedGenes) - set(acceptedChains)
-dropList = list(set(dropList).union(droppedChains))
+dropList = list(set(transposonModels).union(droppedChains))
 
 # Produce output file
 gff3_cull_output(args.gff3File, args.outputFileName, dropList)
+gff3_retrieve_remove_tofile(args.gff3File, args.outputFileName + '1', dropList, ['.path', '.model'], 'remove') # At least one of these identifiers should be present in every gene annotation line
 
 # Let the user know what we dropped
-print(str(len(dropList)) + ' models were dropped from the annotation.')
-print('These models are...')
-for entry in dropList:
+print('# ' + str(len(dropList)) + ' models were dropped from the annotation.')
+print('# These models are...')
+print('# Putative transposons')
+for entry in transposonModels:
+        print(entry)
+print('# Close proximity genes')
+for entry in droppedChains:
         print(entry)
 print('')
 
