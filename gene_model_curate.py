@@ -18,10 +18,6 @@ def validate_args(args):
         if not os.path.isfile(args.geneCDSFile):
                 print('I am unable to locate the gene model CDS file (' + args.geneCDSFile + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()   
-        if not os.path.isfile(args.genomeFile):
-                print('I am unable to locate the masked genome FASTA file (' + args.genomeFile + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         if not os.path.isfile(args.domtbloutFile):
                 print('I am unable to locate the HMMER domtblout file (' + args.domtbloutFile + ')')
