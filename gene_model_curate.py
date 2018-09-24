@@ -837,7 +837,7 @@ dropList = list(set(transposonModels).union(droppedChains))
 tmpDropList = gff3_idlist_compare(exonDict, dropList)           # We want to keep dropList nice and presentable to the user; this is the list we need for the internal functioning
 
 # Produce output file
-gff3_retrieve_remove_tofile(args.gff3File, args.outputFileName + '1', tmpDropList, ['.path', '.model'], 'remove') # At least one of these identifiers should be present in every gene annotation line
+gff3_retrieve_remove_tofile(args.gff3File, args.outputFileName, tmpDropList, ['.path', '.model'], 'remove') # At least one of these identifiers should be present in every gene annotation line
 
 # Let the user know what we dropped
 print('# ' + str(len(dropList)) + ' models were dropped from the annotation.')
