@@ -73,7 +73,7 @@ python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.ggf.cur
 python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3 -l main -s both -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main
 cd busco_results
 python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos -l $LINEAGE -m prot -c $CPUS
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos.fasta -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos_transcripts -l $LINEAGE -m tran -c $CPUS
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos.trans -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos_transcripts -l $LINEAGE -m tran -c $CPUS
 python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main -l $LINEAGE -m prot -c $CPUS
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main.fasta -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main_transcripts -l $LINEAGE -m tran -c $CPUS
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main.trans -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main_transcripts -l $LINEAGE -m tran -c $CPUS
 cd ..
