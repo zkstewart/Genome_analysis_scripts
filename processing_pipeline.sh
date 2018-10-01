@@ -22,7 +22,7 @@ TRANSPOSONS=/home/n8942188/genome_assembly/protein_exclusion/clean/transposon_mo
 
 RNAMGFF2=/home/n8942188/genome_assembly/gene_models/annotation/rnammer/aul_smart_rnammer_predictions.gff2
 TRNARESULT=/home/n8942188/genome_assembly/gene_models/annotation/trnascan-se/aul_smart_trnascan-SE_predictions.results
-HAPLOTIGIDS=/home/n8942188/genome_assembly/redundancy_reduce/curated.haplotigs.ids
+HAPLOTIGIDS=/home/n8942188/genome_assembly/redundancy_reduce/curated.artefacts-haplotigs.ids
 
 GMAPFILES="aul_smart_okay-okalt.cds_gmap.gff3 aul_smart_pasa_postdeGRIT2.gene_structures_post_PASA_updates.iter2.nucl_gmap.gff3"
 CDSFILES="aul_smart_okay-okalt.cds aul_smart_pasa_postdeGRIT2.gene_structures_post_PASA_updates.iter2.nucl"
@@ -66,9 +66,13 @@ python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFI
 cd ..
 
 ## STEP 8: redun_remove
-python gff3_entry_retrieve_remove.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -t $HAPLOTIGIDS -b remove -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3
+python gff3_entry_retrieve_remove.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -t $HAPLOTIGIDS -b remove -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3
 
-## STEP 9: make_cds/make_transcripts
+## STEP 9: gff3_order
+python gff3_order.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3 -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3
+rm ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3
+
+## STEP 10: make_cds/make_transcripts
 python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3 -l isoforms -s both -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos
 python gff3_to_fasta.py -i $GENDIR/$GENOME -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3 -l main -s both -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main
 cd busco_results
