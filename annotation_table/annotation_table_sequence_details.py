@@ -28,32 +28,36 @@ def validate_args(args):
                 print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
                 quit()
 
-def group_process(currGroup, gffExonDict, gffCDSDict):
-        full_mrnaGroup = []                                                                     # This will hold processed mRNA positions.
+def group_process_exoncds(currGroup, gffExonDict, gffCDSDict):
+        import re
+        idRegex = re.compile(r'ID=(.+?);')
+        full_mrnaGroup = []                                                              # This will hold processed mRNA positions.
         full_mrnaCDS = []
-        mrnaGroup = []                                                                          # This will be a temporary storage for mRNA lines.
+        mrnaGroup = []                                                                   # This will be a temporary storage for mRNA lines.
         for entry in currGroup:
                 # Handle the first line in the group: we just want the gene ID
                 if entry[2] == 'gene':
                         geneID = idRegex.search(entry[8]).group(1)
                 # Handle mRNA lines: this will start a subgroup corresponding to the mRNA
                 elif entry[2] == 'mRNA':
-                        if mrnaGroup == []:                                                     # i.e., if this is the first mRNA line in this gene group, we just need to start building it.
+                        # Added into this function for this particular program #
+                        mrnaLine = entry[8]
+                        if mrnaGroup == []:                                              # i.e., if this is the first mRNA line in this gene group, we just need to start building it.
                                 mrnaGroup.append(entry)
-                        else:                                                                   # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one.
+                        else:                                                            # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one.
                                 # Process current mrnaGroup
                                 for subentry in mrnaGroup:
                                         if subentry[2] == 'mRNA':
                                                 full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
                                                 full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
                                         elif subentry[2] == 'exon':
-                                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format.
+                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
                                                 full_mrnaGroup[-1][-1].append(coords)
                                         elif subentry[2] == 'CDS':
-                                                coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format.
+                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
                                                 full_mrnaCDS[-1][-1].append(coords)
                                 # Initiate new mrnaGroup
-                                full_mrnaGroup[-1] += [subentry[0],subentry[6]]                 # Append contig ID and orientation.
+                                full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation.
                                 full_mrnaCDS[-1] += [subentry[0],subentry[6]]
                                 mrnaGroup = [entry]
                 else:
@@ -64,20 +68,20 @@ def group_process(currGroup, gffExonDict, gffCDSDict):
                         full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
                         full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
                 elif subentry[2] == 'exon':
-                        coords = subentry[3] + '-' + subentry[4]                                # +1 here to make Python act 1-based like gff3 format.
+                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
                         full_mrnaGroup[-1][-1].append(coords)
                 elif subentry[2] == 'CDS':
-                        coords = subentry[3] + '-' + subentry[4]        # +1 here to make Python act 1-based like gff3 format.
+                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
                         full_mrnaCDS[-1][-1].append(coords)
-        full_mrnaGroup[-1] += [subentry[0],subentry[6]]                                         # Append contig ID and orientation.
-        full_mrnaCDS[-1] += [subentry[0],subentry[6]]
+        full_mrnaGroup[-1] += [subentry[0],subentry[6],mrnaLine]                         # Append contig ID and orientation.
+        full_mrnaCDS[-1] += [subentry[0],subentry[6],mrnaLine]
         # Put info into the coordDict and move on
         gffExonDict[geneID] = full_mrnaGroup
         gffCDSDict[geneID] = full_mrnaCDS
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
-def cdna_parser(gff3File):
+def gff3_parse_exoncds(gff3File):
         # Establish values for storing results
         currGroup = []
         gffExonDict = {}
@@ -89,7 +93,7 @@ def cdna_parser(gff3File):
                         if line == '\n' or line.startswith('#'):
                                 continue
                         # Get details
-                        sl = line.rstrip('\n').split('\t')
+                        sl = line.rstrip('\r\n').split('\t')
                         lineType = sl[2]
                         # Building gene group/process it
                         if lineType == 'gene':
@@ -99,7 +103,7 @@ def cdna_parser(gff3File):
                                         continue
                                 else:
                                         # Process group if we're encountering a new group
-                                        gffExonDict, gffCDSDict = group_process(currGroup, gffExonDict, gffCDSDict)
+                                        gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
                                         currGroup = [sl]
                         elif lineType == 'rRNA' or lineType == 'tRNA':          # Skip lines that aren't coding
                                 continue
@@ -107,7 +111,7 @@ def cdna_parser(gff3File):
                                 # Keep building group until we encounter another 'gene' lineType
                                 currGroup.append(sl)
                 # Process the last mrnaGroup
-                gffExonDict, gffCDSDict = group_process(currGroup, gffExonDict, gffCDSDict)
+                gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
@@ -264,7 +268,7 @@ validate_args(args)
 gmapCutoff = 97
 
 # Parse the gff3 file
-gffExonDict, gffCDSDict = cdna_parser(args.gff3File)
+gffExonDict, gffCDSDict = gff3_parse_exoncds(args.gff3File)
 nuclDict, cdsDict = nucldict_reorganise(gffExonDict, gffCDSDict)
 
 # Parse the gmap alignment file for transcript alignment locations

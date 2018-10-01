@@ -143,6 +143,13 @@ def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, b
                                         if section.startswith('ID='):
                                                 geneID = section[3:]                    # Skip the ID= at start
                                                 break
+                        # Handle gmap_gene_find lines specifically
+                        elif sl[1] == 'gmap_gene_find':
+                                gffComment = sl[8].split(';')
+                                for section in gffComment:
+                                        if section.startswith('Parent='):
+                                                geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
+                                                break
                         else:
                                 gffComment = sl[8].split(';')
                                 for section in gffComment:
@@ -203,6 +210,8 @@ def gff3_idlist_compare(gff3Dict, idList):
                         outList.append(mrnaParent)
                         for mrna in value:
                                 outList.append(mrna[0])
+                                if '.mrna' in mrna[0]:
+                                        outList.append(mrna[0].replace('.mrna', '.path'))
         # Remove redundancy that may have crept in
         outList = list(set(outList))
         return outList
