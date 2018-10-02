@@ -38,7 +38,7 @@ def gff3_parse_blocks(gff3File, sorting):
                         # Handle first line
                         if currGroup == []:
                                 currGroup.append(line)
-                        elif (line.startswith('# ORIGINAL') or line.startswith('# PASA_UPDATE')) and not (currGroup[-1].startswith('# ORIGINAL') or currGroup[-1].startswith('# PASA_UPDATE')):         # This will result in us processing the currGroup if we encounter the next group (original/pasa_updated)
+                        elif (line.startswith('# ORIGINAL') or line.startswith('# PASA_UPDATE') or line.startswith('# GMAP_GENE_FIND')) and not (currGroup[-1].startswith('# ORIGINAL') or currGroup[-1].startswith('# PASA_UPDATE') or currGroup[-1].startswith('# GMAP_GENE_FIND')):         # This will result in us processing the currGroup if we encounter the next group
                                 # Process the currGroup by finding the contig ID and gene start coordinate                                                                              # I had to do an additional check in the second bracket since because the script was not handling multiple isoform entries
                                 for entry in currGroup:
                                         sl = entry.split('\t')
