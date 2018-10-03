@@ -121,6 +121,59 @@ def group_process(currGroup, gffExonDict, gffCDSDict):
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
+def group_process_exoncds(currGroup, gffExonDict, gffCDSDict):
+        import re
+        idRegex = re.compile(r'ID=(.+?);')
+        full_mrnaGroup = []                                                              # This will hold processed mRNA positions.
+        full_mrnaCDS = []
+        mrnaGroup = []                                                                   # This will be a temporary storage for mRNA lines.
+        for entry in currGroup:
+                # Handle the first line in the group: we just want the gene ID
+                if entry[2] == 'gene':
+                        geneID = idRegex.search(entry[8]).group(1)
+                # Handle mRNA lines: this will start a subgroup corresponding to the mRNA
+                elif entry[2] == 'mRNA':
+                        # Added into this function for this particular program #
+                        mrnaLine = entry[8]
+                        if mrnaGroup == []:                                              # i.e., if this is the first mRNA line in this gene group, we just need to start building it.
+                                mrnaGroup.append(entry)
+                        else:                                                            # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one.
+                                # Process current mrnaGroup
+                                for subentry in mrnaGroup:
+                                        if subentry[2] == 'mRNA':
+                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                                                full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
+                                        elif subentry[2] == 'exon':
+                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
+                                                full_mrnaGroup[-1][-1].append(coords)
+                                        elif subentry[2] == 'CDS':
+                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
+                                                full_mrnaCDS[-1][-1].append(coords)
+                                # Initiate new mrnaGroup
+                                full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation.
+                                full_mrnaCDS[-1] += [subentry[0],subentry[6]]
+                                mrnaGroup = [entry]
+                else:
+                        mrnaGroup.append(entry)
+        # Process the mrnaGroup that's currently sitting in the pipe (so to speak)
+        for subentry in mrnaGroup:
+                if subentry[2] == 'mRNA':
+                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
+                        full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
+                elif subentry[2] == 'exon':
+                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
+                        full_mrnaGroup[-1][-1].append(coords)
+                elif subentry[2] == 'CDS':
+                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
+                        full_mrnaCDS[-1][-1].append(coords)
+        full_mrnaGroup[-1] += [subentry[0],subentry[6],mrnaLine]                         # Append contig ID and orientation.
+        full_mrnaCDS[-1] += [subentry[0],subentry[6],mrnaLine]
+        # Put info into the coordDict and move on
+        gffExonDict[geneID] = full_mrnaGroup
+        gffCDSDict[geneID] = full_mrnaCDS
+        # Return dictionaries
+        return gffExonDict, gffCDSDict
+
 def pasa_parse(gff3File):
         # Establish values for storing results
         currGroup = []
@@ -165,6 +218,48 @@ def pasa_parse(gff3File):
         # Return dictionaries
         return gffExonDict, gffCDSDict, pasaProts
 
+def pasa_parse_exoncds(gff3File):
+        # Establish values for storing results
+        currGroup = []
+        gffExonDict = {}
+        gffCDSDict = {}
+        pasaProts = {}
+        # Loop through gff3 file
+        with open(gff3File, 'r') as fileIn:
+                for line in fileIn:
+                        # Grab the PASA predicted ORF sequences
+                        if line.startswith('#PROT'):
+                                sl = line.rstrip('\n').split('\t')
+                                geneID = sl[0].split()[1]
+                                pasaProt = sl[1]
+                                pasaProts[geneID] = pasaProt
+                                continue
+                        # Skip filler/other comment lines
+                        elif line.startswith('#') or line == '\n':
+                                continue
+                        # Get details
+                        sl = line.rstrip('\r\n').split('\t')
+                        lineType = sl[2]
+                        # Building gene group/process it
+                        if lineType == 'gene':
+                                if currGroup == []:
+                                        # First iteration: just play it cool, add the sl to the group
+                                        currGroup.append(sl)
+                                        continue
+                                else:
+                                        # Process group if we're encountering a new group
+                                        gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
+                                        currGroup = [sl]
+                        elif lineType == 'rRNA' or lineType == 'tRNA':          # Skip lines that aren't coding
+                                continue
+                        else:
+                                # Keep building group until we encounter another 'gene' lineType
+                                currGroup.append(sl)
+                # Process the last mrnaGroup
+                gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
+        # Return dictionaries
+        return gffExonDict, gffCDSDict
+
 def longest_iso(mrnaList):
         longestMrna = ['', 0]           # We pick out the representative gene based on length. If length is identical, we'll end up picking the entry listed first in the gff3 file since our > condition won't be met. I doubt this will happen much or at all though.
         for mrna in mrnaList:
@@ -193,7 +288,7 @@ p.add_argument("-i", "-input", dest="fasta",
 p.add_argument("-g", "-gff", dest="gff3",
                   help="gff3 file")
 p.add_argument("-l", "-locusSeqs", dest="locusSeqs", choices = ['main', 'isoforms'],
-                  help="type of transcripts to extract from each locus (main == just the ")
+                  help="type of transcripts to extract from each locus (main == just the longest isoform of each gene, isoforms == all isoforms)")
 p.add_argument("-s", "-seqType", dest="seqType", choices = ['transcript', 'cds', 'both'],
                   help="type of sequence to output (transcripts == full gene model including UTRs if annotated, cds == coding regions)")
 p.add_argument("-o", "-output", dest="outputFileName",
@@ -210,53 +305,72 @@ records = SeqIO.to_dict(SeqIO.parse(open(args.fasta, 'r'), 'fasta'))
 # Parse the gff3 file
 gffExonDict, gffCDSDict, pasaProts = pasa_parse(args.gff3)
 
+# Get the sorted gene model names & mRNA model names
+numRegex = re.compile(r'\d+')
+geneIDs = list(gffCDSDict.keys())
+geneIDs.sort(key = lambda x: int(numRegex.search(x).group()))
+if pasaProts != []:
+        mrnaIDs = list(pasaProts.keys())
+        mrnaIDs.sort(key = lambda x: int(numRegex.search(x).group()))
+
 # Produce output files
-dictObjs = [gffExonDict, gffCDSDict, pasaProts]
-fileNames = [mainOutputFileName, nuclOutputFileName, protOutputFileName]
+dictObjs = [gffCDSDict, gffExonDict, pasaProts]
+fileNames = [nuclOutputFileName, mainOutputFileName, protOutputFileName]
 longestIsos = set()     # This will retain values for protein output
 for i in range(len(dictObjs)):
         # Don't output unwanted files
         if fileNames[i] == None:
                 continue
+        # Don't output blank files
+        if dictObjs[i] == []:   # This lets us handle GFF3's produced by EVM; we won't get a protein, but we won't crash either
+                continue
         # Process the values in the dictObj if we're looking at nucleotide dictionaries and output to file
         with open(fileNames[i], 'w') as fileOut:
-                for key, value in dictObjs[i].items():
-                        # Pick out longest isoform if relevant [note: longest is with relation to TRANSCRIPT, not CDS]
-                        if args.locusSeqs == 'main' and i != 2:                 # Note that, if we're outputting CDS, we'll always enter here when i == 1; thus, the longestIsos set will be ready for the pasaProts output below
-                                longestID = longest_iso(dictObjs[0][key])[0][0]
-                                longestIsos.add(longestID)  # This is for protein output
-                                for x in range(len(value)):
-                                        if value[x][0] == longestID:
-                                                chosenIndex = x
-                                value = [value[chosenIndex]]
+                # Choose our iterating ID list for producing ordered output
+                if i != 2:
+                        iteratingIDs = geneIDs
+                else:                           # pasaProts is indexed differently to the CDS/Exon dicts so we can't call it by gene IDs, we need to iterate through mRNA IDs
+                        iteratingIDs = mrnaIDs  # If pasaProts == [] this won't be relevant, and mrnaIDs won't be formatted above either
+                # Main loop
+                for key in iteratingIDs:                                             # This will ensure our FASTA output is sorted in the same way as our GFF3 will be if processed with gff3_order.py
+                        value = dictObjs[i][key]
                         # If we're looking at the pasaProts dictionary, simply dump values to fasta
-                        if i == 2 and dictObjs[i] != []:        # This lets us handle GFF3's produced by EVM; we won't get a protein, but we won't crash either
-                                with open(fileNames[i], 'w') as fileOut:
-                                        for k, v in dictObjs[i].items():
-                                                if args.locusSeqs == 'main':
-                                                        if k in longestIsos:
-                                                                fileOut.write('>' + k + '\n' + v + '\n')
-                                                else:
-                                                        fileOut.write('>' + k + '\n' + v + '\n')
-                                break   # We're all done; pasaProts is the last dictionary
-                        # Loop into mrnas associated with this gene model and build the sequence
-                        for mrna in value:
-                                # Retrieve genomic sequence
-                                genomeSeq = str(records[mrna[2]].seq)
-                                # Reverse the list if we're looking at a '-' model so we start at the 3' end of the gene model
-                                if mrna[3] == '-':
-                                        mrna[1].reverse()
-                                # Join sequence segments
-                                transcript = ''
-                                for pair in mrna[1]:
-                                        coords = pair.split('-')
-                                        segment = genomeSeq[int(coords[0])-1:int(coords[1])]            # Make it 1-based by -1 to the first coordinate
-                                        transcript += segment
-                                # Reverse comp if necessary
-                                if mrna[3] == '-':
-                                        transcript = reverse_comp(transcript)
-                                # Output to file
-                                fileOut.write('>' + mrna[0] + '\n' + transcript + '\n')
+                        if i == 2:
+                                if args.locusSeqs == 'main':
+                                        if key in longestIsos:
+                                                fileOut.write('>' + key + '\n' + value + '\n')
+                                else:
+                                        fileOut.write('>' + key + '\n' + value + '\n')
+                        # If we're looking at any other type of output, loop through things normally
+                        else:
+                                # Pick out longest isoform if relevant [note: longest is with relation to CDS, not TRANSCRIPT; this was changed recently since BUSCO scores were indicating that the inverse strategy was incorrect]
+                                if args.locusSeqs == 'main':                    # Note that, if we're outputting CDS, we'll always enter here when i == 0; thus, the longestIsos set will be ready for pasaProts output above
+                                        longestID = longest_iso(gffCDSDict[key])[0][0]  # As mentioned above, we always use CDS length rather than transcript length, hence the use of the CDSDict here
+                                        longestIsos.add(longestID)              # This is for protein output above
+                                        chosenIndex = None
+                                        for x in range(len(value)):
+                                                if value[x][0] == longestID:
+                                                        chosenIndex = x
+                                        assert chosenIndex != None
+                                        value = [value[chosenIndex]]
+                                # Loop into mrnas associated with this gene model and build the sequence
+                                for mrna in value:
+                                        # Retrieve genomic sequence
+                                        genomeSeq = str(records[mrna[2]].seq)
+                                        # Reverse the list if we're looking at a '-' model so we start at the 3' end of the gene model
+                                        if mrna[3] == '-':
+                                                mrna[1].reverse()
+                                        # Join sequence segments
+                                        transcript = ''
+                                        for pair in mrna[1]:
+                                                coords = pair.split('-')
+                                                segment = genomeSeq[int(coords[0])-1:int(coords[1])]            # Make it 1-based by -1 to the first coordinate
+                                                transcript += segment
+                                        # Reverse comp if necessary
+                                        if mrna[3] == '-':
+                                                transcript = reverse_comp(transcript)
+                                        # Output to file
+                                        fileOut.write('>' + mrna[0] + '\n' + transcript + '\n')
 
 # Done!
 print('Program completed successfully!')
