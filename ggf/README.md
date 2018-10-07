@@ -18,7 +18,7 @@ Importantly, the CDS files should be those used for the GMAP alignment, and if s
 
 Additionally, GGF does expect that CDS predictions should have been aligned and not the full transcripts including UTRs. Internally, the program compares new prediction CDS regions to the original CDS sequences used for the alignment to ensure that they are roughly equivalent, and UTRs will throw this off.
 
-Finally, the GMAP alignment besides being generated with ```-f 2``` should also be mapped with multiple paths e.g., ```-n 12```. The number here doesn't matter too much, but it should be a number greater than 1 since this is what PASA uses without being excessively large which will slow down GMAP alignment. As this example shows, I used ```-n 12``` and found this to be adequate.
+Finally, the GMAP alignment besides being generated with ```-f 2``` should also be mapped with multiple paths e.g., ```-n 12```. The number here doesn't matter too much, but it should be a number greater than 1 since this is what PASA uses, without being excessively large which will slow down GMAP alignment. As this example shows, I used ```-n 12``` and found this to be adequate.
 
 ## Configuring GGF
 GGF has a few additional settings that can be configured. The defaults have been tested to work well so the recommendation is that you leave these alone. However, you can try modifying these with some understanding of their significance.
@@ -42,4 +42,4 @@ utg124	aul_smrtden.arrow4.pil3.deGRIT2.fasta.gmap	mRNA	256957	259786	.	+	.	ID=ev
 While this sequence barely fails to meet the cutoff, we can see that the number of mismatches and indels is quite high. Indels in particular are concerning; additional copies of highly conserved genes should not show such a pattern, so it is good that we reject this.
 
 ### -al
-```-al``` or alignPctCutoff is used as an dditional filtration stage later in the program's operations. Once we have a potential model identified, we align this model against the original sequence used for GMAP alignment with Striped Smith-Waterman and only retain models that have an alignment length >= the cutoff. The default of 90% reflects that used during the original GMAP alignment which we enforce using ```-id```; ideally these two values should agree, so this value simply acts as a validation.
+```-al``` or alignPctCutoff is used as an additional filtration stage later in the program's operations. Once we have a potential model identified, we align this model against the original sequence used for GMAP alignment with Striped Smith-Waterman and only retain models that have an alignment length >= the cutoff. The default of 90% reflects that used during the original GMAP alignment which we enforce using ```-id```; ideally these two values should agree, so this value simply acts as a validation.
