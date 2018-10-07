@@ -5,7 +5,7 @@ gmap_gene_find (GGF) is a program for discovering additional copies of existing 
 GGF was created when I realised that PASA had a few weaknesses, and GGF attempts to remedy these. Firstly, PASA's default GMAP and BLAT settings ensure that, for gene families with high gene copy and very high sequence conservation, you are not likely to annotate each family member. Imagine a scenario where you have 4 copies of a gene which are >=99% similar. If you have used redundancy reduction during your transcriptome building process (such as CD-HIT or EvidentialGene), you might only have 1 or 2 transcripts which represent these 4 gene copies. Aligning these with PASA's default GMAP settings means you will only annotate 1 or 2 copies of these genes, since GMAP will only output the single best alignment position. On the one hand, this has the benefit of making PASA less likely to annotate pseudogenes; on the other, it means that your gene families will be smaller than they should be. Since my goal was to identify toxin families within genomes (which are commonly duplicated and negatively selected) PASA's output wasn't good enough.
 
 ## Prerequisites
-GGF is a Python 3.X based program which utilises Biopython and skbio. The skbio package is currently only available on Unix/POSIX/MacOS/OS X operating systems which limits the operation of this program to these platforms.
+GGF is a Python 3.X based program which utilises Biopython, skbio, and ncls (https://github.com/hunt-genes/ncls). The skbio package is currently only available on Unix/POSIX/MacOS/OS X operating systems which limits the operation of this program to these platforms.
 
 ## How to use
 GGF requires 4 types of file inputs.
@@ -43,3 +43,6 @@ While this sequence barely fails to meet the cutoff, we can see that the number 
 
 ### -al
 ```-al``` or alignPctCutoff is used as an additional filtration stage later in the program's operations. Once we have a potential model identified, we align this model against the original sequence used for GMAP alignment with Striped Smith-Waterman and only retain models that have an alignment length >= the cutoff. The default of 90% reflects that used during the original GMAP alignment which we enforce using ```-id```; ideally these two values should agree, so this value simply acts as a validation.
+
+## How to use its results
+The resulting GFF3 file is not designed to be used on its own since it should only represent models NOT already present in your original annotation file (hence why GGF asks you to specify this file). It should be combined with your current gene model GFF3 file with gff3_merge.py (present in the main repository, not this subdirectory). This will add novel models, cluster alternative isoforms, and ignore any sequences that are already present in your annotation (this should already have been done during GGF but you can modify this value during merging).
