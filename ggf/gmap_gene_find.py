@@ -10,6 +10,11 @@ from Bio.Alphabet import generic_dna
 
 # Define functions for later use
 def validate_args(args):
+        # Ensure no None arguments exist
+        for key, value in vars(args).items():
+                if value == None:
+                        print(key + ' argument was not specified. Fix this and try again.')
+                        quit()
         # Validate input file locations
         for gmapFile in args.gmapFiles:
                 if not os.path.isfile(gmapFile):
@@ -51,13 +56,7 @@ def validate_args(args):
         return args
 
 ## Checking and validation of models
-def check_model(commentLine, covCutoff, idCutoff):
-        # Extract alignment details from comment line
-        details = commentLine.split(';')
-        detailDict = {}
-        for i in range(len(details)):
-                splitDetail = details[i].split('=')
-                detailDict[splitDetail[0]] = splitDetail[1]
+def check_model(detailDict, covCutoff, idCutoff):
         # Cutoff 1: Coverage
         if float(detailDict['coverage']) < covCutoff:
                 return False
@@ -78,7 +77,7 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, a
         cds = []
         extraLength = 100               # We add a bit of extra sequence to the sides of the CDS to handle for cases where coverage != 100.
         for i in range(len(coords)):    # This should theoretically mean we capture more models where there is slight differences at their terminal ends.
-                splitCoord = coords[i].split('-')
+                splitCoord = coords[i]  # This value name is a holdover from an older version of the code where I needed to split '100-200' to [100, 200]; this is no longer necessary
                 # Modify coordinates if relevant
                 if i == 0:
                         if orientation == '+':
@@ -97,7 +96,7 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, a
                 if orientation == '-':
                         cdsBit = reverse_comp(cdsBit)
                 cds.append(cdsBit)
-                coords[i] = '-'.join(splitCoord)
+                coords[i] = splitCoord  # As above, this is from older code. Easier to just leave it like this than rename everything (lazy!)
         # Join our CDS bits together
         cds = ''.join(cds)
         # Find the starting codon w/r/t to the codon used for the original CDS
@@ -118,7 +117,7 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, a
         startChange -= startExonLen
         stopChange -= stopExonLen
         for i in range(len(coords)):
-                splitCoord = coords[i].split('-')
+                splitCoord = coords[i]
                 if i == 0:
                         if orientation == '+':
                                 splitCoord[0] = str(int(splitCoord[0]) + startChange)
@@ -129,7 +128,7 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, a
                                 splitCoord[1] = str(int(splitCoord[1]) - stopChange)
                         else:
                                 splitCoord[0] = str(int(splitCoord[0]) + stopChange)
-                coords[i] = '-'.join(splitCoord)
+                coords[i] = splitCoord
         # Extend the CDS where possible
         result = cds_extension(coords, contigID, orientation, genomeRecords)
         if result == False:
@@ -228,9 +227,9 @@ def coord_excess_cut(coords, startChange, stopChange, orientation):
         for i in range(2):
                 while True:
                         if i == 0:
-                                exon = coords[0].split('-')
+                                exon = coords[0]
                         else:
-                                exon = coords[-1].split('-')
+                                exon = coords[-1]
                         # Extract details
                         rightCoord = int(exon[1])
                         leftCoord = int(exon[0])
@@ -272,7 +271,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
         atgPos = None
         if orientation == '+':
                 # Crawl back looking for the first stop codon - this is our boundary
-                startCoord = int(coords[0].split('-')[0])
+                startCoord = int(coords[0][0])
                 genomeSeq = genomeRecords[contigID][0:startCoord-1]     # startCoord is 1-based so we -1 to counter that
                 for i in range(len(genomeSeq)-1, -1, -3):
                         codon = str(genomeSeq[i-2:i+1].seq)
@@ -306,10 +305,10 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 acceptedPos = accepted[0] + 1                           # +1 to reconvert this to 1-based
                 # Update this in our coords value if relevant
                 if accepted[1] == True:
-                        coords[0] = str(acceptedPos) + '-' + coords[0].split('-')[1]
+                        coords[0] = str(acceptedPos) + '-' + coords[0][1]
         else:
                 # Crawl up looking for the first stop codon - this is our boundary
-                startCoord = int(coords[0].split('-')[1])
+                startCoord = int(coords[0][1])
                 genomeSeq = genomeRecords[contigID][startCoord:]        # startCoord is 1-based; we want just after it, so accepting it as-is is correct
                 for i in range(0, len(genomeSeq), 3):
                         codon = str(genomeSeq[i:i+3].seq)
@@ -342,7 +341,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 acceptedPos = startCoord + accepted[0] + 1              # +1 to reconvert this to 1-based
                 # Update this in our coords value
                 if accepted[1] == True:
-                        coords[0] = coords[0].split('-')[0] + '-' + str(acceptedPos)
+                        coords[0] = coords[0][0] + '-' + str(acceptedPos)
         # Determine if we need to do a stop codon crawl
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         cdsRecord = Seq(cds, generic_dna)
@@ -356,7 +355,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 return coords, cds                                      # No need for a backwards crawl
         # Begin the stop codon crawl
         if orientation == '+':
-                endCoord = int(coords[-1].split('-')[1])
+                endCoord = int(coords[-1][1])
                 # Trim off excess from the CDS to make sure we're in frame
                 endCoord -= len(cds) % 3
                 genomeSeq = genomeRecords[contigID][endCoord:]          # endCoord is 1-based; we want just after it, so accepting it as-is is correct
@@ -365,9 +364,9 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         if codon.lower() in stopCodonsPos:
                                 break
                 i = endCoord + i + 2 + 1                                # +2 to go to the end of the stop codon; +1 to make it 1-based
-                coords[-1] = coords[-1].split('-')[0] + '-' + str(i)
+                coords[-1] = coords[-1][0] + '-' + str(i)
         else:
-                endCoord = int(coords[-1].split('-')[0])
+                endCoord = int(coords[-1][0])
                 genomeSeq = genomeRecords[contigID][0:endCoord-1]       # endCoord is 1-based so we -1 to counter that
                 for i in range(len(genomeSeq)-1, -1, -3):
                         codon = str(genomeSeq[i-2:i+1].seq)
@@ -375,7 +374,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                                 break
                 i = i - 2 + 1                                           # -2 to go to the start of the codon; +1 to make it 1-based
                 acceptedPos = accepted[0] + 1
-                coords[-1] = str(i) + '-' + coords[-1].split('-')[1]
+                coords[-1] = str(i) + '-' + coords[-1][1]
         # Make the final CDS and return
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         return coords, cds
@@ -384,7 +383,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
 def make_cds(coords, genomeRecords, contigID, orientation):
         cds = []
         for i in range(len(coords)):
-                splitCoord = coords[i].split('-')
+                splitCoord = coords[i]
                 cdsBit = str(genomeRecords[contigID].seq)[int(splitCoord[0])-1:int(splitCoord[1])]
                 if orientation == '-':
                         cdsBit = reverse_comp(cdsBit)
@@ -690,7 +689,7 @@ def intron_detail_extract(coords, orientation):
         return intronCoords, intronLens
 
 ## NCLS RELATED
-def gff3_parse_ncls(gff3File):
+def gff3_parse_ncls(gff3File):                                  # This function will make a NCLS object which can be used to find gene model overlaps; note that this is the whole gene's range, not separate exon ranges
         import pandas as pd
         from ncls import NCLS
         gff3Loc = {}
@@ -700,11 +699,12 @@ def gff3_parse_ncls(gff3File):
         ongoingCount = 0
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
+                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
                         # Skip unneccessary lines
-                        if line.startswith('#') or line == '\n' or line == '\r\n':
+                        if line.startswith('#') or line == '\n':
                                 continue
                         sl = line.split('\t')
-                        if len(sl) < 3:
+                        if len(sl) < 8:                 # If the length is shorter than this, it's not a gene detail line
                                 continue
                         # Skip non-mRNA lines
                         if sl[2] != 'mRNA':
@@ -839,6 +839,93 @@ def gff3_parse_exoncds(gff3File):
         # Return dictionaries
         return gffExonDict, gffCDSDict
 
+def gff3_index(gff3File):
+        # Setup
+        geneDict = {}           # Our output structure will have 1 entry per gene which is stored in here
+        indexDict = {}          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
+        lengthValues = [0, 0]   # Corresponds to [geneCount, mrnaCount]
+        idValues = [[], []]     # Corresponds to [geneIDList, mrnaIDList]
+        # Gene object loop
+        with open(gff3File, 'r') as fileIn:
+                for line in fileIn:
+                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
+                        # Skip filler and comment lines
+                        if line == '\n' or line.startswith('#'):
+                                continue
+                        # Get details
+                        sl = line.rstrip('\n').split('\t')
+                        lineType = sl[2]
+                        details = sl[8].split(';')
+                        detailDict = {}
+                        for i in range(len(details)):
+                                splitDetail = details[i].split('=')
+                                detailDict[splitDetail[0]] = splitDetail[1]
+                        # Build gene group dict objects
+                        if lineType == 'gene':
+                                if detailDict['ID'] not in geneDict:
+                                        # Create entry
+                                        geneDict[detailDict['ID']] = {'attributes': {}}
+                                        # Add attributes
+                                        for k, v in detailDict.items():
+                                                geneDict[detailDict['ID']]['attributes'][k] = v
+                                        # Add all other gene details
+                                        geneDict[detailDict['ID']]['contig_id'] = sl[0]
+                                        geneDict[detailDict['ID']]['source'] = sl[1]
+                                        geneDict[detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
+                                        geneDict[detailDict['ID']]['score'] = sl[5]
+                                        geneDict[detailDict['ID']]['orientation'] = sl[6]
+                                        geneDict[detailDict['ID']]['frame'] = sl[7]
+                                        # Index in indexDict
+                                        indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
+                                        # Add extra details
+                                        lengthValues[0] += 1
+                                        idValues[0].append(detailDict['ID'])
+                                else:
+                                        print('Gene ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('Program will exit now.')
+                                        quit()
+                        elif lineType == 'mRNA':
+                                if detailDict['ID'] not in geneDict[detailDict['Parent']]:
+                                        # Create entry
+                                        geneDict[detailDict['Parent']][detailDict['ID']] = {'attributes': {}}
+                                        # Add attributes
+                                        for k, v in detailDict.items():
+                                                geneDict[detailDict['Parent']][detailDict['ID']]['attributes'][k] = v
+                                        # Add all other gene details
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['contig_id'] = sl[0]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['source'] = sl[1]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['score'] = sl[5]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['orientation'] = sl[6]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['frame'] = sl[7]
+                                        # Index in indexDict
+                                        indexDict[detailDict['ID']] = geneDict[detailDict['Parent']]
+                                        # Add extra details
+                                        lengthValues[1] += 1
+                                        idValues[1].append(detailDict['ID'])
+                                else:
+                                        print('mRNA ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('Program will exit now.')
+                                        quit()
+                        else:
+                                if detailDict['Parent'] not in indexDict:
+                                        print(lineType + ' ID not identified already in your GFF3! "' + detailDict['Parent'] + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('Program will exit now.')
+                                        quit()
+                                else:
+                                        # Create/append to entry
+                                        if lineType not in indexDict[detailDict['Parent']][detailDict['Parent']]:
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType] = {'coords': [[int(sl[3]), int(sl[4])]]}
+                                        else:
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['coords'].append([int(sl[3]), int(sl[4])])
+        # Add extra details to dict
+        geneDict['lengthValues'] = lengthValues
+        indexDict['lengthValues'] = geneDict['lengthValues']
+        geneDict['idValues'] = idValues
+        indexDict['idValues'] = geneDict['idValues']
+        # Return output
+        return indexDict
+
 def coord_extract(coord):
         splitCoord = coord.split('-')
         start = int(splitCoord[0])
@@ -922,6 +1009,12 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
+## HARDCODED TESTING
+args.gmapFiles = [r'scerevisiae.transdecoder.genome.nucl_gmap.gff3', r'scerevisiae_okay-okalt.cds_gmap.gff3']
+args.cdsFiles = [r'scerevisiae.transdecoder.genome.nucl', r'scerevisiae_okay-okalt.cds']
+args.genomeFile = r'Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa'
+args.annotationFile = r'scerevisiae.transdecoder.genome.gff3'
+args.outputFileName = r'test_scere.gff3'
 args = validate_args(args)
 
 # Load in genome fasta file as dict
@@ -929,10 +1022,11 @@ genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
 
 # Parse main annotation GFF3 as NCLS and model
 gff3Ncls, gff3Loc = gff3_parse_ncls(args.annotationFile)
-gff3ExonDict, gff3CDSDict = gff3_parse_exoncds(args.annotationFile)
+gff3Dict = gff3_index(args.annotationFile)
 
 # Set up values for the main loop
 geneIDRegex = re.compile(r'_?evm.model.\w+?\d{1,10}.\d{1,10}')
+pathIDRegex = re.compile(r'([\w\.]+?\.\w{4}\d{1,3})')
 
 # Main loop: find good multipath gene models
 gmapDicts = []          # Hold onto dictionaries from each iteration of gmap files
@@ -943,28 +1037,29 @@ for i in range(len(args.gmapFiles)):
         cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFiles[i], 'r'), 'fasta'))
         # Parse GMAP GFF3 for gene models
         gmapExonDict, gmapCDSDict = gff3_parse_exoncds(args.gmapFiles[i])
+        gmapDict = gff3_index(args.gmapFiles[i])
         # Detect well-suported multi-path models
         coordDict = {}
-        for key, value in gmapExonDict.items():
-                for mrna in value:
-                        # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
-                        if len(mrna[1]) == 1:
-                                continue
-                        # Skip if the transcript lacks a stop codon and thus is guaranteed to be a fragment
-                        transcriptID = mrna[0].rsplit('.', maxsplit=1)[0]
-                        lastCodon = str(cdsRecords[transcriptID].seq)[-3:]
-                        if lastCodon.lower() not in ['tag', 'taa', 'tga']:
-                                continue
-                        # Cut-off checks
-                        decision = check_model(mrna[4], args.coverageCutoff, args.identityCutoff)
-                        if decision == False:
-                                continue
-                        result = cds_build(mrna[1], mrna[2], mrna[3], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff)     # Split off the '.mrna#' suffix
-                        if result == False:
-                                continue
-                        else:
-                                coords, protein = result
-                                coordDict[key] = [coords, mrna[2], mrna[3], protein]
+        for key in gmapDict['idValues'][1]:
+                value = gmapDict[key][key]
+                # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
+                if len(value['CDS']['coords']) == 1:
+                        continue
+                # Skip if the transcript lacks a stop codon and thus is likely to be a fragment
+                transcriptID = key.rsplit('.', maxsplit=1)[0]   # This removes the '.mrna#' suffix which won't be present in the original FASTA file
+                lastCodon = str(cdsRecords[transcriptID].seq)[-3:]
+                if lastCodon.lower() not in ['tag', 'taa', 'tga']:
+                        continue
+                # Cut-off checks
+                decision = check_model(value['attributes'], args.coverageCutoff, args.identityCutoff)
+                if decision == False:
+                        continue
+                result = cds_build(value['CDS']['coords'], value['contig_id'], value['orientation'], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff)     # Split off the '.mrna#' suffix
+                if result == False:
+                        continue
+                else:
+                        coords, protein = result
+                        coordDict[key] = [coords, mrna[2], mrna[3], protein]
         # Remove overlaps of existing genes
         outputValues = {}
         for key, value in coordDict.items():
