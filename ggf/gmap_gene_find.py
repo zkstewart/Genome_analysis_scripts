@@ -1,7 +1,7 @@
 #! python3
-# gmap_gene_multipath_curate
+# gmap_gene_find
 # Program to parse a GMAP gene gff3 file (-f 2) and, according to certain criteria,
-# identify ORFs which have multiple paths that are well supported.
+# identify ORFs which have paths that are well supported.
 
 import os, argparse, re, warnings
 from Bio import SeqIO
@@ -69,9 +69,9 @@ def check_model(detailDict, covCutoff, idCutoff):
 def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, alignPctCutoff):
         def correct_overshoots(splitCoord):
                 if int(splitCoord[0]) < 1:
-                        splitCoord[0] = '1'
+                        splitCoord[0] = 1
                 if int(splitCoord[1]) > len(genomeRecords[contigID]):
-                        splitCoord[1] = str(len(genomeRecords[contigID]))
+                        splitCoord[1] = len(genomeRecords[contigID])
                 return splitCoord
         # Build the gene model
         cds = []
@@ -81,15 +81,15 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, a
                 # Modify coordinates if relevant
                 if i == 0:
                         if orientation == '+':
-                                splitCoord[0] = str(int(splitCoord[0]) - extraLength)
+                                splitCoord[0] = int(splitCoord[0]) - extraLength
                         else:
-                                splitCoord[1] = str(int(splitCoord[1]) + extraLength)
+                                splitCoord[1] = int(splitCoord[1]) + extraLength
                         splitCoord = correct_overshoots(splitCoord)
                 if i == len(coords) - 1:
                         if orientation == '+':
-                                splitCoord[1] = str(int(splitCoord[1]) + extraLength)
+                                splitCoord[1] = int(splitCoord[1]) + extraLength
                         else:
-                                splitCoord[0] = str(int(splitCoord[0]) - extraLength)
+                                splitCoord[0] = int(splitCoord[0]) - extraLength
                         splitCoord = correct_overshoots(splitCoord)
                 # Extract genomic sequence
                 cdsBit = str(genomeRecords[contigID].seq)[int(splitCoord[0])-1:int(splitCoord[1])]
@@ -120,14 +120,14 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, a
                 splitCoord = coords[i]
                 if i == 0:
                         if orientation == '+':
-                                splitCoord[0] = str(int(splitCoord[0]) + startChange)
+                                splitCoord[0] = int(splitCoord[0]) + startChange
                         else:
-                                splitCoord[1] = str(int(splitCoord[1]) - startChange)
+                                splitCoord[1] = int(splitCoord[1]) - startChange
                 if i == len(coords) - 1:
                         if orientation == '+':
-                                splitCoord[1] = str(int(splitCoord[1]) - stopChange)
+                                splitCoord[1] = int(splitCoord[1]) - stopChange
                         else:
-                                splitCoord[0] = str(int(splitCoord[0]) + stopChange)
+                                splitCoord[0] = int(splitCoord[0]) + stopChange
                 coords[i] = splitCoord
         # Extend the CDS where possible
         result = cds_extension(coords, contigID, orientation, genomeRecords)
@@ -187,7 +187,7 @@ def find_longest_orf(seq, firstCodon):
 
 def validate_translated_cds(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
         # Arbitrary preset values
-        cdsLenCutoff = 30
+        cdsLenCutoff = 30       # 30 AA makes sure the ORF is longer than most spurious ORFs that arise by chance in a genome; if it's transcribed then it should be OK.
         # Get the original sequence's details
         origCDS = str(cdsRecords[cdsID].seq)
         origProt = longest_orf(cdsRecords[cdsID])
@@ -201,14 +201,17 @@ def validate_translated_cds(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
         # If the ORF isn't long enough, it doesn't pass validation
         if len(cdsProt) < cdsLenCutoff:
                 return False
+        # If the ORFs are identical, they automatically pass validation
+        if cdsProt == origProt:
+                return cdsProt
         # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
         try:
-                newAlign, origAlign = ssw(cdsProt, origProt)
+                newAlign, origAlign = ssw(cdsProt, origProt, 'protein') # We tell SSW to align these as proteins
         except:
                 return False                                            # SSW dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
         alignPct = len(newAlign) / len(cdsProt)
-        if alignPct < alignPctCutoff:                                   # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence
-                return False                                            # Originally I tried 0.60; I think a good "maximum strictness" value would be 0.85; Currently, I think 0.75 strikes a good balance ensuring that the ORF is mostly supported
+        if alignPct < alignPctCutoff:                                   # Identity cut-off is probably not necessary, just align percent and arbitrary value to ensure the alignment covers most of the original sequence.
+                return False                                            # Originally I tried 0.60, then 0.75. While these seem okay, I think sticking to 0.85 or 0.90 is ideal since we want to ensure that the ORF is mostly supported.
         # If we have the same start codon and a stop codon, check length for consistency
         lowerBound = origLen - (origLen * 0.1)
         upperBound = origLen + (origLen * 0.1)
@@ -305,7 +308,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 acceptedPos = accepted[0] + 1                           # +1 to reconvert this to 1-based
                 # Update this in our coords value if relevant
                 if accepted[1] == True:
-                        coords[0] = str(acceptedPos) + '-' + coords[0][1]
+                        coords[0] = [acceptedPos, coords[0][1]]
         else:
                 # Crawl up looking for the first stop codon - this is our boundary
                 startCoord = int(coords[0][1])
@@ -341,7 +344,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                 acceptedPos = startCoord + accepted[0] + 1              # +1 to reconvert this to 1-based
                 # Update this in our coords value
                 if accepted[1] == True:
-                        coords[0] = coords[0][0] + '-' + str(acceptedPos)
+                        coords[0] = [coords[0][0], acceptedPos]
         # Determine if we need to do a stop codon crawl
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         cdsRecord = Seq(cds, generic_dna)
@@ -364,7 +367,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         if codon.lower() in stopCodonsPos:
                                 break
                 i = endCoord + i + 2 + 1                                # +2 to go to the end of the stop codon; +1 to make it 1-based
-                coords[-1] = coords[-1][0] + '-' + str(i)
+                coords[-1] = [coords[-1][0], i]
         else:
                 endCoord = int(coords[-1][0])
                 genomeSeq = genomeRecords[contigID][0:endCoord-1]       # endCoord is 1-based so we -1 to counter that
@@ -374,7 +377,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                                 break
                 i = i - 2 + 1                                           # -2 to go to the start of the codon; +1 to make it 1-based
                 acceptedPos = accepted[0] + 1
-                coords[-1] = str(i) + '-' + coords[-1][1]
+                coords[-1] = [i, coords[-1][1]]
         # Make the final CDS and return
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         return coords, cds
@@ -411,10 +414,37 @@ def longest_orf(record):
                         longest = tmpLongest
         return longest
 
-def ssw(querySeq, targetSeq):
+def ssw(querySeq, targetSeq, proteinOrNucl):
+        # Setup
         from skbio.alignment import StripedSmithWaterman
+        # Ensure that proteinOrNucl value is sensible
+        if proteinOrNucl.lower() not in ['protein', 'nucleotide', 'prot', 'nucl', 'p', 'n']:
+                print("ssw: proteinOrNucl value must be in list ['protein', 'nucleotide', 'prot', 'nucl', 'p', 'n']; fix this code and try again.")
+                quit()
+        # Generate a 2D blosum62 dict if relevant
+        if proteinOrNucl.lower().startswith('p'):
+                # Import Biopython's blosum matrix
+                from Bio.SubsMat.MatrixInfo import blosum62
+                # Reshape Biopython's paired tuple dict to a 2D dict
+                skbioBlosum62 = {}
+                for key, value in blosum62.items():
+                        if key[0] not in skbioBlosum62:
+                                skbioBlosum62[key[0]] = {key[1]: value}
+                        elif key[1] not in skbioBlosum62[key[0]]:
+                                skbioBlosum62[key[0]][key[1]] = value
+                        if key[1] not in skbioBlosum62:
+                                skbioBlosum62[key[1]] = {key[0]: value}
+                        elif key[0] not in skbioBlosum62[key[1]]:
+                                skbioBlosum62[key[1]][key[0]] = value
+                skbioBlosum62['*'] = {'*': 1}
+                for character in 'ARNDCQEGHILKMFPSTWYVBZX':
+                        skbioBlosum62['*'][character] = -4
+                        skbioBlosum62[character]['*'] = -4
         # Perform SSW with scikit.bio implementation
-        query = StripedSmithWaterman(querySeq)
+        if proteinOrNucl.lower().startswith('p'):
+                query = StripedSmithWaterman(querySeq, protein=True, substitution_matrix=skbioBlosum62)
+        else:
+                query = StripedSmithWaterman(querySeq)
         alignment = query(targetSeq)
         queryAlign = alignment.aligned_query_sequence
         targetAlign = alignment.aligned_target_sequence
@@ -446,7 +476,7 @@ def compare_novels(inputDict, genomeRecords):
                 for model, value in contigModels:
                         coordSet = set()
                         for coord in value[0]:
-                                splitCoord = coord.split('-')
+                                splitCoord = coord
                                 coordSet = coordSet.union(set(range(int(splitCoord[0]), int(splitCoord[1]) + 1))) # +1 to make the range up to and including the last digit
                         modelSets.append([model, coordSet, value[0], value[1], value[2]])
                 # Compare sets to find overlaps
@@ -496,14 +526,14 @@ def compare_novels(inputDict, genomeRecords):
                                         shortestExon2 = None
                                         microLen = 30   # Arbitrary; exons longer than 30bp aren't considered microexons (this seems to be agreed upon in literature I briefly viewed)
                                         for coord in modelSets[i][2]:
-                                                splitCoord = coord.split('-')
+                                                splitCoord = coord
                                                 exonLen = int(splitCoord[1]) - int(splitCoord[0]) + 1
                                                 if shortestExon1 == None:
                                                         shortestExon1 = exonLen
                                                 elif exonLen < shortestExon1:
                                                         shortestExon1 = exonLen
                                         for coord in modelSets[x][2]:
-                                                splitCoord = coord.split('-')
+                                                splitCoord = coord
                                                 exonLen = int(splitCoord[1]) - int(splitCoord[0]) + 1
                                                 if shortestExon2 == None:
                                                         shortestExon2 = exonLen
@@ -568,7 +598,7 @@ def splice_sites(coords, genomeRecords, contigID, orientation):
         # Extract bits to left and right of exon
         splices = []
         for i in range(len(coords)):
-                splitCoord = coords[i].split('-')
+                splitCoord = coords[i]
                 start = int(splitCoord[0])
                 end = int(splitCoord[1])
                 leftSplice = str(genomeRecords[contigID].seq)[start-1-2:start-1]        # -1 to make 1-based;-2 to go back 2 spots... -1 at end for going back to the base before the CDS
@@ -634,7 +664,7 @@ def remove_bad_splices(inputDict, genomeRecords):
                 unknownPct = spliceTypes[3] / sum(spliceTypes)
                 seqLen = 0
                 for coord in value[0]:
-                        splitCoord = coord.split('-')
+                        splitCoord = coord
                         seqLen += int(splitCoord[1]) - int(splitCoord[0]) + 1
                 # Drop any models that lack canonical splices entirely
                 if spliceTypes[0] == 0: # This works really well, since it forces 2-exon genes to have a canonical splice and hence removes most obviously bad models
@@ -671,10 +701,10 @@ def intron_detail_extract(coords, orientation):
         intronLens = []
         for i in range(0, len(coords)-1):
                 # Extract details
-                splitCoord1 = coords[i].split('-')
+                splitCoord1 = coords[i]
                 start1 = int(splitCoord1[0])
                 stop1 = int(splitCoord1[1])
-                splitCoord2 = coords[i+1].split('-')
+                splitCoord2 = coords[i+1]
                 start2 = int(splitCoord2[0])
                 stop2 = int(splitCoord2[1])
                 # Identify intron gap depending on orientation
@@ -752,93 +782,6 @@ def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):
         return nclsEntries
 
 ## GFF3 RELATED
-def group_process_exoncds(currGroup, gffExonDict, gffCDSDict):
-        import re
-        idRegex = re.compile(r'ID=(.+?);')
-        full_mrnaGroup = []                                                              # This will hold processed mRNA positions.
-        full_mrnaCDS = []
-        mrnaGroup = []                                                                   # This will be a temporary storage for mRNA lines.
-        for entry in currGroup:
-                # Handle the first line in the group: we just want the gene ID
-                if entry[2] == 'gene':
-                        geneID = idRegex.search(entry[8]).group(1)
-                # Handle mRNA lines: this will start a subgroup corresponding to the mRNA
-                elif entry[2] == 'mRNA':
-                        # Added into this function for this particular program #
-                        mrnaLine = entry[8]
-                        if mrnaGroup == []:                                              # i.e., if this is the first mRNA line in this gene group, we just need to start building it.
-                                mrnaGroup.append(entry)
-                        else:                                                            # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one.
-                                # Process current mrnaGroup
-                                for subentry in mrnaGroup:
-                                        if subentry[2] == 'mRNA':
-                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                                full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
-                                        elif subentry[2] == 'exon':
-                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
-                                                full_mrnaGroup[-1][-1].append(coords)
-                                        elif subentry[2] == 'CDS':
-                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
-                                                full_mrnaCDS[-1][-1].append(coords)
-                                # Initiate new mrnaGroup
-                                full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation.
-                                full_mrnaCDS[-1] += [subentry[0],subentry[6]]
-                                mrnaGroup = [entry]
-                else:
-                        mrnaGroup.append(entry)
-        # Process the mrnaGroup that's currently sitting in the pipe (so to speak)
-        for subentry in mrnaGroup:
-                if subentry[2] == 'mRNA':
-                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                        full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
-                elif subentry[2] == 'exon':
-                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
-                        full_mrnaGroup[-1][-1].append(coords)
-                elif subentry[2] == 'CDS':
-                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
-                        full_mrnaCDS[-1][-1].append(coords)
-        full_mrnaGroup[-1] += [subentry[0],subentry[6],mrnaLine]                         # Append contig ID and orientation.
-        full_mrnaCDS[-1] += [subentry[0],subentry[6],mrnaLine]
-        # Put info into the coordDict and move on
-        gffExonDict[geneID] = full_mrnaGroup
-        gffCDSDict[geneID] = full_mrnaCDS
-        # Return dictionaries
-        return gffExonDict, gffCDSDict
-
-def gff3_parse_exoncds(gff3File):
-        # Establish values for storing results
-        currGroup = []
-        gffExonDict = {}
-        gffCDSDict = {}
-        # Loop through gff3 file
-        with open(gff3File, 'r') as fileIn:
-                for line in fileIn:
-                        # Skip filler lines
-                        if line == '\n' or line.startswith('#'):
-                                continue
-                        # Get details
-                        sl = line.rstrip('\r\n').split('\t')
-                        lineType = sl[2]
-                        # Building gene group/process it
-                        if lineType == 'gene':
-                                if currGroup == []:
-                                        # First iteration: just play it cool, add the sl to the group
-                                        currGroup.append(sl)
-                                        continue
-                                else:
-                                        # Process group if we're encountering a new group
-                                        gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
-                                        currGroup = [sl]
-                        elif lineType == 'rRNA' or lineType == 'tRNA':          # Skip lines that aren't coding
-                                continue
-                        else:
-                                # Keep building group until we encounter another 'gene' lineType
-                                currGroup.append(sl)
-                # Process the last mrnaGroup
-                gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
-        # Return dictionaries
-        return gffExonDict, gffCDSDict
-
 def gff3_index(gff3File):
         # Setup
         geneDict = {}           # Our output structure will have 1 entry per gene which is stored in here
@@ -878,6 +821,7 @@ def gff3_index(gff3File):
                                         # Index in indexDict
                                         indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
                                         # Add extra details
+                                        geneDict[detailDict['ID']]['mrna_list'] = []    # This provides us a structure we can iterate over to look at each mRNA within a gene entry
                                         lengthValues[0] += 1
                                         idValues[0].append(detailDict['ID'])
                                 else:
@@ -901,6 +845,7 @@ def gff3_index(gff3File):
                                         # Index in indexDict
                                         indexDict[detailDict['ID']] = geneDict[detailDict['Parent']]
                                         # Add extra details
+                                        geneDict[detailDict['Parent']]['mrna_list'].append(detailDict['ID'])
                                         lengthValues[1] += 1
                                         idValues[1].append(detailDict['ID'])
                                 else:
@@ -915,9 +860,24 @@ def gff3_index(gff3File):
                                 else:
                                         # Create/append to entry
                                         if lineType not in indexDict[detailDict['Parent']][detailDict['Parent']]:
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType] = {'coords': [[int(sl[3]), int(sl[4])]]}
+                                                # Create entry
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType] =  {'attributes': [{}]}
+                                                # Add attributes
+                                                for k, v in detailDict.items():
+                                                        indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'][-1][k] = v        # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
+                                                # Add all other lineType-relevant details
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['score'] = [sl[5]]
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['frame'] = [sl[7]]
                                         else:
+                                                # Add attributes
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'].append({})
+                                                for k, v in detailDict.items():
+                                                        indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'][-1][k] = v        # By using a list, we have an ordered set of attributes for each lineType
+                                                # Add all other lineType-relevant details
                                                 indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['coords'].append([int(sl[3]), int(sl[4])])
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['score'].append(sl[5])
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['frame'].append(sl[7])
         # Add extra details to dict
         geneDict['lengthValues'] = lengthValues
         indexDict['lengthValues'] = geneDict['lengthValues']
@@ -925,12 +885,6 @@ def gff3_index(gff3File):
         indexDict['idValues'] = geneDict['idValues']
         # Return output
         return indexDict
-
-def coord_extract(coord):
-        splitCoord = coord.split('-')
-        start = int(splitCoord[0])
-        stop = int(splitCoord[1])
-        return start, stop
 
 def output_func(inputDict, outFileName):
         with open(outFileName, 'w') as fileOut:
@@ -940,9 +894,9 @@ def output_func(inputDict, outFileName):
                         name = 'gmap_gene_find_' + key
                         mrnaID = pathID.replace('.path', '.mrna')       # Could theoretically be a problem if the gene name contains .path in its actual name, but this isn't the case with my data and shouldn't be with others
                         # Extract details
-                        firstCoord = value[0][0].split('-')
+                        firstCoord = value[0][0]
                         firstInts = [int(firstCoord[0]), int(firstCoord[1])]
-                        lastCoord = value[0][-1].split('-')
+                        lastCoord = value[0][-1]
                         lastInts = [int(lastCoord[0]), int(lastCoord[1])]
                         protein = value[3]
                         # Determine gene start and end coordinates with respect to orientation
@@ -965,20 +919,17 @@ def output_func(inputDict, outFileName):
                         # Iterate through coordinates and write exon/CDS lines
                         ongoingCount = 1
                         for coord in value[0]:
-                                start, end = coord.split('-')
+                                start, end = coord
                                 # Format exon line
-                                exonLine = '\t'.join([value[1], typeCol, 'exon', start, end, '.', value[2], '.', 'ID=' + mrnaID + '.exon' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
+                                exonLine = '\t'.join([value[1], typeCol, 'exon', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID + '.exon' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
                                 fileOut.write(exonLine + '\n')
                                 # Format CDS line
-                                cdsLine = '\t'.join([value[1], typeCol, 'CDS', start, end, '.', value[2], '.', 'ID=' + mrnaID + '.cds' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
+                                cdsLine = '\t'.join([value[1], typeCol, 'CDS', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID + '.cds' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
                                 fileOut.write(cdsLine + '\n')
                                 ongoingCount += 1
                         # Format end comment
                         endComment = '#PROT ' + mrnaID + ' ' + pathID + '\t' + protein
                         fileOut.write(endComment + '\n')
-
-# Set up regex for later use
-idRegex = re.compile(r'ID=(.+?);')
                 
 #### USER INPUT SECTION
 usage = """%(prog)s reads in 1 or more input GMAP GFF3 files built using -f 2 formatting and will compare
@@ -1009,12 +960,6 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
                    help="Output file name.")
 
 args = p.parse_args()
-## HARDCODED TESTING
-args.gmapFiles = [r'scerevisiae.transdecoder.genome.nucl_gmap.gff3', r'scerevisiae_okay-okalt.cds_gmap.gff3']
-args.cdsFiles = [r'scerevisiae.transdecoder.genome.nucl', r'scerevisiae_okay-okalt.cds']
-args.genomeFile = r'Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa'
-args.annotationFile = r'scerevisiae.transdecoder.genome.gff3'
-args.outputFileName = r'test_scere.gff3'
 args = validate_args(args)
 
 # Load in genome fasta file as dict
@@ -1024,10 +969,6 @@ genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
 gff3Ncls, gff3Loc = gff3_parse_ncls(args.annotationFile)
 gff3Dict = gff3_index(args.annotationFile)
 
-# Set up values for the main loop
-geneIDRegex = re.compile(r'_?evm.model.\w+?\d{1,10}.\d{1,10}')
-pathIDRegex = re.compile(r'([\w\.]+?\.\w{4}\d{1,3})')
-
 # Main loop: find good multipath gene models
 gmapDicts = []          # Hold onto dictionaries from each iteration of gmap files
 ovlCutoff = 0.35        # Arbitrary value; only sharing about 1/3 of its length with known genes seems appropriate
@@ -1036,14 +977,13 @@ for i in range(len(args.gmapFiles)):
         # Load in CDS fasta file as dict
         cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFiles[i], 'r'), 'fasta'))
         # Parse GMAP GFF3 for gene models
-        gmapExonDict, gmapCDSDict = gff3_parse_exoncds(args.gmapFiles[i])
         gmapDict = gff3_index(args.gmapFiles[i])
-        # Detect well-suported multi-path models
+        # Detect well-suported models
         coordDict = {}
         for key in gmapDict['idValues'][1]:
                 value = gmapDict[key][key]
                 # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
-                if len(value['CDS']['coords']) == 1:
+                if len(value['exon']['coords']) == 1:
                         continue
                 # Skip if the transcript lacks a stop codon and thus is likely to be a fragment
                 transcriptID = key.rsplit('.', maxsplit=1)[0]   # This removes the '.mrna#' suffix which won't be present in the original FASTA file
@@ -1054,25 +994,25 @@ for i in range(len(args.gmapFiles)):
                 decision = check_model(value['attributes'], args.coverageCutoff, args.identityCutoff)
                 if decision == False:
                         continue
-                result = cds_build(value['CDS']['coords'], value['contig_id'], value['orientation'], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff)     # Split off the '.mrna#' suffix
+                result = cds_build(value['exon']['coords'], value['contig_id'], value['orientation'], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff)     # Split off the '.mrna#' suffix
                 if result == False:
                         continue
                 else:
                         coords, protein = result
-                        coordDict[key] = [coords, mrna[2], mrna[3], protein]
+                        coordDict[key] = [coords, value['contig_id'], value['orientation'], protein]
         # Remove overlaps of existing genes
         outputValues = {}
         for key, value in coordDict.items():
                 # Find overlaps for each exon
                 dictEntries = []
                 for coord in value[0]:
-                        start, stop = coord_extract(coord)
+                        start, stop = coord
                         # Find overlaps
                         dictEntries += ncls_finder(gff3Ncls, gff3Loc, start, stop, value[1], 4)         # 4 refers to the index position in the gff3Loc dictionary for the contigID
                 # Convert coordinates to set values for overlap calculation
                 valueSet = set()
                 for coord in value[0]:
-                        start, stop = coord_extract(coord)
+                        start, stop = coord
                         valueSet = valueSet.union(set(range(start, stop+1)))
                 # Compare overlaps to see if this gene overlaps existing genes
                 checked = []
@@ -1082,18 +1022,13 @@ for i in range(len(args.gmapFiles)):
                         if entry in checked:
                                 continue
                         checked.append(entry)
-                        # Pull out the gene details of this hit and find the overlapping mRNA
-                        geneID = ''.join(geneIDRegex.findall(entry[3])).replace('model', 'TU')
-                        mrnaList = gff3CDSDict[geneID]
-                        for mrna in mrnaList:
-                                if mrna[0] == entry[3]:
-                                        mrnaHit = mrna
-                                        break
+                        # Retrieve this mRNA value from the gff3Dict object
+                        mrnaHit = gff3Dict[entry[3]][entry[3]]
                         # Calculate the overlap of the current value against this mRNA model
                         mrnaSet = set()
-                        for coord in mrnaHit[1]:
-                                start, stop = coord_extract(coord)
-                                mrnaSet = mrnaSet.union(set(range(start, stop+1)))       
+                        for coord in mrnaHit['CDS']['coords']:
+                                start, stop = coord
+                                mrnaSet = mrnaSet.union(set(range(start, stop+1)))
                                 # Store how much overlap is present
                                 overlapped = overlapped.union(valueSet & mrnaSet)
                 # Drop any models which overlap existing genes enough to suggest that it's either 1) fragmented, or 2) an isoform
@@ -1102,8 +1037,8 @@ for i in range(len(args.gmapFiles)):
                         continue
                 # Hold onto things which pass this check
                 else:
-                        outputValues[key] = value
-                        ovlDict[key] = ovlPct
+                        outputValues[gmapDict[key]['attributes']['ID']] = value
+                        ovlDict[gmapDict[key]['attributes']['ID']] = ovlPct
         # Hold onto the result
         gmapDicts.append(outputValues)
 
