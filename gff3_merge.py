@@ -375,9 +375,9 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                 continue
                         # If no changes are required for this gene, write it to file like normal [If these sets are equivalent we didn't grab anything from this gene for isoform clustering/exclude any mRNAs and don't need to bother with more elaborate handling]
                         if set(nonisoMrnas) == set(newGff3Lines[geneID]['mrna_list']):
-                                fileOut.write(''.join(newGff3Lines[mrna]['lines'][0]))
-                                fileOut.write(''.join(newGff3Lines[mrna]['lines'][1]))
-                                fileOut.write(''.join(newGff3Lines[mrna]['lines'][2]))
+                                fileOut.write(''.join(newGff3Lines[geneID]['lines'][0]))
+                                fileOut.write(''.join(newGff3Lines[geneID]['lines'][1]))
+                                fileOut.write(''.join(newGff3Lines[geneID]['lines'][2]))
                         else:
                                 # Write header lines for this gene's mRNAs
                                 mrnaHeads = []
