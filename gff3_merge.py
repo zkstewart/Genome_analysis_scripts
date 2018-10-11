@@ -559,3 +559,7 @@ print('Program completed successfully!')
 print(str(isoformCount) + ' new models were added as isoforms of existing genes.')
 print(str(novelCount) + ' new models were added as stand-alone genes.')
 print(str(len(excludeList)) + ' new models were not merged due to duplication cutoff.')
+if excludeList != []:
+        print('These excluded models include...')
+        for entry in excludeList:
+                print(entry)

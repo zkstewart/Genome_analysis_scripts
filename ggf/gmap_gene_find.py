@@ -501,26 +501,28 @@ def compare_novels(inputDict, genomeRecords):
                                         canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
                                         noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
                                         noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
+                                        spliceDiff = 0.1
                                         # Handle overlaps
-                                        ## Filter 1: Splice rules
-                                        if canonPct1 != canonPct2:
-                                                if canonPct1 > canonPct2:
-                                                        del modelSets[x]
-                                                        loopEnd = False
-                                                        break
-                                                else:
-                                                        del modelSets[i]
-                                                        loopEnd = False
-                                                        break
-                                        elif noncanonPct1 != noncanonPct2:
-                                                if noncanonPct1 > noncanonPct2:
-                                                        del modelSets[x]
-                                                        loopEnd = False
-                                                        break
-                                                else:
-                                                        del modelSets[i]
-                                                        loopEnd = False
-                                                        break
+                                        ## Filter 1: Splice rules [only if there is an appreciable difference in the proportions of splice types; 10% difference is considered "appreciable"]
+                                        if canonPct1 > canonPct2 + spliceDiff or canonPct2 > canonPct1 + spliceDiff:
+                                                if canonPct1 != canonPct2:
+                                                        if canonPct1 > canonPct2:
+                                                                del modelSets[x]
+                                                                loopEnd = False
+                                                                break
+                                                        else:
+                                                                del modelSets[i]
+                                                                loopEnd = False
+                                                                break
+                                                elif noncanonPct1 != noncanonPct2:
+                                                        if noncanonPct1 > noncanonPct2:
+                                                                del modelSets[x]
+                                                                loopEnd = False
+                                                                break
+                                                        else:
+                                                                del modelSets[i]
+                                                                loopEnd = False
+                                                                break
                                         # Filter 2: Microexons
                                         shortestExon1 = None
                                         shortestExon2 = None
