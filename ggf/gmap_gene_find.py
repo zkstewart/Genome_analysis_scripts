@@ -493,37 +493,9 @@ def compare_novels(inputDict, genomeRecords):
                                         ovl = set1 & set2
                                         # If no overlap, continue
                                         if ovl == set():
-                                                continue
-                                        # Extract details for comparison
-                                        spliceTypes1 = splice_sites(modelSets[i][2], genomeRecords, modelSets[i][3], modelSets[i][4])
-                                        spliceTypes2 = splice_sites(modelSets[x][2], genomeRecords, modelSets[x][3], modelSets[x][4])
-                                        canonPct1 = spliceTypes1[0] / sum(spliceTypes1)
-                                        canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
-                                        noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
-                                        noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
-                                        spliceDiff = 0.2
+                                                continue                                        
                                         # Handle overlaps
-                                        ## Filter 1: Splice rules [only if there is an appreciable difference in the proportions of splice types; 20% difference is considered "appreciable"]
-                                        if canonPct1 > canonPct2 + spliceDiff or canonPct2 > canonPct1 + spliceDiff:
-                                                if canonPct1 != canonPct2:
-                                                        if canonPct1 > canonPct2:
-                                                                del modelSets[x]
-                                                                loopEnd = False
-                                                                break
-                                                        else:
-                                                                del modelSets[i]
-                                                                loopEnd = False
-                                                                break
-                                                elif noncanonPct1 != noncanonPct2:
-                                                        if noncanonPct1 > noncanonPct2:
-                                                                del modelSets[x]
-                                                                loopEnd = False
-                                                                break
-                                                        else:
-                                                                del modelSets[i]
-                                                                loopEnd = False
-                                                                break
-                                        # Filter 2: Microexons
+                                        # Filter 1: Microexons
                                         shortestExon1 = None
                                         shortestExon2 = None
                                         microLen = 30   # Arbitrary; exons longer than 30bp aren't considered microexons (this seems to be agreed upon in literature I briefly viewed)
@@ -551,7 +523,7 @@ def compare_novels(inputDict, genomeRecords):
                                                         del modelSets[i]
                                                         loopEnd = False
                                                         break
-                                        # Filter 3: Length
+                                        # Filter 2: Length
                                         if len(set1) > len(set2):
                                                 del modelSets[x]
                                                 loopEnd = False
@@ -560,6 +532,31 @@ def compare_novels(inputDict, genomeRecords):
                                                 del modelSets[i]
                                                 loopEnd = False
                                                 break
+                                        # Filter 3: Splice rules
+                                        spliceTypes1 = splice_sites(modelSets[i][2], genomeRecords, modelSets[i][3], modelSets[i][4])
+                                        spliceTypes2 = splice_sites(modelSets[x][2], genomeRecords, modelSets[x][3], modelSets[x][4])
+                                        canonPct1 = spliceTypes1[0] / sum(spliceTypes1)
+                                        canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
+                                        noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
+                                        noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
+                                        if canonPct1 != canonPct2:
+                                                if canonPct1 > canonPct2:
+                                                        del modelSets[x]
+                                                        loopEnd = False
+                                                        break
+                                                else:
+                                                        del modelSets[i]
+                                                        loopEnd = False
+                                                        break
+                                        elif noncanonPct1 != noncanonPct2:
+                                                if noncanonPct1 > noncanonPct2:
+                                                        del modelSets[x]
+                                                        loopEnd = False
+                                                        break
+                                                else:
+                                                        del modelSets[i]
+                                                        loopEnd = False
+                                                        break
                                         # If we pass all of these filters, we need to make a decision somehow
                                         ## Final decision 1: Shortest exon length
                                         if shortestExon1 > shortestExon2:
