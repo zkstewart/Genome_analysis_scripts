@@ -501,9 +501,9 @@ def compare_novels(inputDict, genomeRecords):
                                         canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
                                         noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
                                         noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
-                                        spliceDiff = 0.1
+                                        spliceDiff = 0.2
                                         # Handle overlaps
-                                        ## Filter 1: Splice rules [only if there is an appreciable difference in the proportions of splice types; 10% difference is considered "appreciable"]
+                                        ## Filter 1: Splice rules [only if there is an appreciable difference in the proportions of splice types; 20% difference is considered "appreciable"]
                                         if canonPct1 > canonPct2 + spliceDiff or canonPct2 > canonPct1 + spliceDiff:
                                                 if canonPct1 != canonPct2:
                                                         if canonPct1 > canonPct2:
