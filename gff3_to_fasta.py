@@ -407,11 +407,11 @@ with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasi
                         # Retrieve protein sequence if relevant
                         if args.seqType == 'cds' or args.seqType == 'both':
                                 # Check pasaProts to save time & effort
-                                #if mrna in pasaProts:
-                                #        prot = pasaProts[mrna]
+                                if mrna in pasaProts:
+                                        prot = pasaProts[mrna]
                                 # Derive the protein from our CDS sequence if necessary
-                                #else:
-                                prot = cds_to_prot(cds, value[mrna]['CDS']['frame'][0], mrna)   # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
+                                else:
+                                        prot = cds_to_prot(cds, value[mrna]['CDS']['frame'][0], mrna)   # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
                         # Output to relevant values to file
                         if args.seqType == 'both' or args.seqType == 'transcript':
                                 mainOut.write('>' + mrna + '\n' + transcript + '\n')
