@@ -113,10 +113,13 @@ def cds_to_prot(seq, phase, seqid):
 ## GFF3 related
 def gff3_index(gff3File):
         # Setup
+        import re
+        numRegex = re.compile(r'\d+')   # This is used for sorting our contig ID values
         geneDict = {}           # Our output structure will have 1 entry per gene which is stored in here
         indexDict = {}          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
         lengthValues = [0, 0]   # Corresponds to [geneCount, mrnaCount]
         idValues = [[], []]     # Corresponds to [geneIDList, mrnaIDList]
+        contigValues = []
         rrnaValues = []
         trnaValues = []
         # Gene object loop
@@ -134,6 +137,7 @@ def gff3_index(gff3File):
                         for i in range(len(details)):
                                 splitDetail = details[i].split('=')
                                 detailDict[splitDetail[0]] = splitDetail[1]
+                        contigValues.append(sl[0])
                         # Build gene group dict objects
                         if lineType == 'gene':
                                 if detailDict['ID'] not in geneDict:
@@ -258,6 +262,10 @@ def gff3_index(gff3File):
         indexDict['rrnaValues'] = geneDict['rrnaValues']
         geneDict['trnaValues'] = trnaValues
         indexDict['trnaValues'] = geneDict['trnaValues']
+        contigValues = list(set(contigValues))
+        contigValues.sort(key = lambda x: int(numRegex.search(x).group()))
+        geneDict['contigValues'] = contigValues
+        indexDict['contigValues'] = geneDict['contigValues']
         # Return output
         return indexDict
 
