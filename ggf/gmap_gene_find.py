@@ -961,21 +961,39 @@ def output_func(inputDict, outFileName):
                         # Format mRNA line
                         mrnaLine = '\t'.join([value[1], typeCol, 'mRNA', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID +';Name=' + name + ';Parent=' + pathID])
                         fileOut.write(mrnaLine + '\n')
+                        # Derive phasing information from coordinates
+                        totalLen = 0
+                        phasing = []
+                        for i in range(len(value[0])):
+                                coord = value[0][i]
+                                segmentLen = coord[1] - coord[0] + 1
+                                totalLen += segmentLen
+                                if i == 0:
+                                        phasing.append('0')     # GGF always returns ORFs which are 0-phased on the first CDS bit
+                                else:
+                                        prevLen = totalLen - segmentLen
+                                        leftover = prevLen % 3
+                                        if leftover == 0:
+                                                phase = 0
+                                        else:
+                                                phase = 3 - leftover
+                                        phasing.append(str(phase))
                         # Iterate through coordinates and write exon/CDS lines
                         ongoingCount = 1
-                        for coord in value[0]:
-                                start, end = coord
+                        for i in range(len(value[0])):
+                                start, end = value[0][i]
+                                phase = phasing[i]
                                 # Format exon line
                                 exonLine = '\t'.join([value[1], typeCol, 'exon', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID + '.exon' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
                                 fileOut.write(exonLine + '\n')
                                 # Format CDS line
-                                cdsLine = '\t'.join([value[1], typeCol, 'CDS', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID + '.cds' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
+                                cdsLine = '\t'.join([value[1], typeCol, 'CDS', str(start), str(end), '.', value[2], phase, 'ID=' + mrnaID + '.cds' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
                                 fileOut.write(cdsLine + '\n')
                                 ongoingCount += 1
                         # Format end comment
                         endComment = '#PROT ' + mrnaID + ' ' + pathID + '\t' + protein
                         fileOut.write(endComment + '\n')
-                
+
 #### USER INPUT SECTION
 usage = """%(prog)s reads in 1 or more input GMAP GFF3 files built using -f 2 formatting and will compare
 these against the current annotation, returning a GFF3 file of curated gene models that pass a variety of checks.
