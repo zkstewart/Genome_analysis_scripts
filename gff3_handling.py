@@ -174,6 +174,7 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                         # Skip filler lines
                         if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}:    # If this is true, it's a blank line or a comment line with no information in it
                                 continue
+                        sl = line.rstrip('\r').split('\t')
                         # Handle known header comment lines
                         if line.startswith(knownHeadComments):
                                 # Extract gene ID
@@ -193,12 +194,11 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                                         gff3IndexDict[geneID]['lines'] = {0: [], 1: [], 2: [line]}
                                 else:
                                         gff3IndexDict[geneID]['lines'][2].append(line)
-                        # Handle gene detail lines
+                        # Handle gene detail & known non-coding feature lines
                         elif not line.startswith('#'):
                                 # Extract gene ID
-                                sl = line.rstrip('\r').split('\t')
                                 attributesList = sl[8].split(';')
-                                if sl[2] == 'gene':
+                                if sl[2] == 'gene' or sl[2] == 'rRNA' or sl[2] == 'tRNA':               # For rRNA and tRNA lines, the ID= is our feature ID; we treat these features like mRNA values when storing results as index and as lines
                                         for attribute in attributesList:
                                                 if attribute.startswith('ID='):                         # For gene lines, the ID= is our geneID (obviously)
                                                         geneID = attribute[3:].strip('\n')              # This trims off the ID= bit and any new lines
@@ -212,15 +212,7 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                                         gff3IndexDict[geneID]['lines'] = {0: [], 1: [line], 2: []}
                                 else:
                                         gff3IndexDict[geneID]['lines'][1].append(line)
-                        # Handle all other lines (assumed to be at tail end of GFF3 file)
-                        else:
-                                if 'remaining_lines' not in gff3IndexDict:
-                                        gff3IndexDict['remaining_lines'] = [line]
-                                else:
-                                        gff3IndexDict['remaining_lines'].append(line)
-        # If there is no 'remaining_lines' value in gff3IndexDict, add a blank one here [this acts as an 'end-of-file' marker for later on]
-        if 'remaining_lines' not in gff3IndexDict:
-                gff3IndexDict['remaining_lines'] = []
+                        # All other lines are ignored
         return gff3IndexDict
 
 def gff3_index_pasaprots_extract(gff3IndexDict):
