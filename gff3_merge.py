@@ -303,8 +303,8 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                         # Get this mRNA's header line specifically (if it has one)
                                         mrnaHead = None
                                         for line in newGff3Lines[mrna]['lines'][0]:
-                                                if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:      # i.e., if the mRNA or gene ID is in the line
-                                                        mrnaHead = line
+                                                if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
+                                                        mrnaHead = line.replace(newGff3Lines[mrna]['attributes']['ID'], mrna)   # if the gene ID is in the line, we want it to become the mRNA ID
                                         if mrnaHead != None:
                                                 fileOut.write(mrnaHead)
                                         # Get the mRNA coordinates
@@ -355,8 +355,8 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                         # Get this mRNA's footer line specifically (if it has one)
                                         mrnaFoot = None
                                         for line in newGff3Lines[mrna]['lines'][2]:
-                                                if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:      # i.e., if the mRNA or gene ID is in the line
-                                                        mrnaFoot = line
+                                                if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
+                                                        mrnaFoot = line.replace(newGff3Lines[mrna]['attributes']['ID'], key)    # Similar to the header comment, we need to replace the original gene ID; this time it's with the new gene ID
                                         if mrnaFoot != None:
                                                 fileOut.write(mrnaFoot)
                         # Write genes without clustered isoforms to file directly
@@ -467,7 +467,7 @@ p = argparse.ArgumentParser(description=usage)
 p.add_argument("-og", "-originalGff3", dest="originalGff3",
                   help="Specify the original annotation GFF3 file")
 p.add_argument("-ng", "-newGff3", dest="newGff3",
-                  help="Specify new GFF3 file (this will overwrite the original)")
+                  help="Specify new GFF3 file (this will be added into the original)")
 p.add_argument("-ip", "-isoPercent", dest="isoPercent", type=float,
                   help="Specify the percentage overlap of two models before they are clustered as isoforms. Default == 30", default=30)
 p.add_argument("-dp", "-duplicatePercent", dest="duplicatePercent", type=float,
