@@ -1,7 +1,8 @@
 #! python3
-# gff3_cull_entries
-# Script to remove lines from a gff3 file which correspond to mRNA or gene IDs
-# provided in an input text file.
+# gff3_entry_retrieve_remove
+# Script to retrieve or remove lines from a gff3 file which correspond to features
+# (including gene ID, mRNA ID, non-coding feature ID, contig ID, or source) provided
+# in an input text file.
 
 import os, argparse
 
@@ -27,194 +28,268 @@ def validate_args(args):
                 quit()
 
 ## GFF3 RELATED
-def group_process_exoncds(currGroup, gffExonDict, gffCDSDict):
-        import re
-        idRegex = re.compile(r'ID=(.+?);')
-        full_mrnaGroup = []                                                              # This will hold processed mRNA positions.
-        full_mrnaCDS = []
-        mrnaGroup = []                                                                   # This will be a temporary storage for mRNA lines.
-        for entry in currGroup:
-                # Handle the first line in the group: we just want the gene ID
-                if entry[2] == 'gene':
-                        geneID = idRegex.search(entry[8]).group(1)
-                # Handle mRNA lines: this will start a subgroup corresponding to the mRNA
-                elif entry[2] == 'mRNA':
-                        # Added into this function for this particular program #
-                        mrnaLine = entry[8]
-                        if mrnaGroup == []:                                              # i.e., if this is the first mRNA line in this gene group, we just need to start building it.
-                                mrnaGroup.append(entry)
-                        else:                                                            # i.e., there is more than one mRNA in this gene group, so we need to process the group we've built then initiate a new one.
-                                # Process current mrnaGroup
-                                for subentry in mrnaGroup:
-                                        if subentry[2] == 'mRNA':
-                                                full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                                                full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
-                                        elif subentry[2] == 'exon':
-                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
-                                                full_mrnaGroup[-1][-1].append(coords)
-                                        elif subentry[2] == 'CDS':
-                                                coords = subentry[3] + '-' + subentry[4] # +1 here to make Python act 1-based like gff3 format.
-                                                full_mrnaCDS[-1][-1].append(coords)
-                                # Initiate new mrnaGroup
-                                full_mrnaGroup[-1] += [subentry[0],subentry[6]]          # Append contig ID and orientation.
-                                full_mrnaCDS[-1] += [subentry[0],subentry[6]]
-                                mrnaGroup = [entry]
-                else:
-                        mrnaGroup.append(entry)
-        # Process the mrnaGroup that's currently sitting in the pipe (so to speak)
-        for subentry in mrnaGroup:
-                if subentry[2] == 'mRNA':
-                        full_mrnaGroup.append([idRegex.search(subentry[8]).group(1), []])
-                        full_mrnaCDS.append([idRegex.search(subentry[8]).group(1), []])
-                elif subentry[2] == 'exon':
-                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
-                        full_mrnaGroup[-1][-1].append(coords)
-                elif subentry[2] == 'CDS':
-                        coords = subentry[3] + '-' + subentry[4]                         # +1 here to make Python act 1-based like gff3 format.
-                        full_mrnaCDS[-1][-1].append(coords)
-        full_mrnaGroup[-1] += [subentry[0],subentry[6],mrnaLine]                         # Append contig ID and orientation.
-        full_mrnaCDS[-1] += [subentry[0],subentry[6],mrnaLine]
-        # Put info into the coordDict and move on
-        gffExonDict[geneID] = full_mrnaGroup
-        gffCDSDict[geneID] = full_mrnaCDS
-        # Return dictionaries
-        return gffExonDict, gffCDSDict
-
-def gff3_parse_exoncds(gff3File):
-        # Establish values for storing results
-        currGroup = []
-        gffExonDict = {}
-        gffCDSDict = {}
-        # Loop through gff3 file
+def gff3_index(gff3File):
+        # Setup
+        geneDict = {}           # Our output structure will have 1 entry per gene which is stored in here
+        indexDict = {}          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
+        lengthValues = [0, 0]   # Corresponds to [geneCount, mrnaCount]
+        idValues = [[], []]     # Corresponds to [geneIDList, mrnaIDList]
+        rrnaValues = []
+        trnaValues = []
+        # Gene object loop
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
-                        # Skip filler lines
+                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
+                        # Skip filler and comment lines
                         if line == '\n' or line.startswith('#'):
                                 continue
                         # Get details
-                        sl = line.rstrip('\r\n').split('\t')
+                        sl = line.rstrip('\n').split('\t')
                         lineType = sl[2]
-                        # Building gene group/process it
+                        details = sl[8].split(';')
+                        detailDict = {}
+                        for i in range(len(details)):
+                                splitDetail = details[i].split('=')
+                                detailDict[splitDetail[0]] = splitDetail[1]
+                        # Build gene group dict objects
                         if lineType == 'gene':
-                                if currGroup == []:
-                                        # First iteration: just play it cool, add the sl to the group
-                                        currGroup.append(sl)
-                                        continue
+                                if detailDict['ID'] not in geneDict:
+                                        # Create entry
+                                        geneDict[detailDict['ID']] = {'attributes': {}}
+                                        # Add attributes
+                                        for k, v in detailDict.items():
+                                                geneDict[detailDict['ID']]['attributes'][k] = v
+                                        # Add all other gene details
+                                        geneDict[detailDict['ID']]['contig_id'] = sl[0]
+                                        geneDict[detailDict['ID']]['source'] = sl[1]
+                                        geneDict[detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
+                                        geneDict[detailDict['ID']]['score'] = sl[5]
+                                        geneDict[detailDict['ID']]['orientation'] = sl[6]
+                                        geneDict[detailDict['ID']]['frame'] = sl[7]
+                                        # Index in indexDict
+                                        indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
+                                        # Add extra details
+                                        geneDict[detailDict['ID']]['mrna_list'] = []    # This provides us a structure we can iterate over to look at each mRNA within a gene entry
+                                        lengthValues[0] += 1
+                                        idValues[0].append(detailDict['ID'])
                                 else:
-                                        # Process group if we're encountering a new group
-                                        gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
-                                        currGroup = [sl]
-                        elif lineType == 'rRNA' or lineType == 'tRNA':          # Skip lines that aren't coding
-                                continue
+                                        print('Gene ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
+                                        print('Program will exit now.')
+                                        quit()
+                        elif lineType == 'mRNA':
+                                if detailDict['ID'] not in geneDict[detailDict['Parent']]:
+                                        # Create entry
+                                        geneDict[detailDict['Parent']][detailDict['ID']] = {'attributes': {}}
+                                        # Add attributes
+                                        for k, v in detailDict.items():
+                                                geneDict[detailDict['Parent']][detailDict['ID']]['attributes'][k] = v
+                                        # Add all other gene details
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['contig_id'] = sl[0]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['source'] = sl[1]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['score'] = sl[5]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['orientation'] = sl[6]
+                                        geneDict[detailDict['Parent']][detailDict['ID']]['frame'] = sl[7]
+                                        # Index in indexDict
+                                        indexDict[detailDict['ID']] = geneDict[detailDict['Parent']]
+                                        # Add extra details
+                                        geneDict[detailDict['Parent']]['mrna_list'].append(detailDict['ID'])
+                                        lengthValues[1] += 1
+                                        idValues[1].append(detailDict['ID'])
+                                else:
+                                        print('mRNA ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
+                                        print('Program will exit now.')
+                                        quit()
+                        # Handle non-gene related lineType's here
+                        elif lineType == 'rRNA' or lineType == 'tRNA':  # rRNA and tRNA's are indexed similarly; both are treated essentially the same as mRNA-level values, not gene-level values
+                                if detailDict['ID'] not in geneDict:
+                                        # Create entry
+                                        geneDict[detailDict['ID']] = {'attributes': [{}]}
+                                        # Add attributes
+                                        for k, v in detailDict.items():
+                                                geneDict[detailDict['ID']]['attributes'][-1][k] = v
+                                        # Add all other gene details
+                                        geneDict[detailDict['ID']]['contig_id'] = sl[0]
+                                        geneDict[detailDict['ID']]['source'] = sl[1]
+                                        geneDict[detailDict['ID']]['coords'] = [[int(sl[3]), int(sl[4])]]
+                                        geneDict[detailDict['ID']]['score'] = [sl[5]]
+                                        geneDict[detailDict['ID']]['orientation'] = sl[6]
+                                        geneDict[detailDict['ID']]['frame'] = [sl[7]]
+                                        # Index in indexDict
+                                        indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
+                                        # Add extra details
+                                        if lineType == 'rRNA':
+                                                rrnaValues.append(detailDict['ID'])
+                                        elif lineType == 'tRNA':
+                                                trnaValues.append(detailDict['ID'])
+                                else:
+                                        # Add attributes
+                                        indexDict[detailDict['ID']]['attributes'].append({})
+                                        for k, v in detailDict.items():
+                                                indexDict[detailDict['ID']]['attributes'][-1][k] = v
+                                        # Add all other lineType-relevant details
+                                        indexDict[detailDict['ID']]['coords'].append([int(sl[3]), int(sl[4])])
+                                        indexDict[detailDict['ID']]['score'].append(sl[5])
+                                        indexDict[detailDict['ID']]['frame'].append(sl[7])
+                        # Any unhandled lineType's are assumed to relate to gene/mRNA entries; unhandled errors that occur in this block of code are probably due to this assumption being violated
                         else:
-                                # Keep building group until we encounter another 'gene' lineType
-                                currGroup.append(sl)
-                # Process the last mrnaGroup
-                gffExonDict, gffCDSDict = group_process_exoncds(currGroup, gffExonDict, gffCDSDict)
-        # Return dictionaries
-        return gffExonDict, gffCDSDict
+                                if detailDict['Parent'] not in indexDict:
+                                        print(lineType + ' ID not identified already in your GFF3! "' + detailDict['Parent'] + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
+                                        print('Program will exit now.')
+                                        quit()
+                                elif detailDict['Parent'] not in indexDict[detailDict['Parent']]:
+                                        print(lineType + ' ID does not map to an mRNA in your GFF3! "' + detailDict['Parent'] + '" occurs within Parent= field without being present as an ID= field on an mRNA line first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
+                                        print('Program will exit now.')
+                                        quit()
+                                else:
+                                        # Create/append to entry
+                                        if lineType not in indexDict[detailDict['Parent']][detailDict['Parent']]:
+                                                # Create entry
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType] =  {'attributes': [{}]}
+                                                # Add attributes
+                                                for k, v in detailDict.items():
+                                                        indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'][-1][k] = v        # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
+                                                # Add all other lineType-relevant details
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['score'] = [sl[5]]
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['frame'] = [sl[7]]
+                                        else:
+                                                # Add attributes
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'].append({})
+                                                for k, v in detailDict.items():
+                                                        indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'][-1][k] = v        # By using a list, we have an ordered set of attributes for each lineType
+                                                # Add all other lineType-relevant details
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['coords'].append([int(sl[3]), int(sl[4])])
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['score'].append(sl[5])
+                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['frame'].append(sl[7])
+        # Add extra details to dict
+        geneDict['lengthValues'] = lengthValues
+        indexDict['lengthValues'] = geneDict['lengthValues']
+        geneDict['idValues'] = idValues
+        indexDict['idValues'] = geneDict['idValues']
+        geneDict['rrnaValues'] = rrnaValues
+        indexDict['rrnaValues'] = geneDict['rrnaValues']
+        geneDict['trnaValues'] = trnaValues
+        indexDict['trnaValues'] = geneDict['trnaValues']
+        # Return output
+        return indexDict
+
+def gff3_index_add_lines(gff3IndexDict, gff3File):
+        # Setup
+        knownHeadComments = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
+        knownFootComments = ('#PROT')
+        # Main loop
+        with open(gff3File, 'r') as fileIn:
+                for line in fileIn:
+                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
+                        # Skip filler lines
+                        if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}:    # If this is true, it's a blank line or a comment line with no information in it
+                                continue
+                        sl = line.rstrip('\r').split('\t')
+                        # Handle known header comment lines
+                        if line.startswith(knownHeadComments):
+                                # Extract gene ID
+                                mrnaID = line.split(': ')[1].split(' ')[0].rstrip(',')  # According to known header comments, the mRNA ID will be found inbetween ': ' and ' ' with a possible comma at the end which we can strip off
+                                geneID = gff3IndexDict[mrnaID]['attributes']['ID']      # mrnaID indexes back to the main gene dict object, and from here we can get the geneID from its attributes field
+                                # Add to lines dict
+                                if 'lines' not in gff3IndexDict[geneID]:
+                                        gff3IndexDict[geneID]['lines'] = {0: [line], 1: [], 2: []}
+                                else:
+                                        gff3IndexDict[geneID]['lines'][0].append(line)
+                        # Handle known footer comment lines
+                        elif line.startswith(knownFootComments):
+                                # Extract gene ID
+                                geneID = line.split()[2]                                # According to known footer comments, the gene ID will be the third 1-based value (e.g., ['#PROT', 'evm.model.utg0.34', 'evm.TU.utg0.34', 'MATEDAP....'])
+                                # Add to lines dict
+                                if 'lines' not in gff3IndexDict[geneID]:
+                                        gff3IndexDict[geneID]['lines'] = {0: [], 1: [], 2: [line]}
+                                else:
+                                        gff3IndexDict[geneID]['lines'][2].append(line)
+                        # Handle gene detail & known non-coding feature lines
+                        elif not line.startswith('#'):
+                                # Extract gene ID
+                                attributesList = sl[8].split(';')
+                                if sl[2] == 'gene' or sl[2] == 'rRNA' or sl[2] == 'tRNA':               # For rRNA and tRNA lines, the ID= is our feature ID; we treat these features like mRNA values when storing results as index and as lines
+                                        for attribute in attributesList:
+                                                if attribute.startswith('ID='):                         # For gene lines, the ID= is our geneID (obviously)
+                                                        geneID = attribute[3:].strip('\n')              # This trims off the ID= bit and any new lines
+                                else:
+                                        for attribute in attributesList:
+                                                if attribute.startswith('Parent='):                     # For every other type of line, the Parent= field should tell us the geneID or mrnaID
+                                                        geneORmrnaID = attribute[7:].strip('\n')        # This trims off the Parent= bit and any new lines
+                                        geneID = gff3IndexDict[geneORmrnaID]['attributes']['ID']        # This lets us handle the ambiguity of our geneORmrnaID and make sure we're looking at the geneID
+                                # Add to lines dict
+                                if 'lines' not in gff3IndexDict[geneID]:
+                                        gff3IndexDict[geneID]['lines'] = {0: [], 1: [line], 2: []}
+                                else:
+                                        gff3IndexDict[geneID]['lines'][1].append(line)
+                        # All other lines are ignored
+        return gff3IndexDict
 
 ## Retrieve/remove function
-def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, behaviour):
+def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, behaviour):
         # Ensure behaviour value makes sense
         if behaviour.lower() not in ['retrieve', 'remove']:
                 print('gff3_retrieve_remove_tofile: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
                 print('Fix the code for this section.')
                 quit()
         # Main function
-        with open(gff3File, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
-                for line in fileIn:
-                        geneID = None   # This lets us perform a check to ensure we pulled out a gene ID
-                        sl = line.split()
-                        contigID = None # Similarly lets us check to see if this line has a contig ID in it
-                        # Skip filler lines
-                        if line == '\n' or line == '\r\n':
-                                continue
-                        # Handle comment lines
-                        elif '#' in line:
-                                for section in sl:
-                                        for ident in identifiers:               # Identifiers should be a list that contains values that will occur in every line that contains values we want to retrieve/remove
-                                                if ident in section:            # By default this should be '.model' or '.path'; .model appears in every '#' and full GFF3 line of PASA-formatted files; .path is for GMAP
-                                                        geneID = section.rstrip(',')    # PASA-formatted comments are written human-like and contain commas; we want to remove these
-                        # Handle gene annotation lines
-                        elif sl[2] == 'gene':
-                                gffComment = sl[8].split(';')
-                                for section in gffComment:
-                                        if section.startswith('ID='):
-                                                geneID = section[3:]                    # Skip the ID= at start
-                                                break
-                        # Handle gmap_gene_find lines specifically
-                        elif sl[1] == 'gmap_gene_find':
-                                gffComment = sl[8].split(';')
-                                for section in gffComment:
-                                        if section.startswith('Parent='):
-                                                geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
-                                                break
+        with open(outputFileName, 'w') as fileOut:
+                # Iterate through genes and determine if they are being written to file
+                for key in gff3IndexDict['idValues'][0]:
+                        value = gff3IndexDict[key]
+                        # Check if relevant sequence details are within our idList
+                        found = False
+                        if key in idList:                       # Checking gene ID here
+                                found = True
+                        elif value['contig_id'] in idList:      # Checking contig ID here
+                                found = True
+                        elif value['source'] in idList:         # Checking source here
+                                found = True
+                        elif value['orientation'] in idList:    # Checking orientation here
+                                found = True
                         else:
-                                gffComment = sl[8].split(';')
-                                for section in gffComment:
-                                        if section.startswith('Parent='):
-                                                geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
-                                                break
-                        # Get the contig ID if applicable
-                        if '#' not in line:
-                                contigID = sl[0]
-                        # Decide if we're writing this non-gene line (e.g., rRNA or tRNA annotations) to file based on behaviour
-                        if geneID == None:
-                                if contigID == None:                    # If this is a pure comment line without gene details in it (e.g., PASA head/foot comments) then just write it to file
-                                        fileOut.write(line)
-                                elif behaviour.lower() == 'retrieve':   # If we get here, it's not a pure comment line; it is likely a rRNA or tRNA annotation line (or just something non-genic)
-                                        if contigID in idList:          # In this case we want to only retain (or below, remove) if there is a contigID match
-                                                fileOut.write(line)
-                                elif behaviour.lower() == 'remove':
-                                        if contigID not in idList:
-                                                fileOut.write(line)
-                        # Decide if we're writing this gene line to file based on behaviour
-                        elif behaviour.lower() == 'retrieve':
-                                if geneID in idList:
-                                        fileOut.write(line)
-                        elif behaviour.lower() == 'remove':
-                                if geneID not in idList:
-                                        fileOut.write(line)
-
-def gff3_idlist_compare(gff3Dict, idList):
-        # Set up
-        outList = []
-        # Main loop
-        for key, value in gff3Dict.items():
-                # Extract parent details from comment-containing value
-                mrnaParent = None
-                comment = value[-1][4].split(';')               # Our last value will always contain the GFF3 comment; we only need this once to get the parent ID
-                for section in comment:
-                        if section.startswith('Parent='):
-                                mrnaParent = section[7:]
-                assert mrnaParent != None
-                # Check if the user specified a gene ID for removal/retrieval
-                found = False
-                if mrnaParent in idList:
-                        found = True
-                # Check if the user specified a mRNA ID for removal/retrieval
-                if found == False:      # Don't need to waste time looking through each mRNA if we've already found the gene ID
-                        for mrna in value:
-                                mrnaID = mrna[0]
-                                if mrnaID in idList:
-                                        found = True
-                                        break
-                # Check if the user specified a contig ID for removal/retrieval
-                contigID = value[0][2]
-                if contigID in idList:
-                        found = True
-                        outList.append(contigID)
-                # If we found this ID in some capacity (as a gene or mRNA ID or contig ID) within our idList, put the parent and all mRNAs in this list
-                if found == True:
-                        outList.append(mrnaParent)
-                        for mrna in value:
-                                outList.append(mrna[0])
-                                if '.mrna' in mrna[0]:
-                                        outList.append(mrna[0].replace('.mrna', '.path'))
-        # Remove redundancy that may have crept in
-        outList = list(set(outList))
-        return outList
+                                for mrna in value['mrna_list']: # Checking mrna ID here
+                                        if mrna in idList:
+                                                found = True
+                        # Write (or don't write) to file depending on behaviour setting
+                        if behaviour.lower() == 'retrieve' and found == True:
+                                fileOut.write(''.join(value['lines'][0]))
+                                fileOut.write(''.join(value['lines'][1]))
+                                fileOut.write(''.join(value['lines'][2]))
+                        elif behaviour.lower() == 'remove' and found == False:
+                                fileOut.write(''.join(value['lines'][0]))
+                                fileOut.write(''.join(value['lines'][1]))
+                                fileOut.write(''.join(value['lines'][2]))
+                # Iterate through tRNA and rRNA features and perform a similar operation
+                if len(gff3IndexDict['rrnaValues']) != 0 or len(gff3IndexDict['trnaValues']) != 0:
+                        iterList = [gff3IndexDict['rrnaValues'], gff3IndexDict['trnaValues']]
+                        for valueList in iterList:
+                                for key in valueList:
+                                        value = gff3IndexDict[key]
+                                        # Check if relevant sequence details are within our idList
+                                        found = False
+                                        if key in idList:                       # Checking feature ID here
+                                                found = True
+                                        elif value['contig_id'] in idList:      # Checking contig ID here
+                                                found = True
+                                        elif value['source'] in idList:         # Checking source here
+                                                found = True
+                                        elif value['orientation'] in idList:    # Checking orientation here
+                                                found = True
+                                        # Write (or don't write) to file depending on behaviour setting
+                                        if behaviour.lower() == 'retrieve' and found == True:
+                                                fileOut.write(''.join(value['lines'][0]))
+                                                fileOut.write(''.join(value['lines'][1]))
+                                                fileOut.write(''.join(value['lines'][2]))
+                                        elif behaviour.lower() == 'remove' and found == False:
+                                                fileOut.write(''.join(value['lines'][0]))
+                                                fileOut.write(''.join(value['lines'][1]))
+                                                fileOut.write(''.join(value['lines'][2]))
 
 ## General purpose
 def text_file_to_list(textFile):
@@ -225,17 +300,16 @@ def text_file_to_list(textFile):
         return outList
 
 ##### USER INPUT SECTION
-usage = """%(prog)s reads in a GFF3 file in PASA-like format in addition to a text
-file listing mRNA or gene IDs or contig IDs (can be a combination) to be retrieved
-or removed from the GFF3 file. This script should be robust to slightly different
-GFF3 styles, but this likely hasn't been tested for GFF3 files produced by different
-programs. Note that providing a mRNA ID will result in the whole gene being removed.
+usage = """%(prog)s reads in a GFF3 file in addition to a text file listing
+mRNA, gene IDs, contig IDs, source values, or feature orientation (can be a combination
+of all of these) to be retrieved or removed from the GFF3 file. Note that providing a
+mRNA ID will result in the whole gene being retrieved or removed.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-g", "-gff3", dest="gff3File",
                   help="Specify the gene model GFF3 file.")
 p.add_argument("-t", "-textFile", dest="textFile",
-                  help="Specify the text file listing sequence IDs to cull. If providing an mRNA ID, the whole gene (including isoforms) will be culled.")
+                  help="Specify the text file listing sequence feature values. If providing an mRNA ID, the whole gene (including isoforms) will be retrieved or removed.")
 p.add_argument("-b", "-behaviour", dest="behaviour", choices=['retrieve', 'remove'],
                help="Specify program behaviour to either 'retrieve' lines that contain IDs, or 'remove' lines that contain IDs.")
 p.add_argument("-o", "-outputFile", dest="outputFileName",
@@ -245,16 +319,14 @@ args = p.parse_args()
 validate_args(args)
 
 # Parse annotation GFF3
-exonDict, cdsDict = gff3_parse_exoncds(args.gff3File)
+gff3Index = gff3_index(args.gff3File)
+gff3Index = gff3_index_add_lines(gff3Index, args.gff3File)
 
 # Parse text file
 idList = text_file_to_list(args.textFile)
 
-# Get gene and mRNA IDs properly from the GFF3 dict object
-idList = gff3_idlist_compare(exonDict, idList)
-
 # Produce output file
-gff3_retrieve_remove_tofile(args.gff3File, args.outputFileName, idList, ['.path', '.model'], args.behaviour) # At least one of these identifiers should be present in every gene annotation line
+gff3_retrieve_remove_tofile(gff3Index, args.outputFileName, idList, args.behaviour) # At least one of these identifiers should be present in every gene annotation line
 
 # All done!
 print('Program completed successfully!')

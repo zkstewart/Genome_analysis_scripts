@@ -265,67 +265,65 @@ def gff3_idlist_compare(gff3Dict, idList):
         return outList
 
 ## Retrieve/remove function
-def gff3_retrieve_remove_tofile(gff3File, outputFileName, idList, identifiers, behaviour):
+def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, behaviour):
         # Ensure behaviour value makes sense
         if behaviour.lower() not in ['retrieve', 'remove']:
                 print('gff3_retrieve_remove_tofile: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
                 print('Fix the code for this section.')
                 quit()
         # Main function
-        with open(gff3File, 'r') as fileIn, open(outputFileName, 'w') as fileOut:
-                for line in fileIn:
-                        geneID = None   # This lets us perform a check to ensure we pulled out a gene ID
-                        sl = line.split()
-                        contigID = None # Similarly lets us check to see if this line has a contig ID in it
-                        # Skip filler lines
-                        if line == '\n' or line == '\r\n':
-                                continue
-                        # Handle comment lines
-                        elif '#' in line:
-                                for section in sl:
-                                        for ident in identifiers:               # Identifiers should be a list that contains values that will occur in every line that contains values we want to retrieve/remove
-                                                if ident in section:            # By default this should be '.model' or '.path'; .model appears in every '#' and full GFF3 line of PASA-formatted files; .path is for GMAP
-                                                        geneID = section.rstrip(',')    # PASA-formatted comments are written human-like and contain commas; we want to remove these
-                        # Handle gene annotation lines
-                        elif sl[2] == 'gene':
-                                gffComment = sl[8].split(';')
-                                for section in gffComment:
-                                        if section.startswith('ID='):
-                                                geneID = section[3:]                    # Skip the ID= at start
-                                                break
-                        # Handle gmap_gene_find lines specifically
-                        elif sl[1] == 'gmap_gene_find':
-                                gffComment = sl[8].split(';')
-                                for section in gffComment:
-                                        if section.startswith('Parent='):
-                                                geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
-                                                break
+        with open(outputFileName, 'w') as fileOut:
+                # Iterate through genes and determine if they are being written to file
+                for key in gff3IndexDict['idValues'][0]:
+                        value = gff3IndexDict[key]
+                        # Check if relevant sequence details are within our idList
+                        found = False
+                        if key in idList:                       # Checking gene ID here
+                                found = True
+                        elif value['contig_id'] in idList:      # Checking contig ID here
+                                found = True
+                        elif value['source'] in idList:         # Checking source here
+                                found = True
+                        elif value['orientation'] in idList:    # Checking orientation here
+                                found = True
                         else:
-                                gffComment = sl[8].split(';')
-                                for section in gffComment:
-                                        if section.startswith('Parent='):
-                                                geneID = section[7:].strip('\r\n')      # Skip the Parent= at start and remove newline and return characters
-                                                break
-                        # Get the contig ID if applicable
-                        if '#' not in line:
-                                contigID = sl[0]
-                        # Decide if we're writing this non-gene line (e.g., rRNA or tRNA annotations) to file based on behaviour
-                        if geneID == None:
-                                if contigID == None:                    # If this is a pure comment line without gene details in it (e.g., PASA head/foot comments) then just write it to file
-                                        fileOut.write(line)
-                                elif behaviour.lower() == 'retrieve':   # If we get here, it's not a pure comment line; it is likely a rRNA or tRNA annotation line (or just something non-genic)
-                                        if contigID in idList:          # In this case we want to only retain (or below, remove) if there is a contigID match
-                                                fileOut.write(line)
-                                elif behaviour.lower() == 'remove':
-                                        if contigID not in idList:
-                                                fileOut.write(line)
-                        # Decide if we're writing this gene line to file based on behaviour
-                        elif behaviour.lower() == 'retrieve':
-                                if geneID in idList:
-                                        fileOut.write(line)
-                        elif behaviour.lower() == 'remove':
-                                if geneID not in idList:
-                                        fileOut.write(line)
+                                for mrna in value['mrna_list']: # Checking mrna ID here
+                                        if mrna in idList:
+                                                found = True
+                        # Write (or don't write) to file depending on behaviour setting
+                        if behaviour.lower() == 'retrieve' and found == True:
+                                fileOut.write(''.join(value['lines'][0]))
+                                fileOut.write(''.join(value['lines'][1]))
+                                fileOut.write(''.join(value['lines'][2]))
+                        elif behaviour.lower() == 'remove' and found == False:
+                                fileOut.write(''.join(value['lines'][0]))
+                                fileOut.write(''.join(value['lines'][1]))
+                                fileOut.write(''.join(value['lines'][2]))
+                # Iterate through tRNA and rRNA features and perform a similar operation
+                if len(gff3IndexDict['rrnaValues']) != 0 or len(gff3IndexDict['trnaValues']) != 0:
+                        iterList = [gff3IndexDict['rrnaValues'], gff3IndexDict['trnaValues']]
+                        for valueList in iterList:
+                                for key in valueList:
+                                        value = gff3IndexDict[key]
+                                        # Check if relevant sequence details are within our idList
+                                        found = False
+                                        if key in idList:                       # Checking feature ID here
+                                                found = True
+                                        elif value['contig_id'] in idList:      # Checking contig ID here
+                                                found = True
+                                        elif value['source'] in idList:         # Checking source here
+                                                found = True
+                                        elif value['orientation'] in idList:    # Checking orientation here
+                                                found = True
+                                        # Write (or don't write) to file depending on behaviour setting
+                                        if behaviour.lower() == 'retrieve' and found == True:
+                                                fileOut.write(''.join(value['lines'][0]))
+                                                fileOut.write(''.join(value['lines'][1]))
+                                                fileOut.write(''.join(value['lines'][2]))
+                                        elif behaviour.lower() == 'remove' and found == False:
+                                                fileOut.write(''.join(value['lines'][0]))
+                                                fileOut.write(''.join(value['lines'][1]))
+                                                fileOut.write(''.join(value['lines'][2]))
 
 def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
         # Setup
