@@ -787,6 +787,8 @@ def gff3_index(gff3File):
         indexDict = {}          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
         lengthValues = [0, 0]   # Corresponds to [geneCount, mrnaCount]
         idValues = [[], []]     # Corresponds to [geneIDList, mrnaIDList]
+        rrnaValues = []
+        trnaValues = []
         # Gene object loop
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
@@ -825,6 +827,7 @@ def gff3_index(gff3File):
                                         idValues[0].append(detailDict['ID'])
                                 else:
                                         print('Gene ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
                                         print('Program will exit now.')
                                         quit()
                         elif lineType == 'mRNA':
@@ -849,11 +852,50 @@ def gff3_index(gff3File):
                                         idValues[1].append(detailDict['ID'])
                                 else:
                                         print('mRNA ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
                                         print('Program will exit now.')
                                         quit()
+                        # Handle non-gene related lineType's here
+                        elif lineType == 'rRNA' or lineType == 'tRNA':  # rRNA and tRNA's are indexed similarly; both are treated essentially the same as mRNA-level values, not gene-level values
+                                if detailDict['ID'] not in geneDict:
+                                        # Create entry
+                                        geneDict[detailDict['ID']] = {'attributes': [{}]}
+                                        # Add attributes
+                                        for k, v in detailDict.items():
+                                                geneDict[detailDict['ID']]['attributes'][-1][k] = v
+                                        # Add all other gene details
+                                        geneDict[detailDict['ID']]['contig_id'] = sl[0]
+                                        geneDict[detailDict['ID']]['source'] = sl[1]
+                                        geneDict[detailDict['ID']]['coords'] = [[int(sl[3]), int(sl[4])]]
+                                        geneDict[detailDict['ID']]['score'] = [sl[5]]
+                                        geneDict[detailDict['ID']]['orientation'] = sl[6]
+                                        geneDict[detailDict['ID']]['frame'] = [sl[7]]
+                                        # Index in indexDict
+                                        indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
+                                        # Add extra details
+                                        if lineType == 'rRNA':
+                                                rrnaValues.append(detailDict['ID'])
+                                        elif lineType == 'tRNA':
+                                                trnaValues.append(detailDict['ID'])
+                                else:
+                                        # Add attributes
+                                        indexDict[detailDict['ID']]['attributes'].append({})
+                                        for k, v in detailDict.items():
+                                                indexDict[detailDict['ID']]['attributes'][-1][k] = v
+                                        # Add all other lineType-relevant details
+                                        indexDict[detailDict['ID']]['coords'].append([int(sl[3]), int(sl[4])])
+                                        indexDict[detailDict['ID']]['score'].append(sl[5])
+                                        indexDict[detailDict['ID']]['frame'].append(sl[7])
+                        # Any unhandled lineType's are assumed to relate to gene/mRNA entries; unhandled errors that occur in this block of code are probably due to this assumption being violated
                         else:
                                 if detailDict['Parent'] not in indexDict:
                                         print(lineType + ' ID not identified already in your GFF3! "' + detailDict['Parent'] + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
+                                        print('Program will exit now.')
+                                        quit()
+                                elif detailDict['Parent'] not in indexDict[detailDict['Parent']]:
+                                        print(lineType + ' ID does not map to an mRNA in your GFF3! "' + detailDict['Parent'] + '" occurs within Parent= field without being present as an ID= field on an mRNA line first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                        print('For debugging purposes, the line == ' + line)
                                         print('Program will exit now.')
                                         quit()
                                 else:
@@ -882,6 +924,10 @@ def gff3_index(gff3File):
         indexDict['lengthValues'] = geneDict['lengthValues']
         geneDict['idValues'] = idValues
         indexDict['idValues'] = geneDict['idValues']
+        geneDict['rrnaValues'] = rrnaValues
+        indexDict['rrnaValues'] = geneDict['rrnaValues']
+        geneDict['trnaValues'] = trnaValues
+        indexDict['trnaValues'] = geneDict['trnaValues']
         # Return output
         return indexDict
 
