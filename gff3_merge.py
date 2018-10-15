@@ -52,8 +52,8 @@ def gff3_parse_ncls(gff3File):
                         sl = line.split('\t')
                         if len(sl) < 3:
                                 continue
-                        # Skip non-mRNA lines
-                        if sl[2] != 'mRNA':
+                        # Skip lines that aren't being stored
+                        if sl[2] != 'mRNA' and sl[2] != 'rRNA' and sl[2] != 'tRNA':
                                 continue
                         # Get details from line including start, stop, and orientation
                         contigID = sl[0]
@@ -64,7 +64,7 @@ def gff3_parse_ncls(gff3File):
                         detailDict = {}
                         for i in range(len(details)):
                                 splitDetail = details[i].split('=')
-                                detailDict[splitDetail[0]] = splitDetail[1]
+                                detailDict[splitDetail[0]] = splitDetail[1].rstrip('\r\n')
                         # Add to our NCLS
                         starts.append(contigStart)
                         ends.append(contigStop+1)       # NCLS indexes 0-based like a range (up to but not including end), so +1 to make this more logically compliant with gff3 1-based system.
@@ -253,7 +253,7 @@ def gff3_index(gff3File):
         # Return output
         return indexDict
 
-def overlapping_gff3_models(nclsHits, gff3Dict, modelSet):
+def overlapping_gff3_models(nclsHits, gff3Dict, modelCoords):
         # Setup
         checked = []
         ovlPctDict = {}
@@ -264,20 +264,37 @@ def overlapping_gff3_models(nclsHits, gff3Dict, modelSet):
                         continue
                 # Pull out the gene details of this hit and find the overlapping mRNA
                 mrnaID = hit[3]
-                geneID = gff3Dict[mrnaID]['attributes']['ID']
-                mrnaHit = gff3Dict[mrnaID][mrnaID]
+                if type(gff3Dict[mrnaID]['attributes']) == list:        # We need these if:else statements here and below so we can handle gene/mrna values as well as rRNA/tRNA values
+                        geneID = mrnaID
+                        mrnaHit = gff3Dict[mrnaID]
+                else:
+                        geneID = gff3Dict[mrnaID]['attributes']['ID']
+                        mrnaHit = gff3Dict[mrnaID][mrnaID]
                 checked.append(mrnaID)
-                # Find the overlap of the current model against this mRNA model using sets
-                mrnaSet = set()
-                for coord in mrnaHit['CDS']['coords']:
-                        start, stop = coord
-                        mrnaSet = mrnaSet.union(set(range(start, stop+1)))
+                # Retrieve the coords list from the mrnaHit
+                if 'CDS' in mrnaHit:
+                        mrnaCoords = mrnaHit['CDS']['coords']
+                else:
+                        mrnaCoords = mrnaHit['coords']
                 # Calculate percentages of set overlap
-                overlapped = modelSet & mrnaSet
-                modelPct = (len(modelSet) - (len(modelSet) - len(overlapped))) / len(modelSet)
-                mrnaHitPct = (len(mrnaSet) - (len(mrnaSet) - len(overlapped))) / len(mrnaSet)
+                overlapLen = 0
+                totalModelLen = 0
+                totalMrnaLen = 0
+                for x in range(len(modelCoords)):
+                        totalModelLen += modelCoords[x][1] - modelCoords[x][0] + 1
+                        for i in range(len(mrnaCoords)):
+                                if x == 0:
+                                        totalMrnaLen += mrnaCoords[i][1] - mrnaCoords[i][0] + 1
+                                if mrnaCoords[i][1] < modelCoords[x][0] or mrnaCoords[i][0] > modelCoords[x][1]:
+                                        continue
+                                else:
+                                        ovl = min([modelCoords[x][1], mrnaCoords[i][1]]) - max([modelCoords[x][0], mrnaCoords[i][0]]) + 1
+                                        overlapLen += ovl
+                modelPct = (totalModelLen - (totalModelLen - overlapLen)) / totalModelLen
+                mrnaHitPct = (totalMrnaLen - (totalMrnaLen - overlapLen)) / totalMrnaLen
                 # Store result
-                ovlPctDict[mrnaID] = [modelPct, mrnaHitPct, geneID, min(mrnaSet), max(mrnaSet)]
+                flatMrnaCoords = [coord for sublist in mrnaCoords for coord in sublist]
+                ovlPctDict[mrnaID] = [modelPct, mrnaHitPct, geneID, min(flatMrnaCoords), max(flatMrnaCoords)]
         return ovlPctDict
 
 def gff3_index_add_lines(gff3IndexDict, gff3File):
@@ -291,6 +308,7 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                         # Skip filler lines
                         if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}:    # If this is true, it's a blank line or a comment line with no information in it
                                 continue
+                        sl = line.rstrip('\n').split('\t')
                         # Handle known header comment lines
                         if line.startswith(knownHeadComments):
                                 # Extract gene ID
@@ -310,12 +328,11 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                                         gff3IndexDict[geneID]['lines'] = {0: [], 1: [], 2: [line]}
                                 else:
                                         gff3IndexDict[geneID]['lines'][2].append(line)
-                        # Handle gene detail lines
+                        # Handle gene detail & known non-coding feature lines
                         elif not line.startswith('#'):
                                 # Extract gene ID
-                                sl = line.rstrip('\r').split('\t')
                                 attributesList = sl[8].split(';')
-                                if sl[2] == 'gene':
+                                if sl[2] == 'gene' or sl[2] == 'rRNA' or sl[2] == 'tRNA':               # For rRNA and tRNA lines, the ID= is our feature ID; we treat these features like mRNA values when storing results as index and as lines
                                         for attribute in attributesList:
                                                 if attribute.startswith('ID='):                         # For gene lines, the ID= is our geneID (obviously)
                                                         geneID = attribute[3:].strip('\n')              # This trims off the ID= bit and any new lines
@@ -329,15 +346,7 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                                         gff3IndexDict[geneID]['lines'] = {0: [], 1: [line], 2: []}
                                 else:
                                         gff3IndexDict[geneID]['lines'][1].append(line)
-                        # Handle all other lines (assumed to be at tail end of GFF3 file)
-                        else:
-                                if 'remaining_lines' not in gff3IndexDict:
-                                        gff3IndexDict['remaining_lines'] = [line]
-                                else:
-                                        gff3IndexDict['remaining_lines'].append(line)
-        # If there is no 'remaining_lines' value in gff3IndexDict, add a blank one here [this acts as an 'end-of-file' marker for later on]
-        if 'remaining_lines' not in gff3IndexDict:
-                gff3IndexDict['remaining_lines'] = []
+                        # All other lines are ignored
         return gff3IndexDict
 
 ## Output function
@@ -496,9 +505,18 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                                 if mrnaFoot not in mrnaFoots:
                                                         mrnaFoots.append(mrnaFoot)
                                 fileOut.write(''.join(mrnaFoots))
-                # Write remaining_lines to file if relevant
-                fileOut.write(''.join(mainGff3Lines['remaining_lines']))
-                fileOut.write(''.join(newGff3Lines['remaining_lines']))
+                # Write rRNA/tRNA lines to file if relevant
+                origRnaKeys = [key for sublist in [mainGff3Lines['rrnaValues'], mainGff3Lines['trnaValues']] for key in sublist]
+                for key in origRnaKeys:
+                        fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
+                        fileOut.write(''.join(mainGff3Lines[key]['lines'][1]))
+                        fileOut.write(''.join(mainGff3Lines[key]['lines'][2]))
+                newRnaKeys = [key for sublist in [newGff3Lines['rrnaValues'], newGff3Lines['trnaValues']] for key in sublist]
+                for key in newRnaKeys:
+                        if key not in excludeList:
+                                fileOut.write(''.join(newGff3Lines[key]['lines'][0]))
+                                fileOut.write(''.join(newGff3Lines[key]['lines'][1]))
+                                fileOut.write(''.join(newGff3Lines[key]['lines'][2]))
 
 ## General purpose
 def coord_extract(coord):
@@ -550,70 +568,89 @@ often ignored but of high interest. I don't want to reject novel genes, nor do I
 that these should be clustered as "isoforms" since they don't fit that category.'''
 isoformDict = {}
 isoformCount = 0
-novelCount = 0  # We don't need to keep a list of this, since if a gene is not excluded and not an isoform, it's novel
-excludeList = []
-key = 'evm.model.utg12084.2.mrna3'
-for key in newGff3['idValues'][1]:
-        mrna = newGff3[key][key]
-        # Identify overlaps
-        dictEntries = []
-        for coord in mrna['CDS']['coords']:
-                start, stop = coord
-                tmpEntries = ncls_finder(origNcls, origLoc, start, stop)
-                tmpEntries = ncls_feature_narrowing(tmpEntries, mrna['contig_id'], 4)           # index 4 corresponds to the contig ID in our NCLS entries
-                dictEntries += ncls_feature_narrowing(tmpEntries, mrna['orientation'], 2)       # index 2 corresponds to orientation in our NCLS entries
-        # Convert coordinates to set values for overlap calculation
-        valueSet = set()
-        for coord in mrna['CDS']['coords']:
-                start, stop = coord
-                valueSet = valueSet.union(set(range(start, stop+1)))
-        # Compare overlaps to see if this gene overlaps existing genes
-        ovlPctDict = overlapping_gff3_models(dictEntries, origGff3, valueSet)
-        # Detect sequences that should be clustered as isoforms/kept as separate novel genes/excluded as duplicates
-        novel = True
-        isoform = False
-        exclude = False
-        for seqid, result in ovlPctDict.items():        # Remember: result = [modelPct, mrnaHitPct, geneID, modelStart, modelStop]
-                # Novel sequences
-                if result[0] < args.isoPercent and result[1] < args.isoPercent:
-                        novel = True    # This is just a placeholder, doesn't do anything, but helps to present program logic
-                # Isoform sequences
-                elif result[0] < args.duplicatePercent and result[1] < args.duplicatePercent:   # If result[0] > result[1], then result[0] is SHORTER than result[1] - they have the exact same number of overlapping bases
-                        # Extra check: if new gene hangs off 5' or 3' end of gene it isn't considered an isoform
-                        if min(valueSet) < result[3] or max(valueSet) > result[4]:
-                                novel = True
+novelGeneCount = 0      # We don't need to keep a list of this, since if a gene is not excluded and not an isoform, it's novel
+novelRNACount = 0       # Ditto above; also, we want to keep a separate count of novel genes and novel rRNA/tRNA features
+excludeList = []        # We need a list of these values for detection later
+excludeGeneCount = 0    # We also want to separate the counts for genes/rRNA/tRNA features since the gene number is more "important"
+excludeRNACount = 0
+valueList = [newGff3['idValues'][1], newGff3['rrnaValues'], newGff3['trnaValues']]
+for i in range(len(valueList)):
+        for key in valueList[i]:
+                # Setup for this feature's loop
+                if key in newGff3[key]:
+                        feature = newGff3[key][key]             # This is what we need when we're handling gene objs
+                else:
+                        feature = newGff3[key]                  # This is what we need when we're handling rRNA/tRNA objs
+                dictEntries = []
+                if 'CDS' in feature:
+                        coordsList = feature['CDS']['coords']   # Ditto the above bits in same order
+                else:
+                        coordsList = feature['coords']          # Ditto
+                # Identify coordinate overlaps using NCLS
+                for coord in coordsList:
+                        start, stop = coord
+                        tmpEntries = ncls_finder(origNcls, origLoc, start, stop)
+                        tmpEntries = ncls_feature_narrowing(tmpEntries, feature['contig_id'], 4)           # index 4 corresponds to the contig ID in our NCLS entries
+                        dictEntries += ncls_feature_narrowing(tmpEntries, feature['orientation'], 2)       # index 2 corresponds to orientation in our NCLS entries
+                # Compare overlaps to see if this gene overlaps existing genes
+                ovlPctDict = overlapping_gff3_models(dictEntries, origGff3, coordsList)
+                # Detect sequences that should be clustered as isoforms/kept as separate novel genes/excluded as duplicates
+                novel = True
+                isoform = False
+                exclude = False
+                flatCoordsList = [coord for sublist in coordsList for coord in sublist]
+                for seqid, result in ovlPctDict.items():                # Remember: result = [modelPct, mrnaHitPct, geneID, modelStart, modelStop]
+                        # Novel sequences
+                        if result[0] < args.isoPercent and result[1] < args.isoPercent:
+                                novel = True    # This is just a placeholder, doesn't do anything, but helps to present program logic
+                        # Isoform sequences
+                        elif result[0] < args.duplicatePercent and result[1] < args.duplicatePercent:   # If result[0] > result[1], then result[0] is SHORTER than result[1] - they have the exact same number of overlapping bases
+                                # Extra check: if new gene hangs off 5' or 3' end of gene it isn't considered an isoform
+                                if min(flatCoordsList) < result[3] or max(flatCoordsList) > result[4]:
+                                        novel = True
+                                elif i != 0:                            # tRNA and rRNA objects can't be clustered as isoforms; any overlaps that fall into this elif statement need to be excluded
+                                        exclude = True
+                                else:
+                                        isoform = result
+                                        '''As you might notice, we only hold onto one result for isoform clustering; if the user file has two genes
+                                        this model could fit into as an isoform, something is probably wrong with their annotation and this program
+                                        will simply add it into one of them'''
+                        # Duplicate sequences
                         else:
-                                isoform = result
-                                '''As you might notice, we only hold onto one result for isoform clustering; if the user file has two genes
-                                this model could fit into as an isoform, something is probably wrong with their annotation and this program
-                                will simply add it into one of them'''
-                # Duplicate sequences
+                                exclude = True
+                # Add to respective list/dict
+                if exclude == True:
+                        excludeList.append(key)
+                        if i == 0:
+                                excludeGeneCount += 1
+                        else:
+                                excludeRNACount += 1
+                elif isoform != False:
+                        isoformCount += 1                               # This is just use for statistics presentation at the end of program operations
+                        if isoform[2] not in isoformDict:
+                                isoformDict[isoform[2]] = [key]
+                        else:
+                                if key not in isoformDict[isoform[2]]:
+                                        isoformDict[isoform[2]].append(key)
                 else:
-                        exclude = True
-        # Add to respective list/dict
-        if exclude == True:
-                excludeList.append(key)
-        elif isoform != False:
-                isoformCount += 1       # This is just use for statistics presentation at the end of program operations
-                if isoform[2] not in isoformDict:
-                        isoformDict[isoform[2]] = [key]
-                else:
-                        if key not in isoformDict[isoform[2]]:
-                                isoformDict[isoform[2]].append(key)
-        else:
-                novelCount += 1
+                        if i == 0:
+                                novelGeneCount += 1
+                        else:
+                                novelRNACount += 1
 
 # Produce isoform-clustered merged GFF3
-gff3_merge_and_isoclust(origGff3, newGff3, isoformDict, excludeList, args.outputFileName)  ## TBD: make sure this works, maybe improve if relevant?
+gff3_merge_and_isoclust(origGff3, newGff3, isoformDict, excludeList, args.outputFileName)
 
 # All done!
 print('Program completed successfully!')
 
 # Present basic statistics
-print(str(isoformCount) + ' new models were added as isoforms of existing genes.')
-print(str(novelCount) + ' new models were added as stand-alone genes.')
-print(str(len(excludeList)) + ' new models were not merged due to duplication cutoff.')
+print(str(isoformCount) + ' new gene models were added as isoforms of existing genes.')
+print(str(novelGeneCount) + ' new gene models were added as stand-alone genes.')
+print(str(novelRNACount) + ' new rRNA/tRNA models were added as stand-alone features.')
+print(str(excludeGeneCount) + ' new gene models were not merged due to duplication cutoff.')
+print(str(excludeRNACount) + ' new rRNA/tRNA models were not merged due to duplication cutoff.')
 if excludeList != []:
-        print('These excluded models include...')
+        print('These excluded gene and rRNA/tRNA models include...')
         for entry in excludeList:
                 print(entry)

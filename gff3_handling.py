@@ -174,7 +174,7 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                         # Skip filler lines
                         if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}:    # If this is true, it's a blank line or a comment line with no information in it
                                 continue
-                        sl = line.rstrip('\r').split('\t')
+                        sl = line.rstrip('\n').split('\t')
                         # Handle known header comment lines
                         if line.startswith(knownHeadComments):
                                 # Extract gene ID
@@ -400,15 +400,14 @@ def gff3_parse_ncls(gff3File):                                  # This function 
         ongoingCount = 0
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
-                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
                         # Skip unneccessary lines
-                        if line.startswith('#') or line == '\n':
+                        if line.startswith('#') or line == '\n' or line == '\r\n':
                                 continue
                         sl = line.split('\t')
-                        if len(sl) < 8:                 # If the length is shorter than this, it's not a gene detail line
+                        if len(sl) < 3:
                                 continue
-                        # Skip non-mRNA lines
-                        if sl[2] != 'mRNA':
+                        # Skip lines that aren't being stored
+                        if sl[2] != 'mRNA' and sl[2] != 'rRNA' and sl[2] != 'tRNA':
                                 continue
                         # Get details from line including start, stop, and orientation
                         contigID = sl[0]
@@ -419,7 +418,7 @@ def gff3_parse_ncls(gff3File):                                  # This function 
                         detailDict = {}
                         for i in range(len(details)):
                                 splitDetail = details[i].split('=')
-                                detailDict[splitDetail[0]] = splitDetail[1]
+                                detailDict[splitDetail[0]] = splitDetail[1].rstrip('\r\n')
                         # Add to our NCLS
                         starts.append(contigStart)
                         ends.append(contigStop+1)       # NCLS indexes 0-based like a range (up to but not including end), so +1 to make this more logically compliant with gff3 1-based system.
@@ -626,9 +625,18 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                                 if mrnaFoot not in mrnaFoots:
                                                         mrnaFoots.append(mrnaFoot)
                                 fileOut.write(''.join(mrnaFoots))
-                # Write remaining_lines to file if relevant
-                fileOut.write(''.join(mainGff3Lines['remaining_lines']))
-                fileOut.write(''.join(newGff3Lines['remaining_lines']))
+                # Write rRNA/tRNA lines to file if relevant
+                origRnaKeys = [key for sublist in [mainGff3Lines['rrnaValues'], mainGff3Lines['trnaValues']] for key in sublist]
+                for key in origRnaKeys:
+                        fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
+                        fileOut.write(''.join(mainGff3Lines[key]['lines'][1]))
+                        fileOut.write(''.join(mainGff3Lines[key]['lines'][2]))
+                newRnaKeys = [key for sublist in [newGff3Lines['rrnaValues'], newGff3Lines['trnaValues']] for key in sublist]
+                for key in newRnaKeys:
+                        if key not in excludeList:
+                                fileOut.write(''.join(newGff3Lines[key]['lines'][0]))
+                                fileOut.write(''.join(newGff3Lines[key]['lines'][1]))
+                                fileOut.write(''.join(newGff3Lines[key]['lines'][2]))
 
 def edit_parent(gff3Line, parentID):
         # Handle unsplit values
