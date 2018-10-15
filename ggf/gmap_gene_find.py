@@ -933,7 +933,10 @@ def gff3_index(gff3File):
         geneDict['trnaValues'] = trnaValues
         indexDict['trnaValues'] = geneDict['trnaValues']
         contigValues = list(set(contigValues))
-        contigValues.sort(key = lambda x: int(numRegex.search(x).group()))
+        try:
+                contigValues.sort(key = lambda x: int(numRegex.search(x).group()))
+        except:
+                contigValues.sort()     # This is a bit crude, but necessary in cases where contigs lack numeric characters
         geneDict['contigValues'] = contigValues
         indexDict['contigValues'] = geneDict['contigValues']
         # Return output
