@@ -312,6 +312,8 @@ def gff3_index_pasaprots_extract(gff3IndexDict):
         pasaProts = {}
         # Main loop
         for key in gff3IndexDict['idValues'][0]:
+                if 'lines' not in gff3IndexDict[key]:
+                        continue
                 footComments = gff3IndexDict[key]['lines'][2]
                 # Parse each foot comment to extract the protein sequence
                 for comment in footComments:
