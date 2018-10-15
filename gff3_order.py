@@ -188,7 +188,7 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
                         # Skip filler lines
                         if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}:    # If this is true, it's a blank line or a comment line with no information in it
                                 continue
-                        sl = line.rstrip('\r').split('\t')
+                        sl = line.rstrip('\n').split('\t')
                         # Handle known header comment lines
                         if line.startswith(knownHeadComments):
                                 # Extract gene ID
