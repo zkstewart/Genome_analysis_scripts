@@ -527,13 +527,11 @@ def coord_extract(coord):
 
 ##### USER INPUT SECTION
 usage = """%(prog)s will merge two GFF3 files together, one acting as the 'main' and the other as the 'new'.
-Currently this program will, by default, cluster significant overlaps (specified by isoPercent parameter)
-as isoforms within the new GFF3. In the future I will likely add an option to overwrite instead. The result
-is a merged GFF3 where isoform-clustered sequences will be associated with the parent gene, and any genes that
-were unclustered will be at the bottom of the file (but before any non-gene related lines, such as rRNA or tRNA
-annotations). Note that this script currently uses quite strict GFF3 parsing; it expects files to be formatted
-by PASA or gmap_gene_find.py. If you want to use this program but it won't work with your files, let me know
-and I will try to make this code more agnostic to GFF3 format.
+Currently this program will cluster 'new' genes which overlap 'main' genes > isoPercent but < duplicatePercent 
+of their length as isoforms within the new GFF3. The result is a merged GFF3 where isoform-clustered sequences
+will be associated with the parent gene, and any genes that were unclustered (i.e., < isoPercent overlap)
+will be at the bottom of the file (but before any non-gene related lines, such as rRNA or tRNA
+annotations). In the future, this code will allow 'new' genes to overwrite 'main' genes, but that day is not today.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-og", "-originalGff3", dest="originalGff3",

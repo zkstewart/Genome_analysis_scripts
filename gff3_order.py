@@ -231,10 +231,10 @@ def gff3_index_add_lines(gff3IndexDict, gff3File):
 
 ##### USER INPUT SECTION
 
-usage = """%(prog)s reads in a GFF3 file in a format similar to PASA's output and reorders
-the file by contig numeric order (using all blocks of numbers in a contig's ID if present,
-eg "contig1_a100" comes before "contig2_a0") and chromosomal order within contigs.
-It will also strip out empty lines.
+usage = """%(prog)s reads in a GFF3 file and reorders the file by contig numeric order
+(using all blocks of numbers in a contig's ID if present, eg "contig1_a100" comes
+before "contig2_a0") and chromosomal order within contigs. It will also strip out
+empty lines.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-g", dest="gff3File",
