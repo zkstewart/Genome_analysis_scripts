@@ -142,7 +142,7 @@ def gff3_index(gff3File):
         indexDict['mrnaValues'] = geneDict['mrnaValues']
         contigValues = list(set(contigValues))
         try:
-                contigValues.sort(key = lambda x: int(numRegex.search(x).group()))
+                contigValues.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
         except:
                 contigValues.sort()     # This is a bit crude, but necessary in cases where contigs lack numeric characters
         geneDict['contigValues'] = contigValues
