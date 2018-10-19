@@ -79,7 +79,7 @@ def reverse_comp(seq):
 
 def longest_iso(geneDictObj):
         longestMrna = ['', 0]           # We pick out the representative gene based on length. If length is identical, we'll end up picking the entry listed first in the gff3 file since our > condition won't be met. I doubt this will happen much or at all though.
-        for mrna in geneDictObj['mrna_list']:
+        for mrna in geneDictObj['feature_list']:
                 mrnaLen = 0
                 for coord in geneDictObj[mrna]['CDS']['coords']:
                         mrnaLen += (int(coord[1]) - int(coord[0]) + 1)
@@ -114,14 +114,11 @@ def cds_to_prot(seq, phase, seqid):
 def gff3_index(gff3File):
         # Setup
         import re
-        numRegex = re.compile(r'\d+')   # This is used for sorting our contig ID values
-        geneDict = {}           # Our output structure will have 1 entry per gene which is stored in here
-        indexDict = {}          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
-        lengthValues = [0, 0]   # Corresponds to [geneCount, mrnaCount]
-        idValues = [[], []]     # Corresponds to [geneIDList, mrnaIDList]
-        contigValues = []
-        rrnaValues = []
-        trnaValues = []
+        numRegex = re.compile(r'\d+')           # This is used for sorting our contig ID values
+        geneDict = {}                           # Our output structure will have 1 entry per gene which is stored in here
+        indexDict = {}                          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
+        idValues = {'main': {}, 'feature': {}}  # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
+        contigValues = []                       # Also note that we want the idValues dict ordered so we can produce consistently ordered outputs
         # Gene object loop
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
@@ -135,11 +132,13 @@ def gff3_index(gff3File):
                         details = sl[8].split(';')
                         detailDict = {}
                         for i in range(len(details)):
+                                if details[i] == '':
+                                        continue
                                 splitDetail = details[i].split('=')
                                 detailDict[splitDetail[0]] = splitDetail[1]
                         contigValues.append(sl[0])
                         # Build gene group dict objects
-                        if lineType == 'gene':
+                        if 'Parent' not in detailDict:           # If there is no Parent field in the details, this should BE the parent structure
                                 if detailDict['ID'] not in geneDict:
                                         # Create entry
                                         geneDict[detailDict['ID']] = {'attributes': {}}
@@ -149,119 +148,105 @@ def gff3_index(gff3File):
                                         # Add all other gene details
                                         geneDict[detailDict['ID']]['contig_id'] = sl[0]
                                         geneDict[detailDict['ID']]['source'] = sl[1]
+                                        geneDict[detailDict['ID']]['feature_type'] = sl[2]
                                         geneDict[detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
                                         geneDict[detailDict['ID']]['score'] = sl[5]
                                         geneDict[detailDict['ID']]['orientation'] = sl[6]
                                         geneDict[detailDict['ID']]['frame'] = sl[7]
-                                        # Index in indexDict
+                                        # Index in indexDict & idValues & geneIdValues
                                         indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
+                                        if lineType not in idValues['main']:
+                                                idValues['main'][lineType] = [detailDict['ID']]
+                                        else:
+                                                idValues['main'][lineType].append(detailDict['ID'])
                                         # Add extra details
-                                        geneDict[detailDict['ID']]['mrna_list'] = []    # This provides us a structure we can iterate over to look at each mRNA within a gene entry
-                                        lengthValues[0] += 1
-                                        idValues[0].append(detailDict['ID'])
+                                        geneDict[detailDict['ID']]['feature_list'] = []    # This provides us a structure we can iterate over to look at each feature within a gene entry
+                                        continue
                                 else:
                                         print('Gene ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
                                         print('For debugging purposes, the line == ' + line)
                                         print('Program will exit now.')
                                         quit()
-                        elif lineType == 'mRNA':
-                                if detailDict['ID'] not in geneDict[detailDict['Parent']]:
-                                        # Create entry
-                                        geneDict[detailDict['Parent']][detailDict['ID']] = {'attributes': {}}
-                                        # Add attributes
-                                        for k, v in detailDict.items():
-                                                geneDict[detailDict['Parent']][detailDict['ID']]['attributes'][k] = v
-                                        # Add all other gene details
-                                        geneDict[detailDict['Parent']][detailDict['ID']]['contig_id'] = sl[0]
-                                        geneDict[detailDict['Parent']][detailDict['ID']]['source'] = sl[1]
-                                        geneDict[detailDict['Parent']][detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
-                                        geneDict[detailDict['Parent']][detailDict['ID']]['score'] = sl[5]
-                                        geneDict[detailDict['Parent']][detailDict['ID']]['orientation'] = sl[6]
-                                        geneDict[detailDict['Parent']][detailDict['ID']]['frame'] = sl[7]
-                                        # Index in indexDict
-                                        indexDict[detailDict['ID']] = geneDict[detailDict['Parent']]
-                                        # Add extra details
-                                        geneDict[detailDict['Parent']]['mrna_list'].append(detailDict['ID'])
-                                        lengthValues[1] += 1
-                                        idValues[1].append(detailDict['ID'])
-                                else:
-                                        print('mRNA ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
-                                        print('For debugging purposes, the line == ' + line)
-                                        print('Program will exit now.')
-                                        quit()
-                        # Handle non-gene related lineType's here
-                        elif lineType == 'rRNA' or lineType == 'tRNA':  # rRNA and tRNA's are indexed similarly; both are treated essentially the same as mRNA-level values, not gene-level values
-                                if detailDict['ID'] not in geneDict:
-                                        # Create entry
-                                        geneDict[detailDict['ID']] = {'attributes': [{}]}
-                                        # Add attributes
-                                        for k, v in detailDict.items():
-                                                geneDict[detailDict['ID']]['attributes'][-1][k] = v
-                                        # Add all other gene details
-                                        geneDict[detailDict['ID']]['contig_id'] = sl[0]
-                                        geneDict[detailDict['ID']]['source'] = sl[1]
-                                        geneDict[detailDict['ID']]['coords'] = [[int(sl[3]), int(sl[4])]]
-                                        geneDict[detailDict['ID']]['score'] = [sl[5]]
-                                        geneDict[detailDict['ID']]['orientation'] = sl[6]
-                                        geneDict[detailDict['ID']]['frame'] = [sl[7]]
-                                        # Index in indexDict
-                                        indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
-                                        # Add extra details
-                                        if lineType == 'rRNA':
-                                                rrnaValues.append(detailDict['ID'])
-                                        elif lineType == 'tRNA':
-                                                trnaValues.append(detailDict['ID'])
-                                else:
-                                        # Add attributes
-                                        indexDict[detailDict['ID']]['attributes'].append({})
-                                        for k, v in detailDict.items():
-                                                indexDict[detailDict['ID']]['attributes'][-1][k] = v
-                                        # Add all other lineType-relevant details
-                                        indexDict[detailDict['ID']]['coords'].append([int(sl[3]), int(sl[4])])
-                                        indexDict[detailDict['ID']]['score'].append(sl[5])
-                                        indexDict[detailDict['ID']]['frame'].append(sl[7])
-                        # Any unhandled lineType's are assumed to relate to gene/mRNA entries; unhandled errors that occur in this block of code are probably due to this assumption being violated
+                        # Handle subfeatures within genes
+                        if detailDict['Parent'] in geneDict:
+                                parents = [detailDict['Parent']]
                         else:
-                                if detailDict['Parent'] not in indexDict:
-                                        print(lineType + ' ID not identified already in your GFF3! "' + detailDict['Parent'] + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                parents = detailDict['Parent'].split(',')
+                        for parent in parents:
+                                # Handle primary subfeatures (e.g., mRNA/tRNA/rRNA/etc.) / handle primary features (e.g., protein) that behave like primary subfeatures
+                                if parent in geneDict and ('ID' in detailDict or ('ID' not in detailDict and parent not in geneDict[parent])):        # The last 'and' clause means we only do this once for proceeding into the next block of code
+                                        if 'ID' in detailDict:
+                                                idIndex = detailDict['ID']
+                                        else:
+                                                idIndex = parent
+                                        geneDict[parent][idIndex] = {'attributes': {}}
+                                        # Add attributes
+                                        for k, v in detailDict.items():
+                                                geneDict[parent][idIndex]['attributes'][k] = v
+                                        # Add all other gene details
+                                        geneDict[parent][idIndex]['contig_id'] = sl[0]
+                                        geneDict[parent][idIndex]['source'] = sl[1]
+                                        geneDict[parent][idIndex]['feature_type'] = sl[2]
+                                        geneDict[parent][idIndex]['coords'] = [int(sl[3]), int(sl[4])]
+                                        geneDict[parent][idIndex]['score'] = sl[5]
+                                        geneDict[parent][idIndex]['orientation'] = sl[6]
+                                        geneDict[parent][idIndex]['frame'] = sl[7]
+                                        # Index in indexDict & idValues
+                                        indexDict[idIndex] = geneDict[parent]
+                                        if lineType not in idValues['feature']:
+                                                idValues['feature'][lineType] = [idIndex]
+                                        else:
+                                                idValues['feature'][lineType].append(idIndex)
+                                        # Add extra details to this feature
+                                        geneDict[parent]['feature_list'].append(idIndex)
+                                        if 'ID' in detailDict:  # We don't need to proceed into the below code block if we're handling a normal primary subfeature; we do want to continue if it's something like a protein that behaves like a primary subfeature despite being a primary feature
+                                                continue
+                                # Handle secondary subfeatures (e.g., CDS/exon/etc.)
+                                if parent not in indexDict:
+                                        print(lineType + ' ID not identified already in your GFF3! "' + parent + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
                                         print('For debugging purposes, the line == ' + line)
                                         print('Program will exit now.')
                                         quit()
-                                elif detailDict['Parent'] not in indexDict[detailDict['Parent']]:
-                                        print(lineType + ' ID does not map to an mRNA in your GFF3! "' + detailDict['Parent'] + '" occurs within Parent= field without being present as an ID= field on an mRNA line first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                elif parent not in indexDict[parent]:
+                                        print(lineType + ' ID does not map to a feature in your GFF3! "' + parent + '" occurs within Parent= field without being present as an ID= field with its own Parent= field on another line first. File is incorrectly formatted and can\'t be processed, sorry.')
                                         print('For debugging purposes, the line == ' + line)
                                         print('Program will exit now.')
                                         quit()
                                 else:
                                         # Create/append to entry
-                                        if lineType not in indexDict[detailDict['Parent']][detailDict['Parent']]:
+                                        if lineType not in indexDict[parent][parent]:
                                                 # Create entry
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType] =  {'attributes': [{}]}
+                                                indexDict[parent][parent][lineType] =  {'attributes': [{}]}
                                                 # Add attributes
                                                 for k, v in detailDict.items():
-                                                        indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'][-1][k] = v        # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
+                                                        indexDict[parent][parent][lineType]['attributes'][-1][k] = v        # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
                                                 # Add all other lineType-relevant details
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['score'] = [sl[5]]
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['frame'] = [sl[7]]
+                                                indexDict[parent][parent][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
+                                                indexDict[parent][parent][lineType]['score'] = [sl[5]]
+                                                indexDict[parent][parent][lineType]['frame'] = [sl[7]]
                                         else:
                                                 # Add attributes
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'].append({})
+                                                indexDict[parent][parent][lineType]['attributes'].append({})
                                                 for k, v in detailDict.items():
-                                                        indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['attributes'][-1][k] = v        # By using a list, we have an ordered set of attributes for each lineType
+                                                        indexDict[parent][parent][lineType]['attributes'][-1][k] = v        # By using a list, we have an ordered set of attributes for each lineType
                                                 # Add all other lineType-relevant details
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['coords'].append([int(sl[3]), int(sl[4])])
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['score'].append(sl[5])
-                                                indexDict[detailDict['Parent']][detailDict['Parent']][lineType]['frame'].append(sl[7])
+                                                indexDict[parent][parent][lineType]['coords'].append([int(sl[3]), int(sl[4])])
+                                                indexDict[parent][parent][lineType]['score'].append(sl[5])
+                                                indexDict[parent][parent][lineType]['frame'].append(sl[7])
         # Add extra details to dict
-        geneDict['lengthValues'] = lengthValues
-        indexDict['lengthValues'] = geneDict['lengthValues']
+        '''This dictionary has supplementary keys. These include 'idValues' which is a dict
+        containing 'main' and 'feature' keys which related to dicts that contain keys correspond to the types of values
+        encountered in your GFF3 (e.g., 'main' will contain 'gene' whereas 'feature' will contain mRNA or tRNA'). 'geneValues'
+        and 'mrnaValues' are shortcuts to thisDict['idValues']['main']['gene'] and thisDict['idValues']['feature']['mRNA']
+        respectively. 'contigValues' is a sorted list of contig IDs encountered in your GFF3. The remaining keys are your
+        main and feature values.'''
+        
         geneDict['idValues'] = idValues
         indexDict['idValues'] = geneDict['idValues']
-        geneDict['rrnaValues'] = rrnaValues
-        indexDict['rrnaValues'] = geneDict['rrnaValues']
-        geneDict['trnaValues'] = trnaValues
-        indexDict['trnaValues'] = geneDict['trnaValues']
+        geneDict['geneValues'] = idValues['main']['gene']       # This and the mrnaValues below act as shortcuts
+        indexDict['geneValues'] = geneDict['geneValues']
+        geneDict['mrnaValues'] = idValues['feature']['mRNA']
+        indexDict['mrnaValues'] = geneDict['mrnaValues']
         contigValues = list(set(contigValues))
         try:
                 contigValues.sort(key = lambda x: int(numRegex.search(x).group()))
@@ -311,7 +296,7 @@ def gff3_index_pasaprots_extract(gff3IndexDict):
         # Setup
         pasaProts = {}
         # Main loop
-        for key in gff3IndexDict['idValues'][0]:
+        for key in gff3IndexDict['geneValues']:
                 if 'lines' not in gff3IndexDict[key]:
                         continue
                 footComments = gff3IndexDict[key]['lines'][2]
@@ -382,9 +367,9 @@ pasaProts = gff3_index_pasaprots_extract(gff3Index)
 
 # Produce output files
 with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasink(nuclOutputFileName, 'cds', args.seqType) as nuclOut, datasink(protOutputFileName, 'cds', args.seqType) as protOut:
-        for key in gff3Index['idValues'][0]:
+        for key in gff3Index['geneValues']:
                 value = gff3Index[key]          # This corresponds to the gene dictionary object
-                mrnas = value['mrna_list']
+                mrnas = value['feature_list']
                 # Reduce our mrnas list to only the representative entry if relevant (representative == longest; note that this is with relation to CDS not TRANSCRIPT length since this maximises BUSCO score)
                 if args.locusSeqs == 'main':
                         mrnas = longest_iso(value)
