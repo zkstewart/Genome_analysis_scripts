@@ -194,7 +194,7 @@ def gff3_index(gff3File):
         indexDict['mrnaValues'] = geneDict['mrnaValues']
         contigValues = list(set(contigValues))
         try:
-                contigValues.sort(key = lambda x: int(numRegex.search(x).group()))
+                contigValues.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
         except:
                 contigValues.sort()     # This is a bit crude, but necessary in cases where contigs lack numeric characters
         geneDict['contigValues'] = contigValues
@@ -286,18 +286,25 @@ def rnammer_file_append(gff3File, rnaAnnot, lineSeparator):
                         for val in value:
                                 if val[-1] == '':
                                         del val[-1]
-                                # Modify the ID column
+                                # Format gene/feature/exon GFF3 comments
                                 if val[8] == '8s_rRNA':
-                                        newID = 'ID=RNAmmer.rRNA.' + key + '.' + val[8].split('_')[0] + '.' + str(ongoingCount8s)
+                                        formatNum = str(ongoingCount8s) # Hold onto the number so we can use a generic template for formatting comment lines
                                         ongoingCount8s += 1
                                 elif val[8] == '18s_rRNA':
-                                        newID = 'ID=RNAmmer.rRNA.' + key + '.' + val[8].split('_')[0] + '.' + str(ongoingCount18s)
+                                        formatNum = str(ongoingCount18s)
                                         ongoingCount18s += 1
                                 else:
-                                        newID = 'ID=RNAmmer.rRNA.' + key + '.' + val[8].split('_')[0] + '.' + str(ongoingCount28s)
+                                        formatNum = str(ongoingCount28s)
                                         ongoingCount28s += 1
-                                val[8] = newID
-                                fileOut.write('\t'.join(val) + lineSeparator)
+                                rnammerID = 'RNAmmer.' + key + '.' + val[8].split('_')[0] + '.' + formatNum
+                                name = 'RNAmmer_prediction_' + key + '.' + val[8].split('_')[0] + '.' + formatNum
+                                geneComment = 'ID=' + rnammerID + ';Name=' + name
+                                featComment = 'ID=' + rnammerID + '_rRNA;Parent=' + rnammerID + ';Name=' + name
+                                exonComment = 'ID=' + rnammerID + '_rRNA.exon1;Parent=' + rnammerID + '_rRNA'
+                                # Write lines to file
+                                fileOut.write('\t'.join(val[:2]) + '\tncRNA_gene\t' + '\t'.join(val[3:8]) + '\t' + geneComment + lineSeparator)
+                                fileOut.write('\t'.join(val[:2]) + '\trRNA\t' + '\t'.join(val[3:8]) + '\t' + featComment + lineSeparator)
+                                fileOut.write('\t'.join(val[:2]) + '\texon\t' + '\t'.join(val[3:8]) + '\t' + exonComment + lineSeparator)
 
 ## Retrieve/remove function
 def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, behaviour):

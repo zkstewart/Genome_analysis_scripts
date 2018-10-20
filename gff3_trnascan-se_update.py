@@ -8,6 +8,11 @@ import os, argparse, re
 # Define functions for later use
 ## Validate arguments
 def validate_args(args):
+        # Ensure all arguments are specified
+        for key, value in vars(args).items():
+                if value == None:
+                        print(key + ' argument must be specified; fix this and try again.')
+                        quit()
         # Validate input file locations
         if not os.path.isfile(args.gff3File):
                 print('I am unable to locate the gene model GFF3 file (' + args.gff3File + ')')
@@ -69,7 +74,10 @@ rnaAnnot, rnaTypes = trnascanse_parse(args.tRNAFile)
 # Get contig ordering
 numRegex = re.compile(r'\d+')
 contigIDs = list(rnaAnnot.keys())
-contigIDs.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
+try:
+        contigIDs.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
+except:
+        contigIDs.sort()     # This is a bit crude, but necessary in cases where contigs lack numeric characters
 
 # Append tRNA entries to GFF3
 with open(args.gff3File, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
@@ -89,33 +97,41 @@ with open(args.gff3File, 'r') as fileIn, open(args.outputFileName, 'w') as fileO
                 while value[-1] == '':
                         del value[-1]                           # I don't think this actually happens anymore, but it was in this code and I can't remember why it was here to begin with... I'll just leave it
                 for val in value:
-                        # Determine the ID for this entry
-                        valType = val[4]
-                        receptacleIndex = rnaTypes.index(valType)
-                        newID = 'ID=tRNAscan-SE.tRNA.' + key + '.' + val[4] + '(' + val[5] + ').' + str(rnaOngoingCounts[receptacleIndex])
-                        rnaOngoingCounts[receptacleIndex] += 1
+                        # Strip blank spaces from entries [unsure why tRNAscan-SE does this]
+                        for i in range(len(val)):
+                                val[i] = val[i].strip(' ')
                         # Figure out if this is + or -
                         if int(val[2]) > int(val[3]):
                                 orientation = '-'
                                 val[2], val[3] = val[3], val[2]         # Swap so we can keep our gff3 file in order where column 4 is always > column 5, and with the - or + to note orientation
                         else:
                                 orientation = '+'
-                        # Format the output line while handling introns
-                        if val[6] != '0':
+                        # Determine the ID & name for this entry
+                        valType = val[4]
+                        receptacleIndex = rnaTypes.index(valType)
+                        trnaID = 'tRNAscan-SE.tRNA.' + key + '.' + val[4] + '(' + val[5] + ').' + str(rnaOngoingCounts[receptacleIndex])
+                        name = 'tRNAscan-SE_prediction_' + key + '.' + val[4] + '(' + val[5] + ').' + str(rnaOngoingCounts[receptacleIndex])
+                        rnaOngoingCounts[receptacleIndex] += 1
+                        # Format GFF3 comments
+                        geneComment = 'ID=' + trnaID + ';Name=' + name
+                        featComment = 'ID=' + trnaID + '_tRNA;Parent=' + trnaID + ';Name=' + name
+                        exonComment1 = 'ID=' + trnaID + '_tRNA.exon1;Parent=' + trnaID + '_tRNA'
+                        exonComment2 = 'ID=' + trnaID + '_tRNA.exon2;Parent=' + trnaID + '_tRNA'
+                        # Write gene and feature lines to file
+                        fileOut.write('\t'.join([val[0], 'tRNAscan-SE-1.3.1', 'ncRNA_gene', val[2], val[3], val[8], orientation, '.', geneComment]) + '\n')
+                        fileOut.write('\t'.join([val[0], 'tRNAscan-SE-1.3.1', 'tRNA', val[2], val[3], val[8], orientation, '.', featComment]) + '\n')
+                        # Write exon lines while handling introns
+                        if val[6] != '0':       # In tRNAscan-SE's output, entries without introns will have 0,0 columns; this check means we do have an intron for this value
                                 if orientation == '-':
                                         val[6], val[7] = val[7], val[6]
                                 # Get paired coordinates for before/after the intron [tRNAscan-SE results seem to only show tRNAs with one intron region. If this isn't true 100% of the time then this won't work correctly]
-                                pair1 = [val[2], val[6]]
-                                pair2 = [val[7], val[3]]
-                                # Make the lineOuts
-                                lineOut1 = [key, 'tRNAscan-SE-1.3.1', 'tRNA', pair1[0], pair1[1], val[8], orientation, '.', newID]
-                                lineOut2 = [key, 'tRNAscan-SE-1.3.1', 'tRNA', pair2[0], pair2[1], val[8], orientation, '.', newID]
-                                fileOut.write('\t'.join(lineOut1) + '\n')
-                                fileOut.write('\t'.join(lineOut2) + '\n')
+                                pair1 = [val[2], str(int(val[6])-1)]
+                                pair2 = [str(int(val[7])+1), val[3]]
+                                # Write to file
+                                fileOut.write('\t'.join([val[0], 'tRNAscan-SE-1.3.1', 'exon', pair1[0], pair1[1], val[8], orientation, '.', exonComment1]) + '\n')
+                                fileOut.write('\t'.join([val[0], 'tRNAscan-SE-1.3.1', 'exon', pair2[0], pair2[1], val[8], orientation, '.', exonComment2]) + '\n')
                         else:
-                                # Make lineOut
-                                lineOut = [key, 'tRNAscan-SE-1.3.1', 'tRNA', val[2], val[3], val[8], orientation, '.', newID]
-                                fileOut.write('\t'.join(lineOut) + '\n')
+                                fileOut.write('\t'.join([val[0], 'tRNAscan-SE-1.3.1', 'exon', val[2], val[3], val[8], orientation, '.', exonComment1]) + '\n')
                 
 # All done!
 print('Program completed successfully!')
