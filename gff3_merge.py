@@ -551,7 +551,7 @@ origGff3 = gff3_index_add_lines(origGff3, args.originalGff3, list(origGff3['idVa
 newGff3 = gff3_index_add_lines(newGff3, args.newGff3, list(newGff3['idValues']['main'].keys()))
 
 # Parse GFF3 files as NCLS
-origNcls, origLoc = gff3_parse_ncls(args.originalGff3, list(origGff3['idValues']['feature'].keys()))  ## UPDATE
+origNcls, origLoc = gff3_parse_ncls(args.originalGff3, list(origGff3['idValues']['feature'].keys()))
 
 # Main loop: Compare new models to original to find isoforms and incompatible overlaps
 '''Note that we're using CDS for detecting overlap, not exons. I think that programs
