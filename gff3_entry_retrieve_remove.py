@@ -248,6 +248,8 @@ def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, behaviour
                                 found = True
                         elif value['orientation'] in idList:    # Checking orientation here
                                 found = True
+                        elif value['feature_type'] in idList:   # Checking feature type here
+                                found = True
                         else:
                                 for mrna in value['feature_list']: # Checking mrna ID here
                                         if mrna in idList:
@@ -276,6 +278,8 @@ def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, behaviour
                                 elif value['contig_id'] in idList:      # Checking contig ID here
                                         found = True
                                 elif value['source'] in idList:         # Checking source here
+                                        found = True
+                                elif value['feature_type'] in idList:   # Checking feature type here
                                         found = True
                                 elif value['orientation'] in ['+', '-'] and value['orientation'] in idList:
                                         found = True                    # We want this extra check for orientation since it can be '.' in some GFF3s and this might conflict with removing source columns with '.'
