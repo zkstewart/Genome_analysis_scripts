@@ -117,6 +117,11 @@ def gff3_index(gff3File):
                                                 indexDict[parent][parent][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
                                                 indexDict[parent][parent][lineType]['score'] = [sl[5]]
                                                 indexDict[parent][parent][lineType]['frame'] = [sl[7]]
+                                                # Add extra details to this feature
+                                                if 'feature_list' not in indexDict[parent][parent]:
+                                                        indexDict[parent][parent]['feature_list'] = [lineType]
+                                                else:
+                                                        indexDict[parent][parent]['feature_list'].append(lineType)
                                         else:
                                                 # Add attributes
                                                 indexDict[parent][parent][lineType]['attributes'].append({})
