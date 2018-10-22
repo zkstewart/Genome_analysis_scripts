@@ -382,6 +382,20 @@ with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasi
                                 print('Contig ID "' + value['contig_id'] + '" is not present in your FASTA file; mRNA ID "' + mrna + '" cannot be handled.')
                                 print('This represents a major problem with your inputs, so I\'m going to stop processing now. Make sure you are using the correct FASTA file and try again.')
                                 quit()
+                        # Sort coords lists for consistency [this can be relevant since not all GFF3's are ordered equivalently]
+                        cdsSort = list(zip(value[mrna]['CDS']['coords'], value[mrna]['CDS']['frame']))
+                        if value[mrna]['orientation'] == '+':
+                                value[mrna]['exon']['coords'].sort(key = lambda x: (int(x[0]), int(x[1])))
+                                cdsSort.sort(key = lambda x: (int(x[0][0]), int(x[0][1])))
+                                value[mrna]['CDS']['coords'] = [coord for coord,frame in cdsSort]
+                                value[mrna]['CDS']['frame'] = [frame for coord,frame in cdsSort]
+                        elif value[mrna]['orientation'] == '-':
+                                value[mrna]['exon']['coords'].sort(key = lambda x: (-int(x[0]), -int(x[1])))
+                                cdsSort.sort(key = lambda x: (-int(x[0][0]), -int(x[0][1])))
+                                value[mrna]['CDS']['coords'] = [coord for coord,frame in cdsSort]
+                                value[mrna]['CDS']['frame'] = [frame for coord,frame in cdsSort]
+                        else:
+                                print(mrna + ' lacks proper orientation specification within GFF3 (it is == "' + str(value[mrna]['orientation']) + '"; this may result in problems.')
                         # Reverse the coord lists if we're looking at a '-' model so we start at the 3' end of the gene model
                         if value['orientation'] == '-':
                                 value[mrna]['exon']['coords'].reverse()
