@@ -229,10 +229,13 @@ def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
                                                 gff3IndexDict[geneID]['lines'][1].append(line)
                                 else:                                                                   # This section relates to the immediately above comment when handling multiple parent features
                                         for parent in geneID:                                           # In this case, geneID is a list of parents
+                                                parentSection = line.split('Parent=')[1]
+                                                parentSection = parentSection.split(';')[0]             # This will extract just the bit of the comment from Parent= to any potential ; after
+                                                newLine = line.replace(parentSection, parent)
                                                 if 'lines' not in gff3IndexDict[parent]:
-                                                        gff3IndexDict[parent]['lines'] = {0: [], 1: [line], 2: []}
+                                                        gff3IndexDict[parent]['lines'] = {0: [], 1: [newLine], 2: []}   # We do all of this so we can separate multi-parent features into individual bits
                                                 else:
-                                                        gff3IndexDict[parent]['lines'][1].append(line)
+                                                        gff3IndexDict[parent]['lines'][1].append(newLine)               # I think that multi-parent features shouldn't exist in GFF3 since, if they do, it's probably redundant or compressing information too much
                         # All other lines are ignored
         return gff3IndexDict
 
