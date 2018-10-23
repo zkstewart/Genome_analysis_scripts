@@ -261,8 +261,12 @@ def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, behaviour
                         elif value['feature_type'] in idList:   # Checking feature type here
                                 found = True
                         else:
-                                for mrna in value['feature_list']: # Checking mrna ID here
+                                for mrna in value['feature_list']:                      # Checking subfeature ID here
                                         if mrna in idList:
+                                                found = True
+                                        elif value[mrna]['feature_type'] in idList:     # Checking subfeature type here
+                                                found = True
+                                        elif value[mrna]['source'] in idList:           # Checking subfeature source here
                                                 found = True
                         # Write (or don't write) to file depending on behaviour setting
                         if behaviour.lower() == 'retrieve' and found == True:
