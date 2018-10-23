@@ -199,12 +199,22 @@ def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
                                         for attribute in attributesList:
                                                 if attribute.startswith('Parent='):                     # For every other type of line, the Parent= field should tell us the geneID or mrnaID
                                                         geneORmrnaID = attribute[7:].strip('\n')        # This trims off the Parent= bit and any new lines
-                                        geneID = gff3IndexDict[geneORmrnaID]['attributes']['ID']        # This lets us handle the ambiguity of our geneORmrnaID and make sure we're looking at the geneID
+                                        if geneORmrnaID in gff3IndexDict:
+                                                geneID = gff3IndexDict[geneORmrnaID]['attributes']['ID']# This lets us handle the ambiguity of our geneORmrnaID and make sure we're looking at the geneID
+                                        elif ',' in geneORmrnaID:                                       # This is for specific scenarios like in TAIR9 where a feature has multiple parents
+                                                geneID = geneORmrnaID.split(',')
                                 # Add to lines dict
-                                if 'lines' not in gff3IndexDict[geneID]:
-                                        gff3IndexDict[geneID]['lines'] = {0: [], 1: [line], 2: []}
-                                else:
-                                        gff3IndexDict[geneID]['lines'][1].append(line)
+                                if type(geneID) != list:
+                                        if 'lines' not in gff3IndexDict[geneID]:
+                                                gff3IndexDict[geneID]['lines'] = {0: [], 1: [line], 2: []}
+                                        else:
+                                                gff3IndexDict[geneID]['lines'][1].append(line)
+                                else:                                                                   # This section relates to the immediately above comment when handling multiple parent features
+                                        for parent in geneID:                                           # In this case, geneID is a list of parents
+                                                if 'lines' not in gff3IndexDict[parent]:
+                                                        gff3IndexDict[parent]['lines'] = {0: [], 1: [line], 2: []}
+                                                else:
+                                                        gff3IndexDict[parent]['lines'][1].append(line)
                         # All other lines are ignored
         return gff3IndexDict
 
