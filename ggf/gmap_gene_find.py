@@ -808,7 +808,9 @@ def gff3_index(gff3File):
                                 detailDict[splitDetail[0]] = splitDetail[1]
                         contigValues.append(sl[0])
                         # Build gene group dict objects
-                        if 'Parent' not in detailDict:           # If there is no Parent field in the details, this should BE the parent structure
+                        if 'Parent' not in detailDict:          # If there is no Parent field in the details, this should BE the parent structure
+                                if 'ID' not in detailDict:      # Parent structures should also have ID= fields - see the human genome GFF3 biological_region values for why this is necessary
+                                        continue
                                 if detailDict['ID'] not in geneDict:
                                         # Create entry
                                         geneDict[detailDict['ID']] = {'attributes': {}}

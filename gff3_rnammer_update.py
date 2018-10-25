@@ -83,7 +83,9 @@ def gff3_index(gff3File):
                                 detailDict[splitDetail[0]] = splitDetail[1]
                         contigValues.append(sl[0])
                         # Build gene group dict objects
-                        if 'Parent' not in detailDict:           # If there is no Parent field in the details, this should BE the parent structure
+                        if 'Parent' not in detailDict:          # If there is no Parent field in the details, this should BE the parent structure
+                                if 'ID' not in detailDict:      # Parent structures should also have ID= fields - see the human genome GFF3 biological_region values for why this is necessary
+                                        continue
                                 if detailDict['ID'] not in geneDict:
                                         # Create entry
                                         geneDict[detailDict['ID']] = {'attributes': {}}
@@ -242,9 +244,12 @@ def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
                                                 if attribute.startswith('ID='):                         # For main-type lines, the ID= is our gene/feature ID
                                                         geneID = attribute[3:].strip('\n')              # This trims off the ID= bit and any new lines
                                 else:
+                                        geneORmrnaID = None
                                         for attribute in attributesList:
                                                 if attribute.startswith('Parent='):                     # For every other type of line, the Parent= field should tell us the geneID or mrnaID
                                                         geneORmrnaID = attribute[7:].strip('\n')        # This trims off the Parent= bit and any new lines
+                                        if geneORmrnaID == None:                                        # This will handle biological_region (ctrl+f for this reference in gff3_index()) and other values which lack ID= and Parent= fields; we don't index these since they are (currently) of no interest
+                                                continue
                                         if geneORmrnaID in gff3IndexDict:
                                                 geneID = gff3IndexDict[geneORmrnaID]['attributes']['ID']# This lets us handle the ambiguity of our geneORmrnaID and make sure we're looking at the geneID
                                         elif ',' in geneORmrnaID:                                       # This is for specific scenarios like in TAIR9 where a feature has multiple parents

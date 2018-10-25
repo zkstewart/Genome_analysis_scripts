@@ -138,7 +138,9 @@ def gff3_index(gff3File):
                                 detailDict[splitDetail[0]] = splitDetail[1]
                         contigValues.append(sl[0])
                         # Build gene group dict objects
-                        if 'Parent' not in detailDict:           # If there is no Parent field in the details, this should BE the parent structure
+                        if 'Parent' not in detailDict:          # If there is no Parent field in the details, this should BE the parent structure
+                                if 'ID' not in detailDict:      # Parent structures should also have ID= fields - see the human genome GFF3 biological_region values for why this is necessary
+                                        continue
                                 if detailDict['ID'] not in geneDict:
                                         # Create entry
                                         geneDict[detailDict['ID']] = {'attributes': {}}
@@ -256,7 +258,6 @@ def gff3_index(gff3File):
         indexDict['contigValues'] = geneDict['contigValues']
         # Return output
         return indexDict
-
 def gff3_index_add_comments(gff3IndexDict, gff3File):   # This function is just gff3_index_add_lines but with the gene lines section gutted since we don't need to store these in memory
         # Setup
         knownHeadComments = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored

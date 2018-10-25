@@ -196,9 +196,12 @@ def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
                                                 if attribute.startswith('ID='):                         # For main-type lines, the ID= is our gene/feature ID
                                                         geneID = attribute[3:].strip('\n')              # This trims off the ID= bit and any new lines
                                 else:
+                                        geneORmrnaID = None
                                         for attribute in attributesList:
                                                 if attribute.startswith('Parent='):                     # For every other type of line, the Parent= field should tell us the geneID or mrnaID
                                                         geneORmrnaID = attribute[7:].strip('\n')        # This trims off the Parent= bit and any new lines
+                                        if geneORmrnaID == None:                                        # This will handle biological_region (ctrl+f for this reference in gff3_index()) and other values which lack ID= and Parent= fields; we don't index these since they are (currently) of no interest
+                                                continue
                                         if geneORmrnaID in gff3IndexDict:
                                                 geneID = gff3IndexDict[geneORmrnaID]['attributes']['ID']# This lets us handle the ambiguity of our geneORmrnaID and make sure we're looking at the geneID
                                         elif ',' in geneORmrnaID:                                       # This is for specific scenarios like in TAIR9 where a feature has multiple parents
@@ -271,75 +274,105 @@ def gff3_idlist_compare(gff3Dict, idList):
         return outList
 
 ## Retrieve/remove function
-def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, behaviour):
+def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, mode, behaviour):
+        # Ensure mode value makes sense
+        if mode.lower() not in ['retrieve', 'remove']:
+                print('gff3_retrieve_remove_tofile: Input mode value is not "retrieve" or "remove" but is instead "' + str(mode) + '".')
+                print('Fix the code for this section.')
+                quit()
         # Ensure behaviour value makes sense
-        if behaviour.lower() not in ['retrieve', 'remove']:
-                print('gff3_retrieve_remove_tofile: Input behaviour value is not "retrieve" or "remove" but is instead "' + str(behaviour) + '".')
+        if behaviour.lower() not in ['main', 'feature']:
+                print('gff3_retrieve_remove_tofile: Input behaviour value is not "main" or "feature" but is instead "' + str(behaviour) + '".')
                 print('Fix the code for this section.')
                 quit()
         # Main function
         with open(outputFileName, 'w') as fileOut:
-                # Iterate through genes and determine if they are being written to file
+                # Generate our list for iteration (ensuring that genes come first)
+                iterList = []
+                if 'gene' in gff3IndexDict['idValues']['main']:
+                        iterList.append(gff3IndexDict['idValues']['main']['gene'])
+                for key in gff3IndexDict['idValues']['main'].keys():
+                        if key != 'gene':
+                                iterList.append(gff3IndexDict['idValues']['main'][key])
+                # Iterate through main features and determine if they are being written to file
                 for key in gff3IndexDict['geneValues']:
                         value = gff3IndexDict[key]
                         # Check if relevant sequence details are within our idList
-                        found = False
+                        found = []
                         if key in idList:                       # Checking gene ID here
                                 found = True
                         elif value['contig_id'] in idList:      # Checking contig ID here
                                 found = True
                         elif value['source'] in idList:         # Checking source here
                                 found = True
-                        elif value['orientation'] in idList:    # Checking orientation here
-                                found = True
+                        elif value['orientation'] in ['+', '-'] and value['orientation'] in idList:     # Checking orientation here
+                                found = True                    # We want this extra check for orientation since it can be '.' in some GFF3s and this might conflict with removing source columns with '.'
                         elif value['feature_type'] in idList:   # Checking feature type here
                                 found = True
                         else:
-                                for mrna in value['feature_list']:                      # Checking subfeature ID here
+                                for mrna in value['feature_list']:                      # Checking subfeature ID here [they won't always be mRNAs but it's just how I wrote the variable]
                                         if mrna in idList:
-                                                found = True
+                                                found.append(mrna)
                                         elif value[mrna]['feature_type'] in idList:     # Checking subfeature type here
-                                                found = True
+                                                found.append(mrna)
                                         elif value[mrna]['source'] in idList:           # Checking subfeature source here
-                                                found = True
-                        # Write (or don't write) to file depending on behaviour setting
-                        if behaviour.lower() == 'retrieve' and found == True:
+                                                found.append(mrna)
+                        # If we find all subfeatures, make our found == True so we know we're looking at the whole gene obj
+                        if type(found) == list:
+                                if len(found) == len(value['feature_list']):    # If these lengths are equivalent, we know that we found all features
+                                        found = True
+                        # Write (or don't write) to file depending on mode setting
+                        if mode.lower() == 'retrieve' and (found == True or (found != [] and behaviour.lower() == 'main')):
                                 fileOut.write(''.join(value['lines'][0]))
                                 fileOut.write(''.join(value['lines'][1]))
                                 fileOut.write(''.join(value['lines'][2]))
-                        elif behaviour.lower() == 'remove' and found == False:
+                        elif mode.lower() == 'retrieve' and found == []:
+                                continue
+                        elif mode.lower() == 'remove' and found == []:
                                 fileOut.write(''.join(value['lines'][0]))
                                 fileOut.write(''.join(value['lines'][1]))
                                 fileOut.write(''.join(value['lines'][2]))
-                # Iterate through non-gene features and perform a similar operation
-                iterList = []
-                for key in gff3IndexDict['idValues']['main'].keys():
-                        if key != 'gene':
-                                iterList.append(gff3IndexDict['idValues']['main'][key])
-                for valueList in iterList:
-                        for key in valueList:
-                                value = gff3IndexDict[key]
-                                # Check if relevant sequence details are within our idList
-                                found = False
-                                if key in idList:                       # Checking feature ID here
-                                        found = True
-                                elif value['contig_id'] in idList:      # Checking contig ID here
-                                        found = True
-                                elif value['source'] in idList:         # Checking source here
-                                        found = True
-                                elif value['feature_type'] in idList:   # Checking feature type here
-                                        found = True
-                                elif value['orientation'] in ['+', '-'] and value['orientation'] in idList:
-                                        found = True                    # We want this extra check for orientation since it can be '.' in some GFF3s and this might conflict with removing source columns with '.'
-                                # Write (or don't write) to file depending on behaviour setting
-                                if behaviour.lower() == 'retrieve' and found == True:
-                                        fileOut.write(''.join(value['lines'][0]))
-                                        fileOut.write(''.join(value['lines'][1]))
-                                        fileOut.write(''.join(value['lines'][2]))
-                                elif behaviour.lower() == 'remove' and found == False:
-                                        fileOut.write(''.join(value['lines'][0]))
-                                        fileOut.write(''.join(value['lines'][1]))
-                                        fileOut.write(''.join(value['lines'][2]))
+                        elif mode.lower() == 'remove' and (found == True or (found != [] and behaviour.lower() == 'main')):
+                                continue
+                        else:
+                                # Retrieve relevant header lines for scenarios where only some subfeatures were found
+                                newHeader = []
+                                for line in value['lines'][0]:
+                                        mrnaID = line.split(': ')[1].split(' ')[0].rstrip(',')  # Since we only store header lines with known format, we know exactly what we're dealing with here
+                                        if (mrnaID in found and mode.lower() == 'retrieve') or (mrnaID not in found and mode.lower() == 'remove'):
+                                                newHeader.append(line)
+                                # Retrieve relevant footer lines
+                                newFooter = []
+                                for line in value['lines'][2]:
+                                        mrnaID = line.split(': ')[1].split(' ')[0].rstrip(',')  # Since we only store header lines with known format, we know exactly what we're dealing with here
+                                        if (mrnaID in found and mode.lower() == 'retrieve') or (mrnaID not in found and mode.lower() == 'remove'):
+                                                newFooter.append(line)
+                                # Retrieve relevant feature lines
+                                newFeature = []
+                                for line in value['lines'][1]:
+                                        sl = line.split('\t')
+                                        details = sl[8].rstrip('\r\n').split(';')
+                                        idField, parentField = None, None
+                                        for i in range(len(details)):
+                                                if details[i].startswith('ID='):
+                                                        idField = details[i][3:]
+                                                elif details[i].startswith('Parent='):
+                                                         parentField = details[i][7:]
+                                        if ((idField in found or parentField in found) and mode.lower() == 'retrieve') or (idField not in found and parentField not in found and mode.lower() == 'remove'):
+                                                newFeature.append(line)
+                                # Update our first gene line to reflect potential new start, stop coordinates
+                                coords = []
+                                for i in range(1, len(newFeature)):
+                                        sl = newFeature[i].split('\t')
+                                        start, stop = int(sl[3]), int(sl[4])
+                                        coords += [start, stop]
+                                newGeneLine = newFeature[0].split('\t')
+                                newGeneLine[3], newGeneLine[4] = str(min(coords)), str(max(coords))
+                                newFeature[0] = '\t'.join(newGeneLine)
+                                # Write to file
+                                fileOut.write(''.join(newHeader))
+                                fileOut.write(''.join(newFeature))
+                                fileOut.write(''.join(newFooter))
 
 def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
         # Setup
