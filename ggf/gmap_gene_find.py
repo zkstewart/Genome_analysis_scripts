@@ -746,6 +746,8 @@ def gff3_parse_ncls_mrna(gff3File):                             # This function 
                         details = sl[8].split(';')
                         detailDict = {}
                         for i in range(len(details)):
+                                if details[i] == '':
+                                        continue
                                 splitDetail = details[i].split('=')
                                 detailDict[splitDetail[0]] = splitDetail[1]
                         # Add to our NCLS

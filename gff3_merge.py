@@ -63,6 +63,8 @@ def gff3_parse_ncls(gff3File, featureTypes):
                         details = sl[8].split(';')
                         detailDict = {}
                         for i in range(len(details)):
+                                if details[i] == '':
+                                        continue
                                 splitDetail = details[i].split('=')
                                 detailDict[splitDetail[0]] = splitDetail[1].rstrip('\r\n')
                         # Add to our NCLS
