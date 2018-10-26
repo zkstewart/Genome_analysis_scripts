@@ -63,10 +63,12 @@ def gff3_parse_ncls(gff3File, featureTypes):
                         details = sl[8].split(';')
                         detailDict = {}
                         for i in range(len(details)):
-                                if details[i] == '':
+                                if details[i] == '' or details[i] == '\n':
                                         continue
                                 splitDetail = details[i].split('=')
                                 detailDict[splitDetail[0]] = splitDetail[1].rstrip('\r\n')
+                        if 'ID' not in detailDict:      # Don't index things which lack IDs; these might include things like TAIR9's 'protein' features
+                                continue
                         # Add to our NCLS
                         starts.append(contigStart)
                         ends.append(contigStop+1)       # NCLS indexes 0-based like a range (up to but not including end), so +1 to make this more logically compliant with gff3 1-based system.
