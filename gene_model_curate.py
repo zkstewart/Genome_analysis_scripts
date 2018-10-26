@@ -633,7 +633,8 @@ def transcriptome_support_check(modelList, modelRecords, transFasta, transRecord
         outList = []
         mutualMatch = 95        # Arbitrary; value works well for the purpose of this script, don't see any need to be able to modify it
         # Make BLAST db
-        makeblastdb(transFasta, 'nucl')
+        if not os.path.isfile(transFasta + '.nhr') and not os.path.isfile(transFasta + '.nin') and not os.path.isfile(transFasta + '.nsq'):
+                makeblastdb(transFasta, 'nucl')
         # Generate a temporary file name for writing query fasta files and results
         tmpQuery = os.path.join(os.getcwd(), file_name_gen('tmpQuery', '.fasta'))
         tmpResult = os.path.join(os.getcwd(), file_name_gen('tmpResult', '.outfmt6'))
