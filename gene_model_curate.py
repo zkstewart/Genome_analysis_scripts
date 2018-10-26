@@ -630,14 +630,15 @@ def gff3_proximity_chain(gff3Index, proximityCutoff):
 
 def transcriptome_support_check(modelList, modelRecords, transFasta, transRecords):
         # Set up
+        import os
         outList = []
         mutualMatch = 95        # Arbitrary; value works well for the purpose of this script, don't see any need to be able to modify it
         # Make BLAST db
         if not os.path.isfile(transFasta + '.nhr') and not os.path.isfile(transFasta + '.nin') and not os.path.isfile(transFasta + '.nsq'):
                 makeblastdb(transFasta, 'nucl')
         # Generate a temporary file name for writing query fasta files and results
-        tmpQuery = os.path.join(os.getcwd(), file_name_gen('tmpQuery', '.fasta'))
-        tmpResult = os.path.join(os.getcwd(), file_name_gen('tmpResult', '.outfmt6'))
+        tmpQuery = os.path.join(os.getcwd(), tmp_file_name_gen('tmpQuery', '.fasta', transFasta))
+        tmpResult = os.path.join(os.getcwd(), tmp_file_name_gen('tmpResult', '.outfmt6', transFasta))
         # Loop through models and check for BLAST support
         for model in modelList:
                 # Retrieve the model
@@ -656,6 +657,10 @@ def transcriptome_support_check(modelList, modelRecords, transFasta, transRecord
                 # Hold onto result if it has support
                 if support != None:
                         outList.append(model)
+        if modelList != []:
+                # Clean up temporary files
+                os.unlink(tmpQuery)
+                os.unlink(tmpResult)
         # Return our list of models which have support
         return outList
 
@@ -859,15 +864,16 @@ def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, mode, beh
                                 fileOut.write(''.join(newFeature))
                                 fileOut.write(''.join(newFooter))
 
-def file_name_gen(prefix, suffix):
-        ongoingCount = 2
+def tmp_file_name_gen(prefix, suffix, hashString):
+        # Setup
+        import hashlib, time
+        # Main function
+        tmpHash = hashlib.md5(bytes(hashString + str(time.time()), 'utf-8') ).hexdigest()       # This should always give us something unique even if the string for hashString is the same across different runs
         while True:
-                if not os.path.isfile(prefix + '1' + suffix):
-                        return prefix + '1' + suffix
-                elif os.path.isfile(prefix + str(ongoingCount) + suffix):
-                        ongoingCount += 1
+                if os.path.isfile(prefix + tmpHash + suffix):
+                        tmpHash += 'X'
                 else:
-                        return prefix + str(ongoingCount) + suffix
+                        return prefix + tmpHash + suffix
 
 ## General purpose
 def text_file_to_list(textFile):
