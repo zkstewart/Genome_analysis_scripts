@@ -750,11 +750,13 @@ def gff3_idlist_exclude_altsplice(gff3Index, mrnaIdList):
         for mrna in mrnaIdList:
                 # Check if the gene has multiple isoforms
                 mrnaCount = 0
+                if mrna not in gff3Index:       # Sometimes our HMMER file will include extra sequences not present in the current GFF3; this may be okay in some circumstances
+                        continue
                 for feature in gff3Index[mrna]['feature_list']:
                         if gff3Index[mrna][feature]['feature_type'] == 'mRNA':
                                 mrnaCount += 1
                 if mrnaCount < 2:
-                        outList.append(gff3Index[mrna]['attributes']['ID'])     # We'll add the gene ID for clarity of user output
+                        outList.append(mrna)
         return outList
 
 def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, mode, behaviour):
