@@ -9,36 +9,53 @@ from Bio import SeqIO
 # Define functions for later use
 ## Validate arguments
 def validate_args(args):
-        # Ensure all arguments are provided
+        # Ensure all necessary arguments are provided
         for key, value in vars(args).items():
-                if value == None:
-                        print(key + ' was not provided as an argument, fix this and try again.')
-                        quit()
-        # Validate input file locations
+                # Handling novelLoci value production versus actual program operation
+                if args.novelLoci:
+                        if args.tmapFile == None:
+                                print('tmapFile was not provided as an argument, fix this and try again.')
+                                quit()
+                        break
+                # Handling pre-computed versus internal BLAST running
+                elif args.preComputedBLAST != None:
+                        if value == None and key not in ['blastDB', 'blastAlgorithm']:
+                                print(key + ' was not provided as an argument, fix this and try again.')
+                                quit()
+                else:
+                        if value == None and key not in ['preComputedBLAST']:
+                                print(key + ' was not provided as an argument, fix this and try again.')
+                                quit()
+        # Validate input file locations if relevant
         if not os.path.isfile(args.tmapFile):
                 print('I am unable to locate the tmap file (' + args.tmapFile + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
-        if not os.path.isfile(args.fastaFile):
-                print('I am unable to locate the FASTA file (' + args.fastaFile + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
-        if not os.path.isfile(args.refGff3):
-                print('I am unable to locate the reference GFF3 file (' + args.refGff3 + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
-        if not os.path.isfile(args.compGff3):
-                print('I am unable to locate the comparison GFF3 file (' + args.compGff3 + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
-        if not os.path.isfile(args.blastDB):
-                print('I am unable to locate the BLAST database file (' + args.blastDB + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
+        if args.fastaFile != None:
+                if not os.path.isfile(args.fastaFile):
+                        print('I am unable to locate the FASTA file (' + args.fastaFile + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+        if args.refGff3 != None:
+                if not os.path.isfile(args.refGff3):
+                        print('I am unable to locate the reference GFF3 file (' + args.refGff3 + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+        if args.refGff3 != None:
+                if not os.path.isfile(args.refGff3):
+                        print('I am unable to locate the comparison GFF3 file (' + args.compGff3 + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+        if args.preComputedBLAST != None:
+                if not os.path.isfile(args.preComputedBLAST):
+                        print('I am unable to locate the pre-computed BLAST file (' + args.preComputedBLAST + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
         # Handle file overwrites
-        if os.path.isfile(args.outputFileName):
-                print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
-                quit()
+        if args.outputFileName != None:
+                if os.path.isfile(args.outputFileName):
+                        print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
+                        quit()
 
 ## GFF3-related
 def gff3_index(gff3File):
@@ -314,34 +331,45 @@ def overlapping_gff3_models(nclsHits, gff3Dict, modelCoords):
         return ovlPctDict
 
 ## BLAST-related
-def blast_nt_nr_support_check(modelList, modelRecords, databaseFasta, blastAlgorithm):
+def blast_nt_nr_support_check(modelList, modelFastaFile, databaseFasta, blastAlgorithm, preComputedBLAST):
         # Set up
         import os
         outList = []
         mutualMatch = 98        # For this script we want matches to be near-identical; the 2% allowance is for potential minor differences in start codon location
-        # Generate a temporary file name for writing query fasta files and results
-        tmpQuery = os.path.join(os.getcwd(), tmp_file_name_gen('tmpQuery', '.fasta', databaseFasta))
-        tmpResult = os.path.join(os.getcwd(), tmp_file_name_gen('tmpResult', '.outfmt6', databaseFasta))
-        # Loop through models and check for BLAST support
-        for model in modelList:
-                # Retrieve the model
-                modelSeq = str(modelRecords[model].seq)
-                # Produce a temporary query file
-                with open(tmpQuery, 'w') as fileOut:
-                        fileOut.write('>' + model + '\n' + modelSeq)
+        # Validate that preComputedBLAST file exists if value != None and skip the BLAST stage
+        if preComputedBLAST != None:
+                if not os.path.isfile(preComputedBLAST):
+                        print('blast_nt_nr_support_check: ' + preComputedBLAST + ' was specified as preComputedBLAST but file does not exist; fix the code for this program.')
+                        quit()
+        # Generate a temporary file name for writing query fasta files and results if we do not have precomputed results
+        else:
+                tmpQuery = os.path.join(os.getcwd(), tmp_file_name_gen('tmpQuery', '.fasta', databaseFasta + modelFastaFile))
+                open(tmpQuery, 'w').close()
+                tmpResult = tmpQuery.replace(os.path.basename(tmpQuery), os.path.basename(tmpQuery).replace('tmpQuery', 'tmpResult')).replace('.fasta', '.tsv')         # This lets us have paired file names which are a bit more intuitive
+                # Loop through models and generate our query FASTA file                                                                                                 # Our tmp name generator uses the time of name generation so they won't be equivalent otherwise
+                modelRecords = SeqIO.parse(open(args.fastaFile, 'r'), 'fasta')
+                for record in modelRecords:
+                        # If this is without modelList, write to file
+                        if record.id in modelList or record.description in modelList:
+                                modelSeq = str(record.seq)
+                                with open(tmpQuery, 'a') as fileOut:
+                                        fileOut.write('>' + record.description + '\n' + modelSeq + '\n')
                 # BLAST model against the transcriptome
                 run_nt_nr_blast(tmpQuery, databaseFasta, blastAlgorithm, 1e-3, 4, tmpResult)
-                # Parse BLAST result file
+        # Parse BLAST result file
+        if preComputedBLAST != None:
+                blastResults = parse_blast_hit_coords(preComputedBLAST, 1e-3, blastAlgorithm)
+        else:
                 blastResults = parse_blast_hit_coords(tmpResult, 1e-3, blastAlgorithm)
-                if blastResults == {}:
-                        continue
-                # Find support with relation to transcriptome
+        if blastResults == {}:
+                return outList
+        # Find support with relation to BLAST file
+        for model in modelList:
                 support = blast_support_nt_nr(model, blastResults, mutualMatch)
-                # Hold onto result if it has support
                 if support != None:
                         outList.append(model)
-        if modelList != []:
-                # Clean up temporary files
+        # Clean up temporary files if relevant
+        if modelList != [] and preComputedBLAST == None:
                 os.unlink(tmpQuery)
                 os.unlink(tmpResult)
         # Return our list of models which have support
@@ -398,6 +426,9 @@ def parse_blast_hit_coords(resultFile, evalueCutoff, blastAlgorithm):
         return blastDict
 
 def blast_support_nt_nr(blastQueryID, blastResultDict, mutualMatchPerc):
+        # Immediately return None if no hit exists
+        if blastQueryID not in blastResultDict:
+                return None
         # Retrieve relevant BLAST details of just the best result (this is pre-ordered so it should be the top one if we have more than 1 result)
         blastQResult = blastResultDict[blastQueryID]
         result = blastQResult[0]
@@ -439,10 +470,18 @@ def gffcompare_tmap_parse(tmapFile):
                         mrnaID = sl[4]
                         if classCode in ['u', 'x', 'i', 'y', 'p']:
                                 novelLoci.append(mrnaID)
+        geneIDs = []
+        for loci in novelLoci:
+                geneIDs.append(compGff3Index[loci]['attributes']['ID'])
+        geneIDs = list(set(geneIDs))
+        print(len(geneIDs))
         return novelLoci
 
 ##### USER INPUT SECTION
-usage = """%(prog)s
+usage = """%(prog)s provides a rough assessment of any genes detected as "novel"
+by gffcompare and what their likely classifications are e.g., if they are possibly
+novel features, whether they overlap non-coding features and thus might be incorrectly
+predicted as coding, or if the models are likely to be flawed in some way.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-t", "-tmap", dest="tmapFile",
@@ -453,11 +492,16 @@ p.add_argument("-r", "-refgff", dest="refGff3",
                help="Specify the GFF3 file used as the 'reference' file provided to gffcompare.")
 p.add_argument("-c", "-compgff", dest="compGff3",
                help="Specify the GFF3 file used as the 'comparison' file provided to gffcompare.")
+p.add_argument("-p", "-preComputedBLAST", dest="preComputedBLAST",
+               help='Optionally specify a pre-computed BLAST-tab file with format "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen"; the below two arguments are not required if this is specified')
 p.add_argument("-b", "-blastDB", dest="blastDB",
-               help="""Specify the location and database to use for BLAST search; this should be provided in the same format
-               you would provide to the BLAST program & should have had 'makeblastdb' run on it already.""")    # I expect it to be pre-made since this code assumes nt/nr is being used and I don't want to potentially mess with that and accidentally overwrite files
+               help="""Specify the location and database to use for BLAST search if pre-computed results
+               are not provided; this should be provided in the same format you would provide to the BLAST
+               program & should have had 'makeblastdb' run on it already.""")    # I expect it to be pre-made since this code assumes nt/nr is being used and I don't want to potentially mess with that and accidentally overwrite files
 p.add_argument("-a", "-algorithm", dest="blastAlgorithm", choices=['blastp', 'blastn', 'tblastn', 'tblastx'],
-               help="Specify the algorithm for BLAST to run in.")
+               help="Specify the algorithm for BLAST to run in if applicable.")
+p.add_argument("-n", "-novelLoci", dest="novelLoci", action='store_true',
+               help="Optionally halt program operation after finding novel loci from the tmap file; these entries will be directly printed to stdout", default=False)
 p.add_argument("-o", "-outputFile", dest="outputFileName",
                help="Output file name.")
 
@@ -466,6 +510,10 @@ validate_args(args)
 
 # Parse TMAP file and obtain novel loci
 novelLoci = gffcompare_tmap_parse(args.tmapFile)
+if args.novelLoci:
+        for loci in novelLoci:
+                print(loci)
+        quit()
 
 # Parse the reference & comparison GFF3s as index
 refGff3Index = gff3_index(args.refGff3)
@@ -546,11 +594,8 @@ for loci in novelLoci:
                 quality = 'novel_overlap'
         reports.append([loci, quality, hitType])
 
-# Parse comparison FASTA file
-compRecords = SeqIO.to_dict(SeqIO.parse(open(args.fastaFile, 'r'), 'fasta'))
-
 # Perform BLAST of comparison FASTA sequences against the database to find which are supported
-blastSupportedIDs = blast_nt_nr_support_check(novelLoci, compRecords, args.blastDB, args.blastAlgorithm)
+blastSupportedIDs = blast_nt_nr_support_check(novelLoci, args.fastaFile, args.blastDB, args.blastAlgorithm, args.preComputedBLAST)
 
 # Add column to reports indicating whether good BLAST support exists
 for i in range(len(reports)):
@@ -589,10 +634,10 @@ for i in range(len(reports)):
         elif reports[i][1] == 'novel':
                 # Alternate conclusion depending on BLAST support
                 if reports[i][3] == 'Y':
-                        reports[i].append('possible novel gene prediction')
+                        reports[i].append('possible unannotated gene prediction')
                 # Main conclusion
                 else:
-                        reports[i].append('flawed prediction')
+                        reports[i].append('possible novel or flawed feature prediction')
         # Overlap handling
         else:
                 # Alternate conclusion depending on BLAST support
@@ -600,7 +645,7 @@ for i in range(len(reports)):
                         reports[i].append('possible novel gene or flawed ' + featureType + ' prediction')
                 # Main conclusion
                 else:
-                        reports[i].append('flawed ' + featureType + ' prediction')
+                        reports[i].append('possible flawed ' + featureType + ' prediction')
 
 # Generate tabular output
 with open(args.outputFileName, 'w') as fileOut:
