@@ -407,10 +407,11 @@ def parse_blast_hit_coords(resultFile, evalueCutoff, blastAlgorithm):
                         qlen = sl[12]
                         tlen = sl[13].rstrip('\r\n')
                         # Convert values to nucl/prot depending if we're performing BLASTX [we use the format of the subject as the base for output]
-                        if blastAlgorithm.lower() == 'blastx':
-                                tstart = str((int(tstart)*3) - 2)       # If start == 1, *3 then == 3, but start position should still be 1
-                                tend = str(int(tend)*3)                 # If start == 3, *3 then == 9, but start position should be at the first bp in the codon which == 7, hence 9-2
-                                tlen = str(int(tlen)*3)                 # For tend and tlen, *3 works fine on its own since we are counting to the last bp in the codon
+                        if blastAlgorithm != None:
+                                if blastAlgorithm.lower() == 'blastx':
+                                        tstart = str((int(tstart)*3) - 2)       # If start == 1, *3 then == 3, but start position should still be 1
+                                        tend = str(int(tend)*3)                 # If start == 3, *3 then == 9, but start position should be at the first bp in the codon which == 7, hence 9-2
+                                        tlen = str(int(tlen)*3)                 # For tend and tlen, *3 works fine on its own since we are counting to the last bp in the codon
                         # Skip if evalue isn't significant
                         if float(evalue) > float(evalueCutoff):
                                 continue
@@ -456,7 +457,7 @@ def tmp_file_name_gen(prefix, suffix, hashString):
                         return prefix + tmpHash + suffix
 
 ## gffcompare-related
-def gffcompare_tmap_parse(tmapFile):
+def gffcompare_tmap_parse(tmapFile, compGff3Index):
         # Setup
         novelLoci = []
         with open(tmapFile, 'r') as fileIn:
@@ -474,8 +475,38 @@ def gffcompare_tmap_parse(tmapFile):
         for loci in novelLoci:
                 geneIDs.append(compGff3Index[loci]['attributes']['ID'])
         geneIDs = list(set(geneIDs))
-        print(len(geneIDs))
+        print(len(geneIDs))     ### REPLACE WITH MAIN PC VERSION
         return novelLoci
+
+## General purpose
+def cat_count_handler(categories, categoryCounts, inputCategory):
+        if inputCategory not in categories:
+                categories.append(inputCategory)
+                categoryCounts.append(1)
+        else:
+                catIndex = categories.index(inputCategory)
+                categoryCounts[catIndex] += 1
+        return categories, categoryCounts
+
+def cat_statistics_presentation(categories, categoryCounts):
+        # Setup
+        from decimal import Decimal
+        outLines = []
+        # Reorder categories and counts
+        zippedList = list(zip(categories, categoryCounts))
+        zippedList.sort(key = lambda x: -x[1])
+        for i in range(len(zippedList)):
+                categories[i], categoryCounts[i] = zippedList[i]
+        # Main formatting
+        totalCount = sum(categoryCounts)
+        outLines.append('#OVERALL\n#total number of novel loci: ' + str(totalCount) + '\n#BY CATEGORY\n')
+        outLines.append('#category_name\tcategory_count\tcategory_proportion\n')
+        for i in range(len(categories)):
+                # Calculate the proportion of this category of the total
+                catProportion = round(Decimal(int(categoryCounts[i]) / totalCount) * 100, 2)                
+                # Format output line
+                outLines.append('#' + categories[i] + '\t' + str(categoryCounts[i]) + '\t' + str(catProportion) + '%\n')
+        return outLines
 
 ##### USER INPUT SECTION
 usage = """%(prog)s provides a rough assessment of any genes detected as "novel"
@@ -508,16 +539,16 @@ p.add_argument("-o", "-outputFile", dest="outputFileName",
 args = p.parse_args()
 validate_args(args)
 
+# Parse the reference & comparison GFF3s as index
+refGff3Index = gff3_index(args.refGff3)
+compGff3Index = gff3_index(args.compGff3)
+
 # Parse TMAP file and obtain novel loci
-novelLoci = gffcompare_tmap_parse(args.tmapFile)
+novelLoci = gffcompare_tmap_parse(args.tmapFile, compGff3Index)
 if args.novelLoci:
         for loci in novelLoci:
                 print(loci)
         quit()
-
-# Parse the reference & comparison GFF3s as index
-refGff3Index = gff3_index(args.refGff3)
-compGff3Index = gff3_index(args.compGff3)
 
 # Parse reference GFF3 file as NCLS
 refNcls, refLoc = gff3_parse_ncls(args.refGff3, list(refGff3Index['idValues']['feature'].keys()))
@@ -605,6 +636,8 @@ for i in range(len(reports)):
                 reports[i].append('N')
 
 # Add column to reports indicating our final conclusion
+categories = []
+categoryCounts = []
 for i in range(len(reports)):
         # Feature type processing
         featureType = reports[i][2]
@@ -613,43 +646,66 @@ for i in range(len(reports)):
         # Identical handling
         if reports[i][1] == 'identical':
                 # Main conclusion
-                reports[i].append('exact ' + featureType + ' prediction')
+                category = 'exact ' + featureType + ' prediction'
+                reports[i].append(category)
+                categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
         # Fragment handling
         elif reports[i][1] == 'fragment':
                 # Alternate conclusion depending on BLAST support & feature type
                 if reports[i][3] == 'Y' and reports[i][2] == 'mRNA':
-                        reports[i].append('possible novel mRNA splice variant')
+                        category = 'possible novel mRNA splice variant'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
                 # Main conclusion
                 else:
-                        reports[i].append('fragment ' + featureType + ' prediction')
+                        category = 'fragment ' + featureType + ' prediction'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
         # Extension handling
         elif reports[i][1] == 'extension':
                 # Alternate conclusion depending on BLAST support & feature type
                 if reports[i][3] == 'Y' and reports[i][2] == 'mRNA':
-                        reports[i].append('possible novel mRNA splice variant')
+                        category = 'possible novel mRNA splice variant'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
                 # Main conclusion
                 else:
-                        reports[i].append('extended ' + featureType + ' prediction')
+                        category = 'extended ' + featureType + ' prediction'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
         # Novel handling
         elif reports[i][1] == 'novel':
                 # Alternate conclusion depending on BLAST support
                 if reports[i][3] == 'Y':
-                        reports[i].append('possible unannotated gene prediction')
+                        category = 'possible unannotated gene prediction'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
                 # Main conclusion
                 else:
-                        reports[i].append('possible novel or flawed feature prediction')
+                        category = 'possible novel or flawed feature prediction'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
         # Overlap handling
         else:
                 # Alternate conclusion depending on BLAST support
                 if reports[i][3] == 'Y':
-                        reports[i].append('possible novel gene or flawed ' + featureType + ' prediction')
+                        category = 'possible novel gene or flawed ' + featureType + ' prediction'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
                 # Main conclusion
                 else:
-                        reports[i].append('possible flawed ' + featureType + ' prediction')
+                        category = 'possible flawed ' + featureType + ' prediction'
+                        reports[i].append(category)
+                        categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
 
 # Generate tabular output
 with open(args.outputFileName, 'w') as fileOut:
-        fileOut.write('transcript_id\toverlap_type\toverlapped_feature\tblast_support\tconclusion\n')
+        # Write overall statistics to file
+        statsLines = cat_statistics_presentation(categories, categoryCounts)
+        for line in statsLines:
+                fileOut.write(line)
+        # Write line-by-line report
+        fileOut.write('#INDIVIDUAL REPORTS\n#transcript_id\toverlap_type\toverlapped_feature\tblast_support\tconclusion\n')
         for report in reports:
                 fileOut.write('\t'.join(report) + '\n')
 
