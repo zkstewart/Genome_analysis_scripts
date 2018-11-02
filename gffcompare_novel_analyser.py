@@ -471,11 +471,12 @@ def gffcompare_tmap_parse(tmapFile, compGff3Index):
                         mrnaID = sl[4]
                         if classCode in ['u', 'x', 'i', 'y', 'p']:
                                 novelLoci.append(mrnaID)
+        print(len(novelLoci) + ' novel loci were detected from TMAP parsing prior to isoform collapse.')
         geneIDs = []
         for loci in novelLoci:
                 geneIDs.append(compGff3Index[loci]['attributes']['ID'])
         geneIDs = list(set(geneIDs))
-        print(len(geneIDs))     ### REPLACE WITH MAIN PC VERSION
+        print(len(geneIDs) + ' novel loci were detected from TMAP parsing after isoform collapse.')
         return novelLoci
 
 ## General purpose
