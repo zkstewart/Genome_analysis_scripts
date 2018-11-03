@@ -258,6 +258,7 @@ def gff3_index(gff3File):
         indexDict['contigValues'] = geneDict['contigValues']
         # Return output
         return indexDict
+
 def gff3_index_add_comments(gff3IndexDict, gff3File):   # This function is just gff3_index_add_lines but with the gene lines section gutted since we don't need to store these in memory
         # Setup
         knownHeadComments = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
