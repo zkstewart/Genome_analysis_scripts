@@ -273,6 +273,115 @@ def gff3_idlist_compare(gff3Dict, idList):
         outList = list(set(outList))
         return outList
 
+## GFF3 - filtering and curation
+def gff3_index_cutoff_candidates(gff3Index, attributeList, cutoffList, directionList, behaviour):       # In this function, we can provide three paired lists of attributes, cutoffs, and the direction of comparison so it is generalisable to different uses
+        # Setup
+        outputList = []
+        # Ensure that behaviour is sensible                                                             # directionList should be a list like ['<', '>', '<=', '>=', '=='] to indicate how the attribute's value should be held up against the cutoff
+        if behaviour.lower() not in ['main', 'feature']:
+                print('gff3_index_candidates: behaviour must be specified as "main" or "feature"; fix the code for this section.')
+                quit()
+        # Convert to lists if provided as strings/ints/etc
+        if type(attributeList) != list:
+                attributeList = [attributeList]
+        if type(cutoffList) != list:
+                cutoffList = [cutoffList]
+        # Ensure that attributes and cutoffs are sensible
+        if len(attributeList) != len(cutoffList) or len(attributeList) != len(directionList):
+                print('gff3_index_candidates: attributesList, cutoffList, and/or directionList lengths are not equivalent; these lists should be paired. Fix the code for this section.')
+                quit()
+        # Ensure that cutoffs are capable of float conversion
+        for cutoff in cutoffList:
+                try:
+                        float(cutoff)
+                except:
+                        print('gff3_index_candidates: ' + str(cutoff) + ' is provided as a cutoff, but is not capable of conversion to float. This should not happen; fix the code for this section.')
+                        quit()
+        # Loop through all indexed features and return viable candidates which 1: have all the attributes mentioned in our list and 2: their values pass our cutoff
+        for featureType in gff3Index['idValues']['feature']:
+                for feature in gff3Index['idValues']['feature'][featureType]:
+                        # Set up this gene object's attribute:cutoff check values
+                        cutoffCheck = [0]*len(attributeList)  # If we don't find any attributes or none of them pass cutoff, the sum of this will be 0; if we find them all and they all pass cutoff, the sum will == len(attributesList)
+                        # Check gene object for attributes
+                        geneObj = gff3Index[feature]
+                        for key, value in geneObj['attributes'].items():
+                                if key in attributeList:
+                                        # Ensure that this attribute works
+                                        try:
+                                                float(value)
+                                        except:
+                                                print('gff3_index_candidates: ' + str(value) + ' was found paired to attribute "' + key + '" but is not capable of float conversion. This attribute is thus not suitable for cutoff criterion checking; fix your GFF3 or do not specify this attribute.')
+                                                quit()
+                                        # Retrieve the index of this attribute
+                                        attribIndex = attributeList.index(key)
+                                        # Check against cutoff
+                                        if eval(str(value) + directionList[attribIndex] + str(cutoffList[attribIndex])):
+                                                cutoffCheck[attribIndex] = 1
+                        # Check features within gene object if relevant
+                        if sum(cutoffCheck) != len(attributeList):
+                                for featureID in geneObj['feature_list']:
+                                        featureObj = geneObj[featureID]
+                                        for key, value in featureObj['attributes'].items():
+                                                if key in attributeList:
+                                                        # Ensure that this attribute works
+                                                        try:
+                                                                float(value)
+                                                        except:
+                                                                print('gff3_index_candidates: ' + str(value) + ' was found paired to attribute "' + key + '" but is not capable of float conversion. This attribute is thus not suitable for cutoff criterion checking; fix your GFF3 or do not specify this attribute.')
+                                                                quit()
+                                                        # Retrieve the index of this attribute
+                                                        attribIndex = attributeList.index(key)
+                                                        # Check against cutoff
+                                                        if eval(str(value) + directionList[attribIndex] + str(cutoffList[attribIndex])):
+                                                                cutoffCheck[attribIndex] = 1
+                        # Handle outputList behaviour
+                        if sum(cutoffCheck) == len(attributeList):
+                                if behaviour.lower() == 'main' and geneObj['attributes']['ID'] not in outputList:
+                                        outputList.append(geneObj['attributes']['ID'])
+                                elif behaviour.lower() == 'feature':
+                                        outputList.append(feature)
+        return outputList
+
+def gff3_index_intron_sizedict(gff3Index, behaviour):
+        # Setup
+        intronSize = {}
+        # Ensure that behaviour is sensible                                                             # directionList should be a list like ['<', '>', '<=', '>=', '=='] to indicate how the attribute's value should be held up against the cutoff
+        if behaviour.lower() not in ['main', 'feature']:
+                print('gff3_index_intron_sizedict: behaviour must be specified as "main" or "feature"; fix the code for this section.')
+                quit()        
+        # Main function
+        for mainType in gff3Index['idValues']['main'].keys():
+                for geneID in gff3Index['idValues']['main'][mainType]:
+                        geneObj = gff3Index[geneID]
+                        # Validate that all features contain exon values and hence may contain introns
+                        skip = False
+                        for feature in geneObj['feature_list']:
+                                if 'exon' not in geneObj[feature]:
+                                        skip = True
+                                        break
+                        if skip == True:
+                                continue
+                        # Depending on behaviour, loop through each isoform/feature associated with the geneObj or just look at the longest "representative"
+                        if behaviour.lower() == 'main':
+                                featureList = longest_iso(geneObj)
+                        else:
+                                featureList = geneObj['feature_list']
+                        # Loop through relevant feature(s)
+                        intronList = []
+                        for feature in featureList:
+                                # Determine intron sizes from exon coords
+                                intronLens = pair_coord_introns(geneObj[feature]['exon']['coords'])
+                                if intronLens == []:
+                                        intronLens = [0]
+                                intronList.append(intronLens)
+                        # Add values to our intronSize dict depending on behaviour
+                        if behaviour.lower() == 'main':
+                                intronSize[featureList[0]] = intronList[0]
+                        elif behaviour.lower() == 'feature':
+                                for i in range(len(featureList)):
+                                        intronSize[featureList[i]] = intronList[i]
+        return intronSize
+
 ## Retrieve/remove function
 def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, mode, behaviour):
         # Ensure mode value makes sense
@@ -502,25 +611,31 @@ def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):       # This c
         return nclsEntries
 
 ## GFF3 data structure manipulation
-def coord_extract(coord):
-        splitCoord = coord.split('-')
-        start = int(splitCoord[0])
-        stop = int(splitCoord[1])
-        return start, stop
+def longest_iso(geneDictObj):
+        longestMrna = ['', 0]           # We pick out the representative gene based on length. If length is identical, we'll end up picking the entry listed first in the gff3 file since our > condition won't be met. I doubt this will happen much or at all though.
+        for mrna in geneDictObj['feature_list']:
+                mrnaLen = 0
+                if 'CDS' in geneDictObj[mrna]:
+                        coordList = geneDictObj[mrna]['CDS']['coords']
+                else:
+                        coordList = geneDictObj[mrna]['exon']['coords']
+                for coord in coordList:
+                        mrnaLen += (int(coord[1]) - int(coord[0]) + 1)
+                if mrnaLen > longestMrna[1]:
+                        longestMrna = [mrna, mrnaLen]
+        mrnaList = [longestMrna[0]]
+        return mrnaList
 
-def gff3_to_sets(gff3Dict):             # See gff3_rnammer_update for example of using this function
-        gffSetDict = {}
-        for key, value in gff3Dict.items():
-                for mrna in value:
-                        mrnaSet = set()
-                        for pair in mrna[1]:
-                                start, stop = coord_extract(pair)
-                                mrnaSet = mrnaSet.union(set(range(start, stop+1)))      # +1 to offset 0-based nature of Python range()
-                        if mrna[2] not in gffSetDict:                                   # mrna[2] == the contig ID
-                                gffSetDict[mrna[2]]=[[mrnaSet, mrna[0]]]                # mrna[0] == the mRNA ID
-                        else:
-                                gffSetDict[mrna[2]].append([mrnaSet, mrna[0]])
-        return gffSetDict
+def pair_coord_introns(inputList):
+        introns = []
+        for i in range(0, len(inputList)-1):
+                exon1 = inputList[i]
+                exon2 = inputList[i+1]
+                start = min(int(exon1[1]), int(exon2[0])) + 1   # +1 gets our first bp of intron.
+                end = max(int(exon1[1]), int(exon2[0])) - 1     # -1 does the same on the opposite border of the intron.
+                intLen = end - start + 1                        # +1 as above scenario in pair_coord_exons
+                introns.append(intLen)
+        return introns
 
 ## GFF3 isoform handling operations
 def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeList, outFileName):        # See gff3_merge.py for example of this function
