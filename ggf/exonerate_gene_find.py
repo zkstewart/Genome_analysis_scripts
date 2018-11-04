@@ -1,6 +1,12 @@
 #! python3
-# exonerate_curate
-# TBD
+# exonerate_gene_find
+# This program is an extension of gmap_gene_find which aims to allow for short
+# and single-exon genes to be predicted through the use of exonerate alignment
+# of high-confidence amino acid sequences. Philosophically, these are expected
+# to be derived from proteomics which would validate their translation and hence
+# we can use less strict criteria for gene annotation (e.g., splice rules
+# and gene length are irrelevant when this product is validated).
+
 import os, argparse
 from Bio import SeqIO
 
@@ -568,7 +574,7 @@ def make_cds(coords, genomeRecords, contigID, orientation):
         cds = ''.join(cds)
         return cds
 
-def splice_sites(coords, genomeRecords, contigID, orientation): # BUGGED
+def splice_sites(coords, genomeRecords, contigID, orientation):
         # Extract bits to left and right of exon
         splices = []
         for i in range(len(coords)):
@@ -583,7 +589,7 @@ def splice_sites(coords, genomeRecords, contigID, orientation): # BUGGED
                                 splices.append(rightSplice)
                         else:
                                 splices.append(leftSplice)
-                elif i == len(coords) - 1:      ## SHOULD THIS BE "IF" NOT "ELIF"?
+                elif i == len(coords) - 1:
                         if orientation == '+':
                                 splices.append(leftSplice)
                         else:
@@ -836,17 +842,24 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
                         loopEnd = True
                         for i in range(len(modelSets)-1):
                                 for x in range(i+1, len(modelSets)):
+                                        # Handle completely identical models [This will often occur in this exonerate-specific program]
+                                        if modelSets[i][2] == modelSets[x][2]:
+                                                del modelSets[x]
+                                                loopEnd = False
+                                                break
                                         set1 = modelSets[i][1]
                                         set2 = modelSets[x][1]
                                         # Check for overlap
                                         ovl = set1 & set2
                                         # If no overlap, continue
                                         if ovl == set():
-                                                continue                                        
+                                                continue
                                         # Handle overlaps
                                         # Filter 1: Microexons
                                         shortestExon1 = None
                                         shortestExon2 = None
+                                        longestExon1 = None
+                                        longestExon2 = None
                                         microLen = 30   # Arbitrary; exons longer than 30bp aren't considered microexons (this seems to be agreed upon in literature I briefly viewed)
                                         for coord in modelSets[i][2]:
                                                 splitCoord = coord
@@ -855,6 +868,10 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
                                                         shortestExon1 = exonLen
                                                 elif exonLen < shortestExon1:
                                                         shortestExon1 = exonLen
+                                                if longestExon1 == None:        # Exonerate-specific addition: this is used for final decision 2 filtering below
+                                                        longestExon1 = exonLen
+                                                elif exonLen > longestExon1:
+                                                        longestExon1 = exonLen
                                         for coord in modelSets[x][2]:
                                                 splitCoord = coord
                                                 exonLen = int(splitCoord[1]) - int(splitCoord[0]) + 1
@@ -862,6 +879,10 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
                                                         shortestExon2 = exonLen
                                                 elif exonLen < shortestExon2:
                                                         shortestExon2 = exonLen
+                                                if longestExon2 == None:
+                                                        longestExon2 = exonLen
+                                                elif exonLen > longestExon2:
+                                                        longestExon2 = exonLen
                                         if shortestExon1 > shortestExon2:
                                                 if shortestExon2 < microLen:
                                                         del modelSets[x]
@@ -882,32 +903,33 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
                                                 loopEnd = False
                                                 break
                                         # Filter 3: Splice rules
-                                        spliceTypes1 = splice_sites(modelSets[i][2], genomeRecords, modelSets[i][3], modelSets[i][4])
-                                        spliceTypes2 = splice_sites(modelSets[x][2], genomeRecords, modelSets[x][3], modelSets[x][4])
-                                        canonPct1 = spliceTypes1[0] / sum(spliceTypes1)
-                                        canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
-                                        noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
-                                        noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
-                                        if canonPct1 != canonPct2:
-                                                if canonPct1 > canonPct2:
-                                                        del modelSets[x]
-                                                        loopEnd = False
-                                                        break
-                                                else:
-                                                        del modelSets[i]
-                                                        loopEnd = False
-                                                        break
-                                        elif noncanonPct1 != noncanonPct2:
-                                                if noncanonPct1 > noncanonPct2:
-                                                        del modelSets[x]
-                                                        loopEnd = False
-                                                        break
-                                                else:
-                                                        del modelSets[i]
-                                                        loopEnd = False
-                                                        break
+                                        if len(modelSets[i][2]) > 1 and len(modelSets[x][2]) > 1:       # Exonerate-specific addition; in this program we allow single exon genes, so splice rules become irrelevant in this scenario
+                                                spliceTypes1 = splice_sites(modelSets[i][2], genomeRecords, modelSets[i][3], modelSets[i][4])
+                                                spliceTypes2 = splice_sites(modelSets[x][2], genomeRecords, modelSets[x][3], modelSets[x][4])
+                                                canonPct1 = spliceTypes1[0] / sum(spliceTypes1)
+                                                canonPct2 = spliceTypes2[0] / sum(spliceTypes2)
+                                                noncanonPct1 = sum(spliceTypes1[1:3]) / sum(spliceTypes1)
+                                                noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
+                                                if canonPct1 != canonPct2:
+                                                        if canonPct1 > canonPct2:
+                                                                del modelSets[x]
+                                                                loopEnd = False
+                                                                break
+                                                        else:
+                                                                del modelSets[i]
+                                                                loopEnd = False
+                                                                break
+                                                elif noncanonPct1 != noncanonPct2:
+                                                        if noncanonPct1 > noncanonPct2:
+                                                                del modelSets[x]
+                                                                loopEnd = False
+                                                                break
+                                                        else:
+                                                                del modelSets[i]
+                                                                loopEnd = False
+                                                                break
                                         # If we pass all of these filters, we need to make a decision somehow
-                                        ## Final decision 1: Shortest exon length
+                                        ## Final decision 1: Shortest exon length 
                                         if shortestExon1 > shortestExon2:
                                                 del modelSets[x]
                                                 loopEnd = False
@@ -916,8 +938,15 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
                                                 del modelSets[i]
                                                 loopEnd = False
                                                 break
-                                        ## Final decision 2: Lower path number
-                                        ### Culled: if changed from gmap_gene_find.py are imported here, this section should be removed again
+                                        ## Final decision 2: Longest exon length [Exonerate-specific addition: this outcome is more likely due to the spliceLenCorrection value; if splice rules are identical but length isn't, we'll end up picking the longer one here probably]
+                                        if longestExon1 > longestExon2:
+                                                del modelSets[x]
+                                                loopEnd = False
+                                                break
+                                        elif longestExon2 > longestExon1:
+                                                del modelSets[i]
+                                                loopEnd = False
+                                                break
                                         ## Final decision 3: How!?!? Just kill x
                                         del modelSets[x]
                                         loopEnd = False
@@ -930,7 +959,6 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
         for key in dictKeys:
                 if key not in acceptedModels:
                         del inputDict[key]
-        # Return modified dictionary
         return inputDict
 
 ## gff3_to_fasta-related functions
@@ -1023,8 +1051,92 @@ def pair_coord_introns(inputList):
                 introns.append(intLen)
         return introns
 
+## Output function
+def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
+        with open(outFileName, 'w') as fileOut:
+                for mrnaID, value in inputDict.items():
+                        # Retrieve the geneObj for this mrnaID
+                        if mrnaID in exonerateIndex:
+                                geneObj = exonerateIndex[mrnaID]
+                        elif mrnaID in gmapIndex:
+                                geneObj = gmapIndex[mrnaID]
+                        else:
+                                print('output_func: mrnaID can\'t be found in the exonerate or gmap index! Something must be wrong with the code; requires fixing.')
+                                print('Debugging info: mrnaID == "' + str(mrnaID) + '"; program will exit now.')
+                                quit()
+                        # Format base name details
+                        geneID = geneObj['attributes']['ID']                            # We want these IDs to be unique and capable of differentiating models predicted by this program from gmap_gene_find
+                        if geneID.rsplit('.', maxsplit=1)[1].startswith('path'):        # This will handle IDs that come from GMAP
+                                geneID = geneObj['contig_id'] + '.' + geneID
+                                mrnaID = geneObj['contig_id'] + '.' + mrnaID
+                                mrnaID = '.'.join(mrnaID.rsplit('.')[0:-1]) + '.egf.' + '.'.join(mrnaID.rsplit('.')[-1:])
+                        else:                                                           # This is for exonerate IDs
+                                mrnaID = '.'.join(mrnaID.rsplit('.')[0:-2]) + '.egf.' + '.'.join(mrnaID.rsplit('.')[-2:])
+                        geneID = geneID.rsplit('.', maxsplit=1)[0] + '.egf.' + geneID.rsplit('.', maxsplit=1)[1]
+                        name = 'exonerate_gene_find_' + geneID
+                        # Extract details
+                        firstCoord = value[0][0]        # We need to do this the long way since our changes due to cds_extension aren't reflected in the GFF3 index
+                        firstInts = [int(firstCoord[0]), int(firstCoord[1])]
+                        lastCoord = value[0][-1]
+                        lastInts = [int(lastCoord[0]), int(lastCoord[1])]
+                        protein = value[3]
+                        # Determine gene start and end coordinates with respect to orientation
+                        if value[2] == '+':
+                                start = min(firstInts)
+                                end = max(lastInts)
+                        else:
+                                end = max(firstInts)
+                                start = min(lastInts)
+                        # Format start comment
+                        startComment = '# EXONERATE_GENE_FIND: ' + geneID + ' automatic model build'
+                        fileOut.write(startComment + '\n')
+                        # Format gene line
+                        typeCol = 'exonerate_gene_find'
+                        geneLine = '\t'.join([value[1], typeCol, 'gene', str(start), str(end), '.', value[2], '.', 'ID=' + geneID +';Name=' + name])
+                        fileOut.write(geneLine + '\n')
+                        # Format mRNA line
+                        mrnaLine = '\t'.join([value[1], typeCol, 'mRNA', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID +';Name=' + name + ';Parent=' + geneID])
+                        fileOut.write(mrnaLine + '\n')
+                        # Derive phasing information from coordinates
+                        totalLen = 0
+                        phasing = []
+                        for i in range(len(value[0])):
+                                coord = value[0][i]
+                                segmentLen = coord[1] - coord[0] + 1
+                                totalLen += segmentLen
+                                if i == 0:
+                                        phasing.append('0')     # GGF always returns ORFs which are 0-phased on the first CDS bit
+                                else:
+                                        prevLen = totalLen - segmentLen
+                                        leftover = prevLen % 3
+                                        if leftover == 0:
+                                                phase = 0
+                                        else:
+                                                phase = 3 - leftover
+                                        phasing.append(str(phase))
+                        # Iterate through coordinates and write exon/CDS lines
+                        ongoingCount = 1
+                        for i in range(len(value[0])):
+                                start, end = value[0][i]
+                                phase = phasing[i]
+                                # Format exon line
+                                exonLine = '\t'.join([value[1], typeCol, 'exon', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID + '.exon' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
+                                fileOut.write(exonLine + '\n')
+                                # Format CDS line
+                                cdsLine = '\t'.join([value[1], typeCol, 'CDS', str(start), str(end), '.', value[2], phase, 'ID=' + mrnaID + '.cds' + str(ongoingCount) + ';Name=' + name + ';Parent=' + mrnaID])
+                                fileOut.write(cdsLine + '\n')
+                                ongoingCount += 1
+                        # Format end comment
+                        endComment = '#PROT ' + mrnaID + ' ' + geneID + '\t' + protein
+                        fileOut.write(endComment + '\n')
+
 ##### USER INPUT SECTION
-usage = """%(prog)s '--showtargetgff yes'
+usage = """%(prog)s is an extension of gmap_gene_find.py which aims to allow for
+the annotation of short and single-exon gene models. This is accomplished through
+the use of exonerate alignment of validated peptides (generated through proteomic
+techniques) alongside GMAP alignment of transcripts. The exonerate input file should
+have been generated with argument '--showtargetgff yes' and GMAP's GFF3 should
+have been generated with argument '-f 2' and a large value for '-n'.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-ge", "-genomeFile", dest="genomeFile",
@@ -1034,7 +1146,7 @@ p.add_argument("-e", "-exonerate", dest="exonerateFile", type=str,
 p.add_argument("-f", "-fasta", dest="fastaFile", type=str,
                help="Specify the fasta file containing amino acid sequences used for exonerate query")
 p.add_argument("-gm", "-gmapFile", dest="gmapFile", type=str,
-               help="Input GMAP gff3 (-f 2) file from transcriptome alignment.")
+               help="Input GMAP GFF3 (-f 2) file from transcriptome alignment.")
 p.add_argument("-cd", "-cdsFile", dest="cdsFile", type=str,
                help="Input CDS fasta file (this file was used for GMAP alignment).")
 p.add_argument("-seg", "-segdir", dest="segdir", type=str,
@@ -1044,19 +1156,11 @@ p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
 p.add_argument("-si", "-similarity", dest="similarityCutoff", type=float,
                help="Specify the similarity cutoff for retrieving exonerate hits (default==80.00)", default=80.00)
 p.add_argument("-in", "-intron", dest="intronCutoff", type=float,
-               help="Specify the maximum intron length allowed for exonerate hits (default==50000)", default=50000)     # This value is a bit arbitrary, but exonerate can go "fishing" for matches and this can help to constrain this
+               help="Specify the maximum intron length allowed for exonerate hits (default==50000)", default=50000)     # This value is a bit arbitrary, but exonerate can go "fishing" for matches and this can help to constrain this behaviour
 p.add_argument("-o", "-outputFile", dest="outputFileName", type=str,
                help="Output file name")
 
 args = p.parse_args()
-## HARDCODED TESTS
-args.genomeFile = r'act_smrtden.ar3.pil2.deGRIT2.noredun.fasta'
-args.exonerateFile = r'act_smrtden.ar3.pil2.deGRIT2.noredun.fasta_exonerate_toxprotatenpro.gff3'
-args.fastaFile = r'toxprot_plus_atenproteomics.fasta'
-args.gmapFile = r'act_smart_okay-okalt.cds_gmap.gff3'
-args.cdsFile = r'act_smart_okay-okalt.cds'
-args.segdir = r'/home/lythl/bioinformatics/seg'
-args.outputFileName = r'act_exonerateparse.gff3'
 validate_args(args)
 
 # Load the genome fasta file and parse its contents
@@ -1076,7 +1180,7 @@ exonerateCandidates = gff3_index_cutoff_candidates(exonerateIndex, ['identity', 
 segPredictions = run_seg(args.segdir, [args.fastaFile]) # run_seg expects a list of file names, cbf changing this behaviour to work internally like it does with gff3_index_cutoff_candidates
 fastaLens = fasta_file_length_dict(args.fastaFile)
 segCandidates = segprediction_fastalens_proportions(segPredictions, fastaLens, 60)
-'''60 is an arbitrary number which is a way of saying that we want our toxins to not be entirely LCR
+'''60 is an arbitrary number which is a way of saying that we want our short peptides to not be entirely LCR
 without excluding things which are still majority LCR. This is necessary since some toxins in ToxProt
 are very short low-complexity peptides which will pop up in genomic LCR by chance frequently; some of
 these might be real, but it would require more intensive effort to validate these as genes.'''
@@ -1114,6 +1218,8 @@ for candidate in goodIntronCandidates:
         candidateMrnaCoords = candidateMrnaObj['coords']
         candidateCDSCoords = candidateMrnaObj['CDS']['coords']
         # Extend exonerate CDS
+        '''This is necessary since exonerate doesn't include the stop codon in its CDS coordinates,
+        and it's also more likely to not capture the full ORF if we're aligning proteins from other species'''
         candidateCDSCoords, candidateCDS = cds_extension(candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords)
         # If CDS extension fails, exonerate's prediction contains an internal stop codon and we should skip this model
         if candidateCDSCoords == False:
@@ -1154,6 +1260,8 @@ for candidate in goodIntronCandidates:
         exonerateProt = translate_cds(genomeRecords, candidateCDSCoords, candidateMrnaObj['orientation'], candidateMrnaObj['CDS']['frame'], candidateMrnaObj['contig_id'], mrnaID)
         gmapMrnaID = gmapIndex[bestPctList[5]]['feature_list'][0]       # bestPctList[5] corresponds to the mRNA ID from exonerate's GFF
         gmapMrnaObj = gmapIndex[bestPctList[5]][gmapMrnaID]
+        if 'CDS' not in gmapMrnaObj:    # This handles unusual cases where GMAP alignments don't have CDS features; from what I understand, these have internal stop codons
+                continue
         gmapProt = translate_cds(genomeRecords, gmapMrnaObj['CDS']['coords'], gmapMrnaObj['orientation'], gmapMrnaObj['CDS']['frame'], candidateMrnaObj['contig_id'], gmapMrnaID)
         if gmapProt == False:
                 bestPctList[0], bestPctList[1] = 0.00, 0.00     # This is a way of ensuring that we only store the exonerate model if GMAP's contains internal stop codons
@@ -1174,5 +1282,11 @@ for candidate in goodIntronCandidates:
 # Collapse overlapping GMAP/exonerate models by selecting the 'best' according to canonical splicing and other rules
 finalDict = compare_novels(candidateModelDict, genomeRecords)
 
-# All done!
+# Output to file
+output_func(finalDict, exonerateIndex, gmapIndex, args.outputFileName)
+
+# Done!
 print('Program completed successfully!')
+
+# Give some extra info
+print(str(len(finalDict)) + ' models were discovered.')
