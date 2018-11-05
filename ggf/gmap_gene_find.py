@@ -952,7 +952,7 @@ def output_func(inputDict, outFileName):
                                 end = max(firstInts)
                                 start = min(lastInts)
                         # Format start comment
-                        startComment = '# GMAP_GENE_FIND: ' + pathID + ' automatic model build'
+                        startComment = '# GMAP_GENE_FIND: ' + mrnaID + ' automatic model build'
                         fileOut.write(startComment + '\n')
                         # Format gene line
                         typeCol = 'gmap_gene_find'
