@@ -362,6 +362,8 @@ def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
 ## Output function
 def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeList, outFileName):        # See gff3_merge.py for example of this function
         # Set up
+        import copy
+        excludeList = copy.deepcopy(excludeList)        # We need to make a copy of this since we add values to this to handle redundancy below, but we still want to present this at the end of the program
         processedPaths = []
         # Main function
         with open(outFileName, 'w') as fileOut:
@@ -377,7 +379,7 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                         mrnaHead = None
                                         for line in newGff3Lines[mrna]['lines'][0]:
                                                 if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
-                                                        mrnaHead = line.replace(newGff3Lines[mrna]['attributes']['ID'], mrna)   # if the gene ID is in the line, we want it to become the mRNA ID
+                                                        mrnaHead = line
                                         if mrnaHead != None:
                                                 fileOut.write(mrnaHead)
                                         # Get the mRNA coordinates
@@ -429,7 +431,9 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                         mrnaFoot = None
                                         for line in newGff3Lines[mrna]['lines'][2]:
                                                 if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
-                                                        mrnaFoot = line.replace(newGff3Lines[mrna]['attributes']['ID'], key)    # Similar to the header comment, we need to replace the original gene ID; this time it's with the new gene ID
+                                                        splitFoot = line.split()
+                                                        splitFoot[2] = key
+                                                        mrnaFoot = ' '.join(splitFoot[0:3]) + '\t' + splitFoot[3]               # We need to replace the original gene ID with the new gene ID
                                         if mrnaFoot != None:
                                                 fileOut.write(mrnaFoot)
                         # Write genes without clustered isoforms to file directly
