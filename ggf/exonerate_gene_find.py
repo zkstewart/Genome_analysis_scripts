@@ -13,6 +13,11 @@ from Bio import SeqIO
 # Define functions for later use
 ## Validate arguments
 def validate_args(args):
+        # Ensure all arguments are specified
+        for key, value in vars(args).items():
+                if value == None:
+                        print(key + ' argument was not specified; fix your input and try again.')
+                        quit()
         # Validate input file locations
         if not os.path.isfile(args.genomeFile):
                 print('I am unable to locate the genome FASTA file (' + args.genomeFile + ')')
@@ -24,6 +29,14 @@ def validate_args(args):
                 quit()
         if not os.path.isfile(args.fastaFile):
                 print('I am unable to locate the fasta file (' + args.fastaFile + ')')
+                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        if not os.path.isfile(args.gmapFile):
+                print('I am unable to locate the GMAP file (' + args.gmapFile + ')')
+                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                quit()
+        if not os.path.isfile(args.cdsFile):
+                print('I am unable to locate the CDS FASTA file (' + args.cdsFile + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         # Validate accessory program arguments
@@ -1088,7 +1101,7 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
                                 end = max(firstInts)
                                 start = min(lastInts)
                         # Format start comment
-                        startComment = '# EXONERATE_GENE_FIND: ' + geneID + ' automatic model build'
+                        startComment = '# EXONERATE_GENE_FIND: ' + mrnaID + ' automatic model build'
                         fileOut.write(startComment + '\n')
                         # Format gene line
                         typeCol = 'exonerate_gene_find'
@@ -1130,13 +1143,25 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
                         endComment = '#PROT ' + mrnaID + ' ' + geneID + '\t' + protein
                         fileOut.write(endComment + '\n')
 
+# Set arbitrary values for later use
+segLCRCutoff = 60
+'''60 acts as a way of saying that we want our short peptides to not be entirely LCR
+without excluding things which are still majority LCR. This is necessary since some toxins in ToxProt
+are very short low-complexity peptides which will pop up in genomic LCR by chance frequently; some of
+these might be real, but it would require more intensive effort to validate these as genes.'''
+
 ##### USER INPUT SECTION
 usage = """%(prog)s is an extension of gmap_gene_find.py which aims to allow for
 the annotation of short and single-exon gene models. This is accomplished through
 the use of exonerate alignment of validated peptides (generated through proteomic
 techniques) alongside GMAP alignment of transcripts. The exonerate input file should
 have been generated with argument '--showtargetgff yes' and GMAP's GFF3 should
-have been generated with argument '-f 2' and a large value for '-n'.
+have been generated with argument '-f 2' and a large value for '-n'. When
+aligning older paralogous or orthologous proteins, identity score may be reduced
+while similarity may remain high - the rule I've encountered for that is 60-80
+which is reflected in the defaults, but depending on your queried sequences (e.g.,
+if they are all from the species being targeted) you may want to increase the identity
+cut-off to be equivalent to the similarity i.e., 80-80.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-ge", "-genomeFile", dest="genomeFile",
@@ -1152,7 +1177,7 @@ p.add_argument("-cd", "-cdsFile", dest="cdsFile", type=str,
 p.add_argument("-seg", "-segdir", dest="segdir", type=str,
                help="Specify the directory where seg executables are located.")
 p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
-               help="Specify the identity cutoff for retrieving exonerate hits (default==80.00)", default=80.00)
+               help="Specify the identity cutoff for retrieving exonerate hits (default==60.00)", default=60.00)
 p.add_argument("-si", "-similarity", dest="similarityCutoff", type=float,
                help="Specify the similarity cutoff for retrieving exonerate hits (default==80.00)", default=80.00)
 p.add_argument("-in", "-intron", dest="intronCutoff", type=float,
@@ -1179,11 +1204,7 @@ exonerateCandidates = gff3_index_cutoff_candidates(exonerateIndex, ['identity', 
 # Assess the exonerate query sequences for low-complexity regions using seg
 segPredictions = run_seg(args.segdir, [args.fastaFile]) # run_seg expects a list of file names, cbf changing this behaviour to work internally like it does with gff3_index_cutoff_candidates
 fastaLens = fasta_file_length_dict(args.fastaFile)
-segCandidates = segprediction_fastalens_proportions(segPredictions, fastaLens, 60)
-'''60 is an arbitrary number which is a way of saying that we want our short peptides to not be entirely LCR
-without excluding things which are still majority LCR. This is necessary since some toxins in ToxProt
-are very short low-complexity peptides which will pop up in genomic LCR by chance frequently; some of
-these might be real, but it would require more intensive effort to validate these as genes.'''
+segCandidates = segprediction_fastalens_proportions(segPredictions, fastaLens, segLCRCutoff)
 
 # Find good candidates from intersection of above two candidate lists
 segIDBits = {}
@@ -1205,7 +1226,6 @@ for candidate in goodCandidates:
         if max(exonerateIntronLens[candidate]) <= args.intronCutoff:
                 goodIntronCandidates.append(candidate)
 
-## TBD: Modify coding prediction based on transcriptome alignment
 # Load in GMAP file as index & NCLS
 gmapIndex = gff3_index(args.gmapFile)
 gmapNcls, gmapLoc = gff3_parse_ncls_mrna(args.gmapFile)
@@ -1217,6 +1237,9 @@ for candidate in goodIntronCandidates:
         candidateMrnaObj = exonerateIndex[candidate][mrnaID]
         candidateMrnaCoords = candidateMrnaObj['coords']
         candidateCDSCoords = candidateMrnaObj['CDS']['coords']
+        candidateLen = 0
+        for coord in candidateCDSCoords:
+                candidateLen += coord[1] - coord[0] + 1
         # Extend exonerate CDS
         '''This is necessary since exonerate doesn't include the stop codon in its CDS coordinates,
         and it's also more likely to not capture the full ORF if we're aligning proteins from other species'''
@@ -1224,6 +1247,10 @@ for candidate in goodIntronCandidates:
         # If CDS extension fails, exonerate's prediction contains an internal stop codon and we should skip this model
         if candidateCDSCoords == False:
                 print('Failed: ' + candidate)
+                continue
+        # If extension changed the sequence length more than a short bit, this is reason for concern and we should drop the model here
+        if len(candidateCDS) > (candidateLen + (candidateLen*0.25)):
+                print('Over-extension: ' + candidate)
                 continue
         # Query NCLS object for overlaps
         dictEntries = []
@@ -1267,20 +1294,58 @@ for candidate in goodIntronCandidates:
                 bestPctList[0], bestPctList[1] = 0.00, 0.00     # This is a way of ensuring that we only store the exonerate model if GMAP's contains internal stop codons
         # If both exonerate and GMAP models are very similar, store both for later collapsing with compare_novels()
         if bestPctList[0] >= 0.95 and bestPctList[1] >= 0.95:
-                candidateModelDict[mrnaID] = [candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], exonerateProt]
-                candidateModelDict[bestPctList[5]] = [gmapMrnaObj['CDS']['coords'], gmapMrnaObj['contig_id'], gmapMrnaObj['orientation'], gmapProt]
+                candidateModelDict[mrnaID] = [candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], exonerateProt, mrnaID]
+                candidateModelDict[bestPctList[5]] = [gmapMrnaObj['CDS']['coords'], gmapMrnaObj['contig_id'], gmapMrnaObj['orientation'], gmapProt, mrnaID]
                 print('Stored both: ' + candidate)
         # Else if the exonerate hit is almost entirely engulfed by a GMAP model, just store the GMAP model since we trust the transcriptome more than the queried proteome [this is because the transcriptome should be from this species but the proteome may be something like ToxProt]
         elif bestPctList[0] >= 0.95 and bestPctList[1] >= 0.50:
-                candidateModelDict[bestPctList[5]] = [gmapMrnaObj['CDS']['coords'], gmapMrnaObj['contig_id'], gmapMrnaObj['orientation'], gmapProt]
+                candidateModelDict[bestPctList[5]] = [gmapMrnaObj['CDS']['coords'], gmapMrnaObj['contig_id'], gmapMrnaObj['orientation'], gmapProt, mrnaID]
                 print('Stored GMAP: ' + candidate)
         # Else if they both differ a fair bit then just store the exonerate hit
         else:
-                candidateModelDict[mrnaID] = [candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], exonerateProt]
+                candidateModelDict[mrnaID] = [candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], exonerateProt, mrnaID]
                 print('Stored exonerate: ' + candidate)
 
 # Collapse overlapping GMAP/exonerate models by selecting the 'best' according to canonical splicing and other rules
-finalDict = compare_novels(candidateModelDict, genomeRecords)
+novelDict = compare_novels(candidateModelDict, genomeRecords)
+
+# Filter candidates based on length similarity to the original query
+finalDict = {}
+for candidate, hitDetails in novelDict.items():
+        # Pull out the sequence ID bit
+        sequenceBit = hitDetails[4].split('.', maxsplit=1)[1]
+        sequenceBit = sequenceBit.rsplit('.')[0]        # We do it like this just in case the sequenceBit contains . characters
+        # Retrieve the length of this sequence from the FASTA file
+        queryLen = None
+        for key, value in fastaLens.items():
+                if sequenceBit in key:
+                        queryLen = value * 3            # Our exonerate query sequences are amino acids, so we need to do this
+                        break
+        assert queryLen != None
+        # Determine the length of this candidate hit
+        candidateLen = 0
+        for coord in hitDetails[0]:
+                candidateLen += coord[1] - coord[0] + 1
+        # Retain any candidates +- certain length cutoff
+        lengthAllowance = round(queryLen * 0.25, 0)
+        if candidateLen <= queryLen + lengthAllowance and candidateLen >= queryLen - lengthAllowance:
+                finalDict[hitDetails[4]] = hitDetails   # Transition our ID system to the exonerate system; this lets our sequence IDs be more informative w/r/t which protein led to their annotation
+
+# Final filtration of models derived from partial hits which consist primarily of LCR
+tmpModelFastaName = tmp_file_name_gen('tmp_EGF_', '.fasta', hitDetails[4])      # The hashstring can just be the last entry in finalDict, this should vary between runs with different inputs
+with open(tmpModelFastaName, 'w') as fileOut:
+        for seqid, value in finalDict.items():
+                fileOut.write('>' + seqid + '\n' + value[3] + '\n')
+segPredictions = run_seg(args.segdir, [tmpModelFastaName]) # run_seg expects a list of file names, cbf changing this behaviour to work internally like it does with gff3_index_cutoff_candidates
+fastaLens = fasta_file_length_dict(tmpModelFastaName)
+segCandidates = segprediction_fastalens_proportions(segPredictions, fastaLens, segLCRCutoff)
+os.unlink(tmpModelFastaName)
+
+# Cull models from the dictionary that don't pass the final seg filtration
+dictKeys = list(finalDict.keys())
+for key in dictKeys:
+        if key not in segCandidates:
+                del finalDict[key]
 
 # Output to file
 output_func(finalDict, exonerateIndex, gmapIndex, args.outputFileName)
