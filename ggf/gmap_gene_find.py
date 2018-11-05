@@ -935,7 +935,7 @@ def output_func(inputDict, outFileName):
         with open(outFileName, 'w') as fileOut:
                 for key, value in inputDict.items():
                         # Format base name details
-                        pathID = key
+                        pathID = value[1] + '.' + key
                         name = 'gmap_gene_find_' + key
                         mrnaID = pathID.replace('.path', '.mrna')       # Could theoretically be a problem if the gene name contains .path in its actual name, but this isn't the case with my data and shouldn't be with others
                         # Extract details
