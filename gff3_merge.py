@@ -433,7 +433,7 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                                 if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
                                                         splitFoot = line.split()
                                                         splitFoot[2] = key
-                                                        mrnaFoot = ' '.join(splitFoot[0:3]) + '\t' + splitFoot[3]               # We need to replace the original gene ID with the new gene ID
+                                                        mrnaFoot = ' '.join(splitFoot[0:3]) + '\t' + splitFoot[3] + '\n'        # We need to replace the original gene ID with the new gene ID
                                         if mrnaFoot != None:
                                                 fileOut.write(mrnaFoot)
                         # Write genes without clustered isoforms to file directly
