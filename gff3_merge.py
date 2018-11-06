@@ -360,15 +360,15 @@ def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
         return gff3IndexDict
 
 ## Output function
-def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeList, outFileName):        # See gff3_merge.py for example of this function
+def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeList, outFileName, mode):
         # Set up
         import copy
         excludeList = copy.deepcopy(excludeList)        # We need to make a copy of this since we add values to this to handle redundancy below, but we still want to present this at the end of the program
         processedPaths = []
         # Main function
         with open(outFileName, 'w') as fileOut:
-                # Merging isoform clusters
                 for key in mainGff3Lines['geneValues']:
+                        # Merging isoform clusters
                         if key in isoformDict:
                                 # Write opening comments for main gene
                                 fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
@@ -436,6 +436,9 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                                         mrnaFoot = ' '.join(splitFoot[0:3]) + '\t' + splitFoot[3] + '\n'        # We need to replace the original gene ID with the new gene ID
                                         if mrnaFoot != None:
                                                 fileOut.write(mrnaFoot)
+                        # Exclude any gene entries if relevant
+                        elif key in excludeList:
+                                continue
                         # Write genes without clustered isoforms to file directly
                         else:
                                 fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
@@ -530,20 +533,21 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                 fileOut.write(''.join(mainGff3Lines[key]['lines'][1]))
                                 fileOut.write(''.join(mainGff3Lines[key]['lines'][2]))
                                 excludeList.append(key)         # This helps with preventing redundancy with "note" entries like lineType == "chromosome"
-                valueList = []
-                for key in newGff3Lines['idValues']['main'].keys():
-                        if key != 'gene':
-                                valueList.append(newGff3Lines['idValues']['main'][key])
-                for value in valueList:
-                        for key in value:
-                                found = False
-                                for feature in newGff3Lines[key]['feature_list']:
-                                        if feature in excludeList:
-                                                found = True
-                                if found == False and key not in excludeList:
-                                        fileOut.write(''.join(newGff3Lines[key]['lines'][0]))
-                                        fileOut.write(''.join(newGff3Lines[key]['lines'][1]))
-                                        fileOut.write(''.join(newGff3Lines[key]['lines'][2]))
+                if mode == 'all':                               # If we specified mode as 'gene', we just want to write the original non-gene lines to file and ignore anything in the new file
+                        valueList = []
+                        for key in newGff3Lines['idValues']['main'].keys():
+                                if key != 'gene':
+                                        valueList.append(newGff3Lines['idValues']['main'][key])
+                        for value in valueList:
+                                for key in value:
+                                        found = False
+                                        for feature in newGff3Lines[key]['feature_list']:
+                                                if feature in excludeList:
+                                                        found = True
+                                        if found == False and key not in excludeList:
+                                                fileOut.write(''.join(newGff3Lines[key]['lines'][0]))
+                                                fileOut.write(''.join(newGff3Lines[key]['lines'][1]))
+                                                fileOut.write(''.join(newGff3Lines[key]['lines'][2]))
 
 ##### USER INPUT SECTION
 usage = """%(prog)s will merge two GFF3 files together, one acting as the 'main' and the other as the 'new'.
@@ -551,19 +555,26 @@ Currently this program will cluster 'new' genes which overlap 'main' genes > iso
 of their length as isoforms within the new GFF3. The result is a merged GFF3 where isoform-clustered sequences
 will be associated with the parent gene, and any genes that were unclustered (i.e., < isoPercent overlap)
 will be at the bottom of the file (but before any non-gene related lines, such as rRNA or tRNA
-annotations). In the future, this code will allow 'new' genes to overwrite 'main' genes, but that day is not today.
+annotations). By specifying mode, you can alter the program to only merge 'gene' or to merge 'all' feature types
+(such as ncRNA features, etc.). Behaviour allows you to determine whether features in the 'new' GFF3 which overlap
+'main' GFF3 features should be 'reject'ed or whether they should 'replace' the 'main features. Beware that
+specifying 'all' and 'replace' means that ncRNA features could replace gene features if they overlap!
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-og", "-originalGff3", dest="originalGff3",
-                  help="Specify the original annotation GFF3 file")
+               help="Specify the original annotation GFF3 file")
 p.add_argument("-ng", "-newGff3", dest="newGff3",
-                  help="Specify new GFF3 file (this will be added into the original)")
+               help="Specify new GFF3 file (this will be added into the original)")
+p.add_argument("-m", "-mode", dest="mode", choices=['gene', 'all'],
+               help="Specify program mode to only merge genes or to merge all features.")
+p.add_argument("-b", "-behaviour", dest="behaviour", choices=['reject', 'replace'],
+               help="Specify program behaviour to either 'reject' new entries that overlap originals, or 'replace' originals with new entries.")
 p.add_argument("-ip", "-isoPercent", dest="isoPercent", type=float,
-                  help="Specify the percentage overlap of two models before they are clustered as isoforms. Default == 30", default=30)
+               help="Specify the percentage overlap of two models before they are clustered as isoforms. Default == 30", default=30)
 p.add_argument("-dp", "-duplicatePercent", dest="duplicatePercent", type=float,
-                  help="Specify the percentage overlap of two models before they are considered duplicates (and rejected). Default == 60", default=60)
+               help="Specify the percentage overlap of two models before they are considered duplicates (and rejected). Default == 60", default=60)
 p.add_argument("-out", "-outputFile", dest="outputFileName",
-                   help="Output file name.")
+               help="Output file name.")
 
 args = p.parse_args()
 args = validate_args(args)
@@ -592,9 +603,10 @@ excludeList = []        # We need a list of these values for detection later
 excludeGeneCount = 0    # We also want to separate the counts for genes/rRNA/tRNA features since the gene number is more "important"
 excludeRNACount = 0
 valueList = [newGff3['mrnaValues']]
-for key in newGff3['idValues']['feature'].keys():
-        if key != 'mRNA':
-                valueList.append(newGff3['idValues']['feature'][key])
+if args.mode == 'all':
+        for key in newGff3['idValues']['feature'].keys():
+                if key != 'mRNA':
+                        valueList.append(newGff3['idValues']['feature'][key])
 for i in range(len(valueList)):
         for key in valueList[i]:
                 # Setup for this feature's loop
@@ -615,7 +627,7 @@ for i in range(len(valueList)):
                 # Detect sequences that should be clustered as isoforms/kept as separate novel genes/excluded as duplicates
                 novel = True
                 isoform = False
-                exclude = False
+                exclude = []
                 flatCoordsList = [coord for sublist in coordsList for coord in sublist]
                 for seqid, result in ovlPctDict.items():                # Remember: result = [modelPct, mrnaHitPct, geneID, modelStart, modelStop]
                         # Novel sequences
@@ -626,8 +638,12 @@ for i in range(len(valueList)):
                                 # Extra check: if new gene hangs off 5' or 3' end of gene it isn't considered an isoform
                                 if min(flatCoordsList) < result[3] or max(flatCoordsList) > result[4]:
                                         novel = True
-                                elif i != 0:                            # tRNA and rRNA objects can't be clustered as isoforms; any overlaps that fall into this elif statement need to be excluded
-                                        exclude = True
+                                elif i != 0:                                    # tRNA and rRNA objects can't be clustered as isoforms; any overlaps that fall into this elif statement need to be excluded
+                                        if args.behaviour == 'reject':
+                                                exclude.append(key)
+                                        elif args.behaviour == 'replace':
+                                                exclude.append(result[2])       # result[2] corresponds to geneID
+                                        break
                                 else:
                                         isoform = result
                                         '''As you might notice, we only hold onto one result for isoform clustering; if the user file has two genes
@@ -635,14 +651,18 @@ for i in range(len(valueList)):
                                         will simply add it into one of them'''
                         # Duplicate sequences
                         else:
-                                exclude = True
+                                if args.behaviour == 'reject':
+                                        exclude.append(key)
+                                elif args.behaviour == 'replace':
+                                        exclude.append(result[2])
                 # Add to respective list/dict
-                if exclude == True:
-                        excludeList.append(key)
+                if exclude != []:
+                        exclude = list(set(exclude))
+                        excludeList += exclude
                         if i == 0:
-                                excludeGeneCount += 1
+                                excludeGeneCount += len(exclude)
                         else:
-                                excludeRNACount += 1
+                                excludeRNACount += len(exclude)
                 elif isoform != False:
                         isoformCount += 1                               # This is just use for statistics presentation at the end of program operations
                         if isoform[2] not in isoformDict:
@@ -657,7 +677,7 @@ for i in range(len(valueList)):
                                 novelRNACount += 1
 
 # Produce isoform-clustered merged GFF3
-gff3_merge_and_isoclust(origGff3, newGff3, isoformDict, excludeList, args.outputFileName)
+gff3_merge_and_isoclust(origGff3, newGff3, isoformDict, excludeList, args.outputFileName, args.mode)
 
 # All done!
 print('Program completed successfully!')
@@ -666,9 +686,13 @@ print('Program completed successfully!')
 print(str(isoformCount) + ' new gene models were added as isoforms of existing genes.')
 print(str(novelGeneCount) + ' new gene models were added as stand-alone genes.')
 print(str(novelRNACount) + ' new non-gene models were added as stand-alone features.')
-print(str(excludeGeneCount) + ' new gene models were not merged due to duplication cutoff.')
-print(str(excludeRNACount) + ' new non-gene models were not merged due to duplication cutoff.')
+if args.behaviour == 'reject':
+        print(str(excludeGeneCount) + ' new gene models were not merged due to duplication cutoff.')
+        print(str(excludeRNACount) + ' new non-gene models were not merged due to duplication cutoff.')
+elif args.behaviour == 'replace':
+        print(str(excludeGeneCount) + ' original gene models were replaced due to duplication cutoff.')
+        print(str(excludeRNACount) + ' original non-gene models were replaced due to duplication cutoff.')
 if excludeList != []:
-        print('These excluded gene and rRNA/tRNA models include...')
+        print('These excluded gene and/or non-gene models include...')
         for entry in excludeList:
                 print(entry)
