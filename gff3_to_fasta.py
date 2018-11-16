@@ -372,6 +372,7 @@ gff3Index = gff3_index_add_comments(gff3Index, args.gff3)
 pasaProts = gff3_index_pasaprots_extract(gff3Index)
 
 # Produce output files
+cdsWarning = False
 with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasink(nuclOutputFileName, 'cds', args.seqType) as nuclOut, datasink(protOutputFileName, 'cds', args.seqType) as protOut:
         for key in gff3Index['geneValues']:
                 value = gff3Index[key]          # This corresponds to the gene dictionary object
@@ -389,23 +390,32 @@ with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasi
                                 print('This represents a major problem with your inputs, so I\'m going to stop processing now. Make sure you are using the correct FASTA file and try again.')
                                 quit()
                         # Sort coords lists for consistency [this can be relevant since not all GFF3's are ordered equivalently]
-                        cdsSort = list(zip(value[mrna]['CDS']['coords'], value[mrna]['CDS']['frame']))
+                        ## Exon coords
                         if value[mrna]['orientation'] == '+':
                                 value[mrna]['exon']['coords'].sort(key = lambda x: (int(x[0]), int(x[1])))
-                                cdsSort.sort(key = lambda x: (int(x[0][0]), int(x[0][1])))
-                                value[mrna]['CDS']['coords'] = [coord for coord,frame in cdsSort]
-                                value[mrna]['CDS']['frame'] = [frame for coord,frame in cdsSort]
                         elif value[mrna]['orientation'] == '-':
                                 value[mrna]['exon']['coords'].sort(key = lambda x: (-int(x[0]), -int(x[1])))
-                                cdsSort.sort(key = lambda x: (-int(x[0][0]), -int(x[0][1])))
-                                value[mrna]['CDS']['coords'] = [coord for coord,frame in cdsSort]
-                                value[mrna]['CDS']['frame'] = [frame for coord,frame in cdsSort]
-                        else:
-                                print(mrna + ' lacks proper orientation specification within GFF3 (it is == "' + str(value[mrna]['orientation']) + '"; this may result in problems.')
+                        ## CDS coords
+                        if 'CDS' in value[mrna]:        # This check here (and below) is a way of ensuring that we only produce CDS outputs for features that are annotated as coding in the GFF3 file
+                                cdsSort = list(zip(value[mrna]['CDS']['coords'], value[mrna]['CDS']['frame']))
+                                if value[mrna]['orientation'] == '+':
+                                        cdsSort.sort(key = lambda x: (int(x[0][0]), int(x[0][1])))
+                                        value[mrna]['CDS']['coords'] = [coord for coord,frame in cdsSort]
+                                        value[mrna]['CDS']['frame'] = [frame for coord,frame in cdsSort]
+                                elif value[mrna]['orientation'] == '-':
+                                        cdsSort.sort(key = lambda x: (-int(x[0][0]), -int(x[0][1])))
+                                        value[mrna]['CDS']['coords'] = [coord for coord,frame in cdsSort]
+                                        value[mrna]['CDS']['frame'] = [frame for coord,frame in cdsSort]
+                                else:
+                                        print(mrna + ' lacks proper orientation specification within GFF3 (it is == "' + str(value[mrna]['orientation']) + '"; this may result in problems.')
+                        elif cdsWarning == False and args.seqType == 'both':
+                                print('Warning: there are \'gene\' features which lack CDS subfeatures; your .trans file will contain more entries than .aa or .nucl files.')
+                                cdsWarning = True
                         # Reverse the coord lists if we're looking at a '-' model so we start at the 3' end of the gene model
                         if value['orientation'] == '-':
                                 value[mrna]['exon']['coords'].reverse()
-                                value[mrna]['CDS']['coords'].reverse()
+                                if 'CDS' in value[mrna]:
+                                        value[mrna]['CDS']['coords'].reverse()
                         # Join sequence segments
                         if args.seqType == 'transcript' or args.seqType == 'both':
                                 transcript = ''
@@ -416,25 +426,29 @@ with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasi
                                 if value['orientation'] == '-':
                                         transcript = reverse_comp(transcript)
                         if args.seqType == 'cds' or args.seqType == 'both':
-                                cds = ''
-                                for coord in value[mrna]['CDS']['coords']:
-                                        segment = genomeSeq[int(coord[0])-1:int(coord[1])]            # Make it 1-based by -1 to the first coordinate
-                                        cds += segment
-                                # Reverse comp if necessary
-                                if value['orientation'] == '-':
-                                        cds = reverse_comp(cds)
+                                cds = None
+                                if 'CDS' in value[mrna]:
+                                        cds = ''
+                                        for coord in value[mrna]['CDS']['coords']:
+                                                segment = genomeSeq[int(coord[0])-1:int(coord[1])]            # Make it 1-based by -1 to the first coordinate
+                                                cds += segment
+                                        # Reverse comp if necessary
+                                        if value['orientation'] == '-':
+                                                cds = reverse_comp(cds)
                         # Retrieve protein sequence if relevant
                         if args.seqType == 'cds' or args.seqType == 'both':
-                                # Check pasaProts to save time & effort
-                                if mrna in pasaProts:
-                                        prot = pasaProts[mrna]
-                                # Derive the protein from our CDS sequence if necessary
-                                else:
-                                        prot = cds_to_prot(cds, value[mrna]['CDS']['frame'][0], mrna)   # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
+                                prot = None
+                                if 'CDS' in value[mrna]:
+                                        # Check pasaProts to save time & effort
+                                        if mrna in pasaProts:
+                                                prot = pasaProts[mrna]
+                                        # Derive the protein from our CDS sequence if necessary
+                                        else:
+                                                prot = cds_to_prot(cds, value[mrna]['CDS']['frame'][0], mrna)   # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
                         # Output to relevant values to file
                         if args.seqType == 'both' or args.seqType == 'transcript':
                                 mainOut.write('>' + mrna + '\n' + transcript + '\n')
-                        if args.seqType == 'both' or args.seqType == 'cds':
+                        if (args.seqType == 'both' or args.seqType == 'cds') and 'CDS' in value[mrna]:
                                 nuclOut.write('>' + mrna + '\n' + cds + '\n')
                                 protOut.write('>' + mrna + '\n' + prot + '\n')
 
