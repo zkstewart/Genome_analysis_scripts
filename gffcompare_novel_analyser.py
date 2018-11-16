@@ -471,12 +471,12 @@ def gffcompare_tmap_parse(tmapFile, compGff3Index):
                         mrnaID = sl[4]
                         if classCode in ['u', 'x', 'i', 'y', 'p']:
                                 novelLoci.append(mrnaID)
-        print(len(novelLoci) + ' novel loci were detected from TMAP parsing prior to isoform collapse.')
+        print(str(len(novelLoci)) + ' novel loci were detected from TMAP parsing prior to isoform collapse.')
         geneIDs = []
         for loci in novelLoci:
                 geneIDs.append(compGff3Index[loci]['attributes']['ID'])
         geneIDs = list(set(geneIDs))
-        print(len(geneIDs) + ' novel loci were detected from TMAP parsing after isoform collapse.')
+        print(str(len(geneIDs)) + ' novel loci were detected from TMAP parsing after isoform collapse.')
         return novelLoci
 
 ## General purpose
@@ -578,7 +578,8 @@ for loci in novelLoci:
                 # Narrow down overlaps to the "best" ones                                               # The model is our loci, the hit is the reference match
                 if len(ovlPctDict) < 2:
                         for key, value in ovlPctDict.items():
-                                bestPctList.append(value + [key])
+                                if value[0] != 0.0 and value[1] != 0.0:
+                                        bestPctList.append(value + [key])
                 else:
                         valueSort = []
                         for key, value in ovlPctDict.items():
@@ -589,12 +590,13 @@ for loci in novelLoci:
                                 # Extract 1.0, 1.0 overlaps
                                 if value[0] == 1.0 and value[1] == 1.0:
                                         bestPctList.append(value)
-                                # Hold onto the first value that slips through
-                                elif bestPctList == []:
+                                # Hold onto the first value that slips through (which is also not a 0.0, 0.0 value)
+                                elif bestPctList == [] and value[0] != 0.0 and value[1] != 0.0:
                                         bestPctList.append(value)
                                 # Hold onto equivalent bests
-                                elif value[0] == bestPctList[0][0] and value[1] == bestPctList[0][1]:
-                                        bestPctList.append(value)
+                                elif bestPctList != []:
+                                        if value[0] == bestPctList[0][0] and value[1] == bestPctList[0][1]:
+                                                bestPctList.append(value)
         # Generate report for truly novel sequence
         if bestPctList == []:
                 reports.append([loci, 'novel', 'N/A'])
@@ -678,7 +680,7 @@ for i in range(len(reports)):
         elif reports[i][1] == 'novel':
                 # Alternate conclusion depending on BLAST support
                 if reports[i][3] == 'Y':
-                        category = 'possible unannotated gene prediction'
+                        category = 'possible novel feature prediction'
                         reports[i].append(category)
                         categories, categoryCounts = cat_count_handler(categories, categoryCounts, category)
                 # Main conclusion
