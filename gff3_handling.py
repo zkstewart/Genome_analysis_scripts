@@ -143,7 +143,7 @@ def gff3_index(gff3File):
         indexDict['idValues'] = geneDict['idValues']
         geneDict['geneValues'] = idValues['main']['gene']       # This, primaryValues, and the mrnaValues below act as shortcuts
         indexDict['geneValues'] = geneDict['geneValues']
-        geneDict['primaryValues'] = [feature for featureList in gff3Index['idValues']['main'].values() for feature in featureList]
+        geneDict['primaryValues'] = [feature for featureList in geneDict['idValues']['main'].values() for feature in featureList]
         indexDict['primaryValues'] = geneDict['primaryValues']
         geneDict['mrnaValues'] = idValues['feature']['mRNA']
         indexDict['mrnaValues'] = geneDict['mrnaValues']
