@@ -246,6 +246,85 @@ def gff3_index_pasaprots_extract(gff3IndexDict):
                         pasaProts[mrnaID] = sequence
         return pasaProts
 
+def gff3_index_denovo_lines(gff3Index):                 # see mtdna_gff2_order.py for an example of this function
+        commentOrder = ['ID', 'Parent', 'Name']         # Hard code some of the ordering for GFF3 comments; any other type might end up being randomised a bit
+        gff3Lines = {}
+        for key in gff3Index['primaryValues']:
+                # Produce lines-type structure
+                gff3Lines[key] = {0: [], 1: [], 2: []}
+                # Produce our main feature line
+                gff3Entry = gff3Index[key]
+                featureLine = [gff3Entry['contig_id'], gff3Entry['source'], gff3Entry['feature_type'], str(gff3Entry['coords'][0]), 
+                               str(gff3Entry['coords'][1]), gff3Entry['score'], gff3Entry['orientation'], gff3Entry['frame']]
+                # Format comment with some degree of ordering
+                comments = ''
+                for k in commentOrder:
+                        if k in gff3Entry['attributes']:
+                                if comments == '':
+                                        comments += k + '=' + gff3Entry['attributes'][k]
+                                else:
+                                        comments += ';' + k + '=' + gff3Entry['attributes'][k]
+                for k, v in gff3Entry['attributes'].items():
+                        if k in commentOrder:
+                                continue
+                        if comments == '':
+                                comments += k + '=' + gff3Entry['attributes'][k]
+                        else:
+                                comments += ';' + k + '=' + gff3Entry['attributes'][k]
+                featureLine.append(comments)
+                gff3Lines[key][1].append(featureLine)
+                # Produce subfeature line
+                for subfeature in gff3Entry['feature_list']:
+                        subGff3Entry = gff3Entry[subfeature]
+                        featureLine = [subGff3Entry['contig_id'], subGff3Entry['source'], subGff3Entry['feature_type'], str(subGff3Entry['coords'][0]), 
+                                       str(subGff3Entry['coords'][1]), subGff3Entry['score'], subGff3Entry['orientation'], subGff3Entry['frame']]
+                        # Format comment with some degree of ordering
+                        comments = ''
+                        for k in commentOrder:
+                                if k in subGff3Entry['attributes']:
+                                        if comments == '':
+                                                comments += k + '=' + subGff3Entry['attributes'][k]
+                                        else:
+                                                comments += ';' + k + '=' + subGff3Entry['attributes'][k]
+                        for k, v in subGff3Entry['attributes'].items():
+                                if k in commentOrder:
+                                        continue
+                                if comments == '':
+                                        comments += k + '=' + subGff3Entry['attributes'][k]
+                                else:
+                                        comments += ';' + k + '=' + subGff3Entry['attributes'][k]
+                        featureLine.append(comments)
+                        gff3Lines[key][1].append(featureLine)
+                        # Produce secondary subfeature line(s)
+                        for subfeatType in subGff3Entry['feature_list']:
+                                secondarySubGff3Entry = subGff3Entry[subfeatType]
+                                for i in range(len(secondarySubGff3Entry['coords'])):
+                                        featureLine = [subGff3Entry['contig_id'], subGff3Entry['source'], subfeatType, str(secondarySubGff3Entry['coords'][i][0]),
+                                                       str(secondarySubGff3Entry['coords'][i][1]), secondarySubGff3Entry['score'][i], subGff3Entry['orientation'], secondarySubGff3Entry['frame'][i]]
+                                        # Format comment with some degree of ordering
+                                        comments = ''
+                                        for k in commentOrder:
+                                                if k in secondarySubGff3Entry['attributes'][i]:
+                                                        if comments == '':
+                                                                comments += k + '=' + secondarySubGff3Entry['attributes'][i][k]
+                                                        else:
+                                                                comments += ';' + k + '=' + secondarySubGff3Entry['attributes'][i][k]
+                                        for k, v in secondarySubGff3Entry['attributes'][i].items():
+                                                if k in commentOrder:
+                                                        continue
+                                                if comments == '':
+                                                        comments += k + '=' + secondarySubGff3Entry['attributes'][i][k]
+                                                else:
+                                                        comments += ';' + k + '=' + secondarySubGff3Entry['attributes'][i][k]
+                                        featureLine.append(comments)
+                                        gff3Lines[key][1].append(featureLine)
+                # Reformat lines into strings
+                for x in range(len(gff3Lines[key][1])):
+                        gff3Lines[key][1][x] = '\t'.join(gff3Lines[key][1][x]) + '\n'
+                # Associate lines to gff3Index
+                gff3Index[key]['lines'] = gff3Lines[key]
+        return gff3Index
+
 ## GFF3 - gene ID manipulation
 def gff3_idlist_compare(gff3Dict, idList):
         # Set up
@@ -550,6 +629,88 @@ def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
                                 if geneID not in idList:
                                         outList.append(line)
         return outList
+
+## GFF3
+def gff3_index_contig_reorder(gff3Index, fastaFile, locationStart):     # see mtdna_gff2_order.py for an example of this function
+        # Setup
+        from Bio import SeqIO
+        # Define functions integral to this one
+        def coord_overflow_invert(start, end, contigLen):
+                if start < 1:
+                        start = contigLen - abs(start)
+                if end < 1:
+                        end = contigLen - abs(end)
+                return start, end
+        # Parse FASTA file and ensure it is sensible
+        records = SeqIO.to_dict(SeqIO.parse(open(fastaFile, 'r'), 'fasta'))
+        if len(records) != 1:
+                print('Incompatible input detected: the FASTA file has more than 1 contig value within it.')
+                print('This program is designed to handle MtDNA annotations which should occur on a single contig.')
+                print('Program will exit now.')
+                quit()
+        if gff3Index['contigValues'][0] not in records:
+                print('Incompatible input detected: the FASTA file does not have the same contig ID present as the annotation file.')
+                print('Annotation contig ID = "' + gff3Index['contigValues'][0] + '"... FASTA contig ID = "' + list(records.keys())[0] + '"')
+                print('Program will exit now.')
+                quit()
+        contigID = gff3Index['contigValues'][0]
+        contigLen = len(records[contigID])
+        # Validate that locationStart value is sensible
+        if locationStart in gff3Index:
+                locationStart = gff3Index[locationStart]['coords'][0]
+                print('Provided location start value corresponds to a feature ID; all coordinates will be rearranged so ' + str(locationStart) + ' becomes the first base.')
+        else:
+                try:
+                        locationStart = int(locationStart)
+                        if locationStart < 0:
+                                print('If the start location (-l) value is not a gene ID, it is assumed to be an integer.')
+                                print('This has occurred here, however, this value cannot be an integer less than 0.')
+                                print('Fix your inputs and try again; program will exit now.')
+                                quit()
+                        elif locationStart > contigLen:
+                                print('If the start location (-l) value is not a gene ID, it is assumed to be an integer.')
+                                print('This has occurred here, however, this value cannot be greater than the contig length (which is == ' + str(contigLen))
+                                print('Fix your inputs and try again; program will exit now.')
+                                quit()
+                except:
+                        print('gff3_contig_reorder: The provided start location "' + locationStart + '" is not correct.')
+                        print('It is neither capable of conversion to integer nor is it a gene ID or feature ID.')
+                        print('Fix your inputs and try again; program will exit now.')
+                        quit()
+        # Update all coordinates for values in gff3Index
+        '''Note that GFF3 positions start at 1, which means that if our locationStart is 100,
+        we need to subtract 99 from all positions to get their new location. Features which are 
+        earlier than 100 also have 99 subtracted from them which should result in negative numbers.
+        However, they have to go through 0 on the way to become negative integers, and in this situation
+        0 is equivalent to contigLen. This gives the formula for negative integers of:
+                newLocation = contigLen - (oldLocation - locationStart)'''
+        for primaryID in gff3Index['primaryValues']:
+                '''Note here that we need to take a ground-up approach to the coordinate revisioning. If we go
+                top-down with genes that have introns, we might not allow certain genes to be broken up correctly
+                across introns. This might normally be a problem, but since MITOS2 doesn't order its genes properly
+                anyway, it's something that the user will need to sort out themself manually (sorry, can't automate it...)'''
+                # Ground-up loop
+                for subfeature in gff3Index[primaryID]['feature_list']:
+                        # Update secondary subfeature values
+                        for subfeatType in gff3Index[primaryID][subfeature]['feature_list']:
+                                for i in range(len(gff3Index[primaryID][subfeature][subfeatType]['coords'])):
+                                        newStart = gff3Index[primaryID][subfeature][subfeatType]['coords'][i][0] - (locationStart - 1)
+                                        newEnd = gff3Index[primaryID][subfeature][subfeatType]['coords'][i][1] - (locationStart - 1)
+                                        if (newStart < 1 and newEnd >= 1) or newStart > contigLen or newEnd > contigLen:
+                                                print('The new start location results in an exon being split into two fragments at the start and end of the MtDNA genome')
+                                                print('Feature in question = "' + primaryID + '"')
+                                                print('This isn\'t a good way to present the annotation, so I\'ve not been coded to handle this scenario.')
+                                                print('Choose a start location that doesn\'t result in such fragmentation and try again; program will exit now.')
+                                                quit()
+                                        newStart, newEnd = coord_overflow_invert(newStart, newEnd, contigLen)
+                                        gff3Index[primaryID][subfeature][subfeatType]['coords'][i] = [newStart, newEnd]
+                        # Update primary subfeature values based on secondary subfeatures
+                        secondarySubCoords = [x for coordPair in gff3Index[primaryID][subfeature]['exon']['coords'] for x in coordPair]
+                        gff3Index[primaryID][subfeature]['coords'] = [min(secondarySubCoords), max(secondarySubCoords)]
+                # Update primary feature values based on primary subfeatures
+                subfeatCoords = [x for subfeature in gff3Index[primaryID]['feature_list'] for x in gff3Index[primaryID][subfeature]['coords']]
+                gff3Index[primaryID]['coords'] = [min(subfeatCoords), max(subfeatCoords)]
+        return gff3Index, locationStart
 
 ## NCLS-related functions
 def gff3_parse_ncls(gff3File, featureTypes):

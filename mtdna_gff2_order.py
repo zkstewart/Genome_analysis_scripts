@@ -134,6 +134,7 @@ def gff2_index(gff2File):
 
 def gff2index_to_gff3index(gff2Index):
         # Setup
+        from copy import deepcopy               # We need to prevent lists from being shared
         geneDict = {}                           # Our output structure will have 1 entry per gene which is stored in here
         indexDict = {}                          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
         idValues = {'main': {}, 'feature': {}}  # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
@@ -145,16 +146,16 @@ def gff2index_to_gff3index(gff2Index):
                 parentID = 'gene:' + key
                 geneDict[parentID] = {'attributes': {}}
                 # Carry parent-level details over
-                geneDict[parentID]['contig_id'] = value['contig_id']
-                geneDict[parentID]['source'] = value['source']
+                geneDict[parentID]['contig_id'] = deepcopy(value['contig_id'])
+                geneDict[parentID]['source'] = deepcopy(value['source'])
                 if value['feature_type'] in ['rRNA', 'tRNA']:
                         geneDict[parentID]['feature_type'] = 'ncRNA_gene'
                 else:
-                        geneDict[parentID]['feature_type'] = value['feature_type']
-                geneDict[parentID]['coords'] = value['coords']
-                geneDict[parentID]['score'] = value['score']
-                geneDict[parentID]['orientation'] = value['orientation']
-                geneDict[parentID]['frame'] = value['frame']
+                        geneDict[parentID]['feature_type'] = deepcopy(value['feature_type'])
+                geneDict[parentID]['coords'] = deepcopy(value['coords'])
+                geneDict[parentID]['score'] = deepcopy(value['score'])
+                geneDict[parentID]['orientation'] = deepcopy(value['orientation'])
+                geneDict[parentID]['frame'] = deepcopy(value['frame'])
                 # Specifically handle attributes
                 for k, v in value['attributes'].items():
                         if v == key:
@@ -173,17 +174,17 @@ def gff2index_to_gff3index(gff2Index):
                 geneDict[parentID]['feature_list'].append(subfeatureID)
                 geneDict[parentID][subfeatureID] = {'attributes': {}}
                 # Populate subfeature with relevant details
-                geneDict[parentID][subfeatureID]['contig_id'] = value['contig_id']
-                geneDict[parentID][subfeatureID]['source'] = value['source']
+                geneDict[parentID][subfeatureID]['contig_id'] = deepcopy(value['contig_id'])
+                geneDict[parentID][subfeatureID]['source'] = deepcopy(value['source'])
                 if value['feature_type'] == 'gene':
                         subfeatureType = 'mRNA'
                 else:
-                        subfeatureType = value['feature_type']
+                        subfeatureType = deepcopy(value['feature_type'])
                 geneDict[parentID][subfeatureID]['feature_type'] = subfeatureType
-                geneDict[parentID][subfeatureID]['coords'] = value['coords']
-                geneDict[parentID][subfeatureID]['score'] = value['score']
-                geneDict[parentID][subfeatureID]['orientation'] = value['orientation']
-                geneDict[parentID][subfeatureID]['frame'] = value['frame']
+                geneDict[parentID][subfeatureID]['coords'] = deepcopy(value['coords'])
+                geneDict[parentID][subfeatureID]['score'] = deepcopy(value['score'])
+                geneDict[parentID][subfeatureID]['orientation'] = deepcopy(value['orientation'])
+                geneDict[parentID][subfeatureID]['frame'] = deepcopy(value['frame'])
                 # Repopulate attributes & add parent attribute
                 for k, v in geneDict[parentID]['attributes'].items():
                         if k == 'ID':
@@ -196,9 +197,9 @@ def gff2index_to_gff3index(gff2Index):
                 ### Add in CDS secondary subfeatures to the subfeature object if relevant
                 if value['feature_type'] == 'gene':
                         geneDict[parentID][subfeatureID]['CDS'] = {'attributes': []}
-                        geneDict[parentID][subfeatureID]['CDS']['coords'] = value['exon_coords']
-                        geneDict[parentID][subfeatureID]['CDS']['score'] = value['exon_scores']
-                        geneDict[parentID][subfeatureID]['CDS']['frame'] = value['exon_frame']
+                        geneDict[parentID][subfeatureID]['CDS']['coords'] = deepcopy(value['exon_coords'])
+                        geneDict[parentID][subfeatureID]['CDS']['score'] = deepcopy(value['exon_scores'])
+                        geneDict[parentID][subfeatureID]['CDS']['frame'] = deepcopy(value['exon_frame'])
                         # Repopulate attributes & add parent attributes
                         for i in range(len(value['exon_coords'])):
                                 geneDict[parentID][subfeatureID]['CDS']['attributes'].append({})
@@ -215,9 +216,9 @@ def gff2index_to_gff3index(gff2Index):
                                 geneDict[parentID][subfeatureID]['feature_list'].append('CDS')
                 ### Add in exon secondary subfeatures to all objects
                 geneDict[parentID][subfeatureID]['exon'] = {'attributes': []}
-                geneDict[parentID][subfeatureID]['exon']['coords'] = value['exon_coords']
-                geneDict[parentID][subfeatureID]['exon']['score'] = value['exon_scores']
-                geneDict[parentID][subfeatureID]['exon']['frame'] = value['exon_frame']
+                geneDict[parentID][subfeatureID]['exon']['coords'] = deepcopy(value['exon_coords'])
+                geneDict[parentID][subfeatureID]['exon']['score'] = deepcopy(value['exon_scores'])
+                geneDict[parentID][subfeatureID]['exon']['frame'] = deepcopy(value['exon_frame'])
                 # Repopulate attributes & add parent attributes
                 for i in range(len(value['exon_coords'])):
                         geneDict[parentID][subfeatureID]['exon']['attributes'].append({})
@@ -387,30 +388,31 @@ def gff3_index_contig_reorder(gff3Index, fastaFile, locationStart):
         0 is equivalent to contigLen. This gives the formula for negative integers of:
                 newLocation = contigLen - (oldLocation - locationStart)'''
         for primaryID in gff3Index['primaryValues']:
-                # Update primary feature values
-                newStart = gff3Index[primaryID]['coords'][0] - (locationStart - 1)
-                newEnd = gff3Index[primaryID]['coords'][1] - (locationStart - 1)
-                if (newStart < 1 and newEnd >= 1) or newStart > contigLen or newEnd > contigLen:        # If this doesn't occur here, it shouldn't occur below
-                        print('The new start location results in a feature being split into two fragments at the start and end of the MtDNA genome')
-                        print('Feature in question = "' + primaryID + '"')
-                        print('This isn\'t a good way to present the annotation, so I\'ve not been coded to handle this scenario.')
-                        print('Choose a start location that doesn\'t result in such fragmentation and try again; program will exit now.')
-                        stop
-                newStart, newEnd = coord_overflow_invert(newStart, newEnd, contigLen)
-                gff3Index[primaryID]['coords'] = newStart, newEnd
-                # Update subfeature values
+                '''Note here that we need to take a ground-up approach to the coordinate revisioning. If we go
+                top-down with genes that have introns, we might not allow certain genes to be broken up correctly
+                across introns. This might normally be a problem, but since MITOS2 doesn't order its genes properly
+                anyway, it's something that the user will need to sort out themself manually (sorry, can't automate it...)'''
+                # Ground-up loop
                 for subfeature in gff3Index[primaryID]['feature_list']:
-                        newStart = gff3Index[primaryID][subfeature]['coords'][0] - (locationStart - 1)
-                        newEnd = gff3Index[primaryID][subfeature]['coords'][1] - (locationStart - 1)
-                        newStart, newEnd = coord_overflow_invert(newStart, newEnd, contigLen)
-                        gff3Index[primaryID][subfeature]['coords'] = newStart, newEnd
                         # Update secondary subfeature values
                         for subfeatType in gff3Index[primaryID][subfeature]['feature_list']:
                                 for i in range(len(gff3Index[primaryID][subfeature][subfeatType]['coords'])):
                                         newStart = gff3Index[primaryID][subfeature][subfeatType]['coords'][i][0] - (locationStart - 1)
                                         newEnd = gff3Index[primaryID][subfeature][subfeatType]['coords'][i][1] - (locationStart - 1)
+                                        if (newStart < 1 and newEnd >= 1) or newStart > contigLen or newEnd > contigLen:
+                                                print('The new start location results in an exon being split into two fragments at the start and end of the MtDNA genome')
+                                                print('Feature in question = "' + primaryID + '"')
+                                                print('This isn\'t a good way to present the annotation, so I\'ve not been coded to handle this scenario.')
+                                                print('Choose a start location that doesn\'t result in such fragmentation and try again; program will exit now.')
+                                                quit()
                                         newStart, newEnd = coord_overflow_invert(newStart, newEnd, contigLen)
-                                        gff3Index[primaryID][subfeature][subfeatType]['coords'][i] = newStart, newEnd
+                                        gff3Index[primaryID][subfeature][subfeatType]['coords'][i] = [newStart, newEnd]
+                        # Update primary subfeature values based on secondary subfeatures
+                        secondarySubCoords = [x for coordPair in gff3Index[primaryID][subfeature]['exon']['coords'] for x in coordPair]
+                        gff3Index[primaryID][subfeature]['coords'] = [min(secondarySubCoords), max(secondarySubCoords)]
+                # Update primary feature values based on primary subfeatures
+                subfeatCoords = [x for subfeature in gff3Index[primaryID]['feature_list'] for x in gff3Index[primaryID][subfeature]['coords']]
+                gff3Index[primaryID]['coords'] = [min(subfeatCoords), max(subfeatCoords)]
         return gff3Index, locationStart
 
 def gff3_index_reorder_to_file(gff3Index, outputFileName, sepChars):    # gff3Index is presumed to have lines values attached to all primary features
@@ -462,8 +464,11 @@ def fasta_start_reorder(record, locationStart):         # record is expected to 
 usage = """%(prog)s reads in GFF2 file produced by a program like MITOS2 for MtDNA
 sequence annotation and updates this file to GFF3 specification. Optionally, one can
 reorder the file to start at a specified coordinate or feature which can be helpful
-for consistency when comparing multiple MtDNA sequences. Currently, this is only
-configured for handling animal MtDNA i.e., mitochondrial genomes without introns.
+for consistency when comparing multiple MtDNA sequences. Note that this program
+does not ensure that gene feature exons (if there are introns) are ordered correctly;
+you will need to do this yourself. This is necessary since MITOS2 doesn't order
+exons correctly itself, and it is non-trivial to do this without involving BLAST comparison
+to related species.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-g", dest="gff2File",
@@ -478,11 +483,6 @@ p.add_argument("-o", dest="outputPrefix",
                help="Output file name prefix; relevant outputs will be in the format ${outputPrefix}.gff3 and ${outputPrefix}.fasta (if relevant)")
 
 args = p.parse_args()
-## HARDCODED TESTING
-args.gff2File = r'E:\genome\mtDNA\mitos_results\act\act_mtdna.gff'
-args.fastaFile = r'E:\genome\mtDNA\act_mtdna.ar2pil1.fasta'
-args.locationStart = 'cox2'
-args.outputPrefix = r'E:\genome\mtDNA\mitos_results\act\act_mtdna_cox2'
 validate_args(args)
 
 # Parse the GFF2 annotation file
