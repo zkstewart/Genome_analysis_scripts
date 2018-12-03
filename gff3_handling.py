@@ -147,6 +147,8 @@ def gff3_index(gff3File):
         indexDict['primaryValues'] = geneDict['primaryValues']
         geneDict['mrnaValues'] = idValues['feature']['mRNA']
         indexDict['mrnaValues'] = geneDict['mrnaValues']
+        geneDict['secondaryValues'] = [feature for featureList in geneDict['idValues']['feature'].values() for feature in featureList]
+        indexDict['secondaryValues'] = geneDict['secondaryValues']
         contigValues = list(set(contigValues))
         try:
                 contigValues.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
