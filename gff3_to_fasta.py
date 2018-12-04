@@ -36,6 +36,13 @@ def validate_args(args):
         if args.seqType == None:
                 print('You need to specify the seqType argument for this program to run.')
                 quit()
+        # Ensure that translationTable value is sensible
+        if args.translationTable < 1:
+                print('translationTable value must be greater than 1. Fix this and try again.')
+                quit()
+        elif args.translationTable > 31:
+                print('translationTable value must be less than 31. Fix this and try again.')
+                quit()
         # Format output names
         mainOutputFileName = None
         nuclOutputFileName = None
@@ -92,7 +99,7 @@ def longest_iso(geneDictObj):
         mrnaList = [longestMrna[0]]
         return mrnaList
 
-def cds_to_prot(seq, phase, seqid):
+def cds_to_prot(seq, phase, seqid, geneticCode):
         # Setup
         import warnings
         from Bio.Seq import Seq
@@ -108,7 +115,7 @@ def cds_to_prot(seq, phase, seqid):
         nucl = Seq(seq, generic_dna)
         with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
-                        prot = str(nucl.translate(table=1))
+                        prot = str(nucl.translate(table=geneticCode))
         if '*' in prot[:-1]:
                 print('cds_to_prot: Problem with sequence "' + seqid + '"... Sequence contains internal stop codons when translated.')
                 print('This suggests that something is wrong with your GFF3 or the individual gene model. I will simply write the frame 1 (phase 0) translation to file.')
@@ -415,15 +422,17 @@ and AA files (name format == OUTPUT.nucl / OUTPUT.aa)
 
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-i", "-input", dest="fasta",
-                  help="Genome fasta file")
+               help="Genome fasta file")
 p.add_argument("-g", "-gff", dest="gff3",
-                  help="GFF3 file")
+               help="GFF3 file")
 p.add_argument("-l", "-locusSeqs", dest="locusSeqs", choices = ['main', 'isoforms'],
-                  help="Type of transcripts to extract from each locus (main == just the longest isoform of each gene, isoforms == all isoforms)")
+               help="Type of transcripts to extract from each locus (main == just the longest isoform of each gene, isoforms == all isoforms)")
 p.add_argument("-s", "-seqType", dest="seqType", choices = ['transcript', 'cds', 'both'],
-                  help="Type of sequence to output (transcripts == exon regions, cds == coding regions)")
+               help="Type of sequence to output (transcripts == exon regions, cds == coding regions)")
 p.add_argument("-o", "-output", dest="outputPrefix",
-             help="Output prefix for fasta files (suffixes will be appended to this; transcript suffix == .fasta, nucleotide cds == .nucl, amino acid cds == .aa)")
+               help="Output prefix for fasta files (suffixes will be appended to this; transcript suffix == .fasta, nucleotide cds == .nucl, amino acid cds == .aa)")
+p.add_argument("-t", "-translation", dest="translationTable", type=int, default=1,
+               help="Optionally specify the NCBI numeric genetic code to utilise for CDS translation (if relevant); this should be an integer from 1 to 31 (default == 1 i.e., Standard Code)")
 p.add_argument("-f", "-force", dest="force", action='store_true',
                help="By default this program will not overwrite existing files. Specify this argument to allow this behaviour at your own risk.", default=False)
 
@@ -458,7 +467,7 @@ with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasi
                                                 prot = pasaProts[mrna]
                                         # Derive the protein from our CDS sequence if necessary
                                         else:
-                                                prot = cds_to_prot(cds, value[mrna]['CDS']['frame'][0], mrna)   # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
+                                                prot = cds_to_prot(cds, value[mrna]['CDS']['frame'][0], mrna, args.translationTable)   # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
                         # Output relevant values to file
                         if args.seqType == 'both' or args.seqType == 'transcript':
                                 mainOut.write('>' + mrna + '\n' + transcript + '\n')
