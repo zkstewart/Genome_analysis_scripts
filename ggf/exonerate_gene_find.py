@@ -7,7 +7,7 @@
 # we can use less strict criteria for gene annotation (e.g., splice rules
 # and gene length are irrelevant when this product is validated).
 
-import os, argparse
+import os, argparse, platform
 from Bio import SeqIO
 
 # Define functions for later use
@@ -15,7 +15,7 @@ from Bio import SeqIO
 def validate_args(args):
         # Ensure all arguments are specified
         for key, value in vars(args).items():
-                if value == None:
+                if value == None and key not in ['signalpdir', 'cygwindir']:
                         print(key + ' argument was not specified; fix your input and try again.')
                         quit()
         # Validate input file locations
@@ -44,6 +44,16 @@ def validate_args(args):
                 print('I am unable to locate the seg execution file "seg" or "seg.exe" within specified directory (' + args.segdir + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
+        if args.cygwindir == None:
+                args.cygwindir = ''
+        if args.signalpdir == None:
+                args.signalpdir = ''
+        if args.signalp != False:
+                if platform.system() == 'Windows':
+                        program_execution_check(os.path.join(args.cygwindir, 'bash.exe --version'))
+                        cygwin_program_execution_check(args.outputLocation, args.cygwindir, args.signalpdir, 'signalp -h')
+                else:
+                        program_execution_check(os.path.join(args.signalpdir, 'signalp -h'))
         # Handle numerical arguments
         if not 0 <= args.identityCutoff <= 100:
                 print('Identity cutoff must be a value >= 0 and <= 100. Specify a new argument and try again.')
@@ -51,12 +61,56 @@ def validate_args(args):
         if not 0 <= args.similarityCutoff <= 100:
                 print('Similarity cutoff must be a value >= 0 and <= 100. Specify a new argument and try again.')
                 quit()
+        if not 0 <= args.coverageCutoff <= 100:
+                print('Coverage cutoff must be a value >= 0 and <= 100. Specify a new argument and try again.')
+                quit()
         if not 0 <= args.intronCutoff:
                 print('Intron length cutoff must be a value >= 0. Specify a new argument and try again.')
+                quit()
+        if args.translationTable < 1:
+                print('translationTable value must be greater than 1. Fix this and try again.')
+                quit()
+        elif args.translationTable > 31:
+                print('translationTable value must be less than 31. Fix this and try again.')
                 quit()
         # Handle file overwrites
         if os.path.isfile(args.outputFileName):
                 print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
+                quit()
+
+def program_execution_check(cmd):
+        import subprocess
+        run_cmd = subprocess.Popen(cmd, stdout = subprocess.PIPE, stderr = subprocess.PIPE, shell = True)
+        cmdout, cmderr = run_cmd.communicate()
+        if cmderr.decode("utf-8") != '' and not cmderr.decode("utf-8").startswith('Usage'):
+                print('Failed to execute program "' + cmd + '". Is this executable in the location specified/discoverable in your PATH, or does the executable even exist? I won\'t be able to run properly if I can\'t execute this program.')
+                print('---')
+                print('stderr is below for debugging purposes.')
+                print(cmderr.decode("utf-8"))
+                print('Program closing now.')
+                quit()
+
+def cygwin_program_execution_check(outDir, cygwinDir, exeDir, exeFile):
+        import subprocess, os
+        # Format script for cygwin execution
+        scriptText = os.path.join(exeDir, exeFile)
+        scriptFile = file_name_gen('tmpscript', '.sh')
+        with open(os.path.join(outDir, scriptFile), 'w') as fileOut:
+                fileOut.write(scriptText)
+        # Format cmd for execution
+        cmd = os.path.join(cygwinDir, 'bash') + ' -l -c ' + os.path.join(outDir, scriptFile).replace('\\', '/')
+        run_cmd = subprocess.Popen(cmd, stdout = subprocess.PIPE, stderr = subprocess.PIPE, shell = True)
+        cmdout, cmderr = run_cmd.communicate()
+        os.remove(os.path.join(outDir, scriptFile))   # Clean up temporary file
+        if cmderr.decode("utf-8") != '' and not 'perl: warning: falling back to the standard locale' in cmderr.decode("utf-8").lower():
+                '''Need the above extra check for signalP since, on Windows at least, you can receive perl warnings which don't impact
+                program operations. I think if that 'falling back' line is in stderr, nothing more serious will be present in stderr -
+                this isn't completely tested, however.'''
+                print('Failed to execute ' + exeFile + ' program via Cygwin using "' + cmd + '". Is this executable in the location specified/discoverable in your PATH, or does the executable even exist? I won\'t be able to run properly if I can\'t execute this program.')
+                print('---')
+                print('stderr is below for debugging purposes.')
+                print(cmderr.decode("utf-8"))
+                print('Program closing now.')
                 quit()
 
 # GFF3-related
@@ -197,10 +251,14 @@ def gff3_index(gff3File):
         
         geneDict['idValues'] = idValues
         indexDict['idValues'] = geneDict['idValues']
-        geneDict['geneValues'] = idValues['main']['gene']       # This and the mrnaValues below act as shortcuts
+        geneDict['geneValues'] = idValues['main']['gene']       # This, primaryValues, and the mrnaValues below act as shortcuts
         indexDict['geneValues'] = geneDict['geneValues']
+        geneDict['primaryValues'] = [feature for featureList in geneDict['idValues']['main'].values() for feature in featureList]
+        indexDict['primaryValues'] = geneDict['primaryValues']
         geneDict['mrnaValues'] = idValues['feature']['mRNA']
         indexDict['mrnaValues'] = geneDict['mrnaValues']
+        geneDict['secondaryValues'] = [feature for featureList in geneDict['idValues']['feature'].values() for feature in featureList]
+        indexDict['secondaryValues'] = geneDict['secondaryValues']
         contigValues = list(set(contigValues))
         try:
                 contigValues.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
@@ -339,6 +397,9 @@ def exonerate_geneid_produce(contigID, sequenceID, idDict):
         # Produce the basic ID prefix
         sequenceBit = sequenceID.split('|')
         sequenceBit.sort(key=len, reverse=True) # This should help to handle sequence IDs like eg|asdf|c1; we assume the longest part is the most informative which should be true with Trinity and GenBank/Swiss-Prot IDs
+        # Specifically handle older Trinity-style IDs
+        if sequenceBit[1].startswith('TR') and sequenceBit[1][2:].isdigit():
+                sequenceBit[0] = sequenceBit[1] + '_' + sequenceBit[0]
         geneID = contigID + '.' + sequenceBit[0]
         if geneID not in idDict:
                 idDict[geneID] = 1
@@ -379,7 +440,7 @@ def exonerate_gff_tmpfile(exonerateFile):
                         if sl[2] == 'gene':
                                 geneID, geneIDDict = exonerate_geneid_produce(sl[0], detailDict['sequence'], geneIDDict)        # This will carry over into CDS/exon lines below this
                                 name = 'exonerate_' + geneID
-                                sl[8] = 'ID=' + geneID + ';Name=' + name + ';identity=' + detailDict['identity'] + ';similarity=' + detailDict['similarity']
+                                sl[8] = 'ID=' + geneID + ';Name=' + name + ';Sequence=' + detailDict['sequence'] + ';identity=' + detailDict['identity'] + ';similarity=' + detailDict['similarity']
                                 exonCount = 1
                         elif sl[2] == 'cds':
                                 sl[2] = 'CDS'
@@ -394,7 +455,7 @@ def exonerate_gff_tmpfile(exonerateFile):
                         # Format an additional mRNA line under gene lines
                         if sl[2] == 'gene':
                                 sl[2] = 'mRNA'
-                                sl[8] = 'ID=' + geneID + '.mrna1;Name=' + name + ';Parent=' + geneID + ';identity=' + detailDict['identity'] + ';similarity=' + detailDict['similarity']
+                                sl[8] = 'ID=' + geneID + '.mrna1;Name=' + name + ';Sequence=' + detailDict['sequence'] + ';Parent=' + geneID + ';identity=' + detailDict['identity'] + ';similarity=' + detailDict['similarity']
                                 fileOut.write('\t'.join(sl) + '\n')
         # Return the file name so we can clean it up later
         return tmpFileName
@@ -451,19 +512,32 @@ def overlapping_gff3_models(nclsHits, gff3Dict, modelCoords):
                 ovlPctDict[mrnaID] = [modelPct, mrnaHitPct, geneID, min(flatMrnaCoords), max(flatMrnaCoords)]
         return ovlPctDict
 
-def cds_extension(coords, contigID, orientation, genomeRecords):        # This code is repurposed from  gmap_gene_find.py
+def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticCode):   # This code is repurposed from gmap_gene_find.py
         # Setup
-        import warnings
+        import warnings, copy
         from Bio.Seq import Seq
         from Bio.Alphabet import generic_dna
-        # Crawl up the genome sequence looking for a way to extend the ORF to 1) an ATG, or 2) the same codon
-        stopCodonsPos = ['tag', 'taa', 'tga']
-        stopCodonsNeg = ['cta', 'tta', 'tca']
-        extensionLength = 90    # This is arbitrary; converts to 30 AA; can alter or consider making available as an argument
+        from Bio.Data import CodonTable
+        # Determine what our accepted start and stop codons are depending on geneticCode and alignment start
+        ## Stop
+        stopCodonsPos = copy.deepcopy(CodonTable.unambiguous_dna_by_id[geneticCode].stop_codons)
+        for i in range(len(stopCodonsPos)):
+                stopCodonsPos[i] = stopCodonsPos[i].lower()
+        stopCodonsNeg = []
+        for i in range(len(stopCodonsPos)):
+                stopCodonsNeg.append(reverse_comp(stopCodonsPos[i]).lower())
+        ## Start
         cds = make_cds(coords, genomeRecords, contigID, orientation)
-        currentStart = cds[0:3]
-        currPos = None
-        atgPos = None
+        currentStart = cds[0:3].lower()
+        startCodonsPos = copy.deepcopy(CodonTable.unambiguous_dna_by_id[geneticCode].start_codons)
+        for i in range(len(startCodonsPos)):
+                startCodonsPos[i] = startCodonsPos[i].lower()
+        if currentStart not in startCodonsPos:
+                startCodonsPos.append(currentStart)
+        startCodonsNeg = []
+        for i in range(len(startCodonsPos)):
+                startCodonsNeg.append(reverse_comp(startCodonsPos[i]).lower())
+        # Crawl up the genome sequence looking for a way to extend the ORF to an accepted start as determined above
         if orientation == '+':
                 # Crawl back looking for the first stop codon - this is our boundary
                 startCoord = int(coords[0][0])
@@ -476,31 +550,16 @@ def cds_extension(coords, contigID, orientation, genomeRecords):        # This c
                         i = 0
                 else:
                         i = i - 2                                       # This walks our coordinate value back to the start of the codon (Atg) since our index currently corresponds to (atG)
-                # Crawl back up from the stop position looking for the first current start or ATG
+                # Crawl back up from the stop position looking for the first accepted start codon
+                accepted = None
                 for x in range(i+3, len(genomeSeq), 3):                 # +3 to look at the next, non-stop codon
                         codon = str(genomeSeq[x:x+3].seq)
-                        if codon.lower() == currentStart.lower() and currPos == None:
-                                currPos = x                     # Note that this X represents the distance in from the stop codon boundary
-                        if codon.lower() == 'atg' and atgPos == None:
-                                atgPos = x
-                # Compare this position to the original based on length and codon type
-                if atgPos != None:
-                        if currentStart.lower() != 'atg':
-                                accepted = [atgPos, True]               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
-                        elif (startCoord - atgPos) >= extensionLength:  # We'll only replace an ATG with another ATG if it increases length by a predefined amount
-                                accepted = [atgPos, True]
-                        else:
-                                accepted = [0, False]
-                else:
-                        accepted = [0, False]                           # The false tag lets us know that 0 is not an extension but the lack thereof
-                if currPos != None:
-                        if (startCoord - currPos) >= accepted[0] + extensionLength:     # We always set accepted as a value above, whether it be an ATG start or 0
-                                accepted = [currPos, True]
-                # Recompute the accepted start position with reference to the entire contig
-                acceptedPos = accepted[0] + 1                           # +1 to reconvert this to 1-based
-                # Update this in our coords value if relevant
-                if accepted[1] == True:
-                        coords[0] = [acceptedPos, coords[0][1]]
+                        if codon.lower() in startCodonsPos:
+                                accepted = x + 1                        # Note that this x represents the distance in from the stop codon boundary; +1 to reconvert this to 1-based
+                                break
+                # Update this in our coords value
+                if accepted != None:
+                        coords[0] = [accepted, coords[0][1]]
         else:
                 # Crawl up looking for the first stop codon - this is our boundary
                 startCoord = int(coords[0][1])
@@ -512,44 +571,28 @@ def cds_extension(coords, contigID, orientation, genomeRecords):        # This c
                 if str(genomeSeq.seq) == '':                            # Handles scenario where the gene model starts at the last base of the contig
                         i = startCoord
                 # Crawl back down from the stop position looking for the first current start or ATG
-                currentStart = reverse_comp(currentStart)               # '-' orientation means we need to reverse complement our cds' start codon
+                accepted = None
                 for x in range(i-1, -1, -3):
                         codon = str(genomeSeq[x-2:x+1].seq)
-                        if codon.lower() == currentStart.lower() and currPos == None:
-                                currPos = x                             # Note that this X represents the distance in from the stop codon boundary
-                        if codon.lower() == 'cat' and atgPos == None:
-                                atgPos = x
-                # Compare this position to the original based on length and codon type
-                if atgPos != None:
-                        if currentStart.lower() != 'cat':
-                                accepted = [atgPos, True]               # We'll accept any length replacement if it's replacing a non-ATG with an ATG
-                        elif atgPos >= extensionLength:                 # We'll only replace an ATG with another ATG if it increases length by a predefined amount
-                                accepted = [atgPos, True]
-                        else:
-                                accepted = [0, False]
-                else:
-                        accepted = [0, False]
-                if currPos != None:
-                        if currPos >= accepted[0] + extensionLength:    # We always set accepted as a value above, whether it be an ATG start or 0
-                                accepted = [currPos, True]              # When we get here, we assume we accepted an ATG start, so we want to extend upon it even further to accept it as a valid extension
-                # Recompute the accepted start position with reference to the entire contig
-                acceptedPos = startCoord + accepted[0] + 1              # +1 to reconvert this to 1-based
+                        if codon.lower() in startCodonsNeg:
+                                accepted = x + 1                        # Note that this x represents the distance in from the stop codon boundary; +1 to reconvert this to 1-based
+                                break
                 # Update this in our coords value
-                if accepted[1] == True:
-                        coords[0] = [coords[0][0], acceptedPos]
+                if accepted != None:
+                        coords[0] = [coords[0][0], accepted]
         # Determine if we need to do a stop codon crawl
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         cdsRecord = Seq(cds, generic_dna)
         with warnings.catch_warnings():
-                warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
-                cdsProt = str(cdsRecord.translate(table=1))
+                warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three
+                cdsProt = str(cdsRecord.translate(table=geneticCode))
         if not cdsProt.count('*') < 2:                                  # Make sure the CDS is correct - it should be!
-                return False, False                                             # EXONERATE-SPECIFIC: this function needs to return two values
+                return False, False, startCodonsPos                     # EXONERATE-SPECIFIC: this function needs to return two values prior to the startCodonsPos value
         if cdsProt.count('*') == 1:
-                if cdsProt[-1] == '*':                                          # If we have a stop codon, it should be at the end
-                        return coords, cds                                      # No need for a backwards crawl
+                if cdsProt[-1] == '*':                                  # If we have a stop codon, it should be at the end
+                        return coords, cds, startCodonsPos              # No need for a backwards crawl
                 else:
-                        return False, False                                            # EXONERATE-SPECIFIC: exonerate hits can contain stop codons
+                        return False, False, startCodonsPos             # EXONERATE-SPECIFIC: exonerate hits can contain internal stop codons
         # Begin the stop codon crawl
         if orientation == '+':
                 endCoord = int(coords[-1][1])
@@ -570,11 +613,10 @@ def cds_extension(coords, contigID, orientation, genomeRecords):        # This c
                         if codon.lower() in stopCodonsNeg:
                                 break
                 i = i - 2 + 1                                           # -2 to go to the start of the codon; +1 to make it 1-based
-                acceptedPos = accepted[0] + 1
                 coords[-1] = [i, coords[-1][1]]
         # Make the final CDS and return
         cds = make_cds(coords, genomeRecords, contigID, orientation)
-        return coords, cds
+        return coords, cds, startCodonsPos                              # We want to return the start codons since we'll use them later
 
 def make_cds(coords, genomeRecords, contigID, orientation):
         cds = []
@@ -586,6 +628,64 @@ def make_cds(coords, genomeRecords, contigID, orientation):
                 cds.append(cdsBit)
         cds = ''.join(cds)
         return cds
+
+def coord_cds_region_update(coords, startChange, stopChange, orientation):
+        # Part 1: Cull exons that aren't coding and figure out how far we are chopping into coding exons
+        origStartChange = startChange
+        origStopChange = stopChange
+        startExonLen = 0
+        stopExonLen = 0
+        microExonSize = -3      # This value is an arbitrary measure where, if a terminal exon is less than this size, we consider it 'fake' and delete it
+        for i in range(2):
+                while True:
+                        if i == 0:                      # The GFF3 is expected to be formatted such that + features are listed lowest coord position -> highest, whereas - features are listed from highest -> lowest
+                                exon = coords[0]        # This is done by PASA and by the exonerate GFF3 parsing system of this code, and it basically means that our first listed exon is always our starting exon
+                        else:
+                                exon = coords[-1]
+                        # Extract details
+                        rightCoord = int(exon[1])
+                        leftCoord = int(exon[0])
+                        exonLen = rightCoord - leftCoord + 1
+                        # Update our change values
+                        if i == 0:
+                                startChange -= exonLen          # This helps us to keep track of how much we need to reduce startChange
+                                if startChange > 0:             # when we begin chopping into the first exon - if the original first exon 
+                                        del coords[0]           # is the one we chop, we end up with reduction value == 0
+                                        startExonLen += exonLen
+                                # Handle microexons at gene terminal
+                                elif startChange > microExonSize:
+                                        del coords[0]
+                                        startExonLen += exonLen
+                                else:
+                                        break
+                        else:
+                                stopChange -= exonLen
+                                if stopChange > 0:
+                                        del coords[-1]
+                                        stopExonLen += exonLen  # We hold onto exon lengths so we can calculate how much we chop into the new start exon
+                                # Handle microexons at gene terminal
+                                elif stopChange > microExonSize:
+                                        del coords[-1]
+                                        stopExonLen += exonLen
+                                else:                           # by calculating stopChange - stopExonLen... if we didn't remove an exon, stopExonLen == 0
+                                        break
+        origStartChange -= startExonLen
+        origStopChange -= stopExonLen
+        # Step 2: Using the chopping lengths derived in part 1, update our coordinates
+        for i in range(len(coords)):
+                splitCoord = coords[i]
+                if i == 0:
+                        if orientation == '+':
+                                splitCoord[0] = int(splitCoord[0]) + origStartChange
+                        else:
+                                splitCoord[1] = int(splitCoord[1]) - origStartChange
+                if i == len(coords) - 1:
+                        if orientation == '+':
+                                splitCoord[1] = int(splitCoord[1]) - origStopChange
+                        else:
+                                splitCoord[0] = int(splitCoord[0]) + origStopChange
+                coords[i] = splitCoord
+        return coords
 
 def splice_sites(coords, genomeRecords, contigID, orientation):
         # Extract bits to left and right of exon
@@ -975,7 +1075,7 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
         return inputDict
 
 ## gff3_to_fasta-related functions
-def cds_to_prot(seq, phase, seqid):
+def cds_to_prot(seq, phase, seqid, geneticCode):
         # Setup
         import warnings
         from Bio.Seq import Seq
@@ -991,12 +1091,12 @@ def cds_to_prot(seq, phase, seqid):
         nucl = Seq(seq, generic_dna)
         with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
-                        prot = str(nucl.translate(table=1))
+                        prot = str(nucl.translate(table=geneticCode))
         if '*' in prot[:-1]:
                 return False                                            # EXONERATE-SPECIFIC: This can occur for GMAP models when they contain internal stop codons; we want to filter these out without providing warning messages
         return prot
 
-def translate_cds(genomeRecords, cdsCoords, orientation, frame, contigID, seqid):   # This code is repurposed from gff3_to_fasta.py
+def translate_cds(genomeRecords, cdsCoords, orientation, frame, contigID, seqid, geneticCode):  # This code is repurposed from gff3_to_fasta.py
         # Retrieve genomic sequence
         try:
                 genomeSeq = str(genomeRecords[contigID].seq)
@@ -1028,7 +1128,7 @@ def translate_cds(genomeRecords, cdsCoords, orientation, frame, contigID, seqid)
         if orientation == '-':
                 cds = reverse_comp(cds)
         # Derive and return protein sequence
-        prot = cds_to_prot(cds, frame[0], seqid)                        # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
+        prot = cds_to_prot(cds, frame[0], seqid, geneticCode)                        # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
         return prot
 
 ## General purpose functions
@@ -1088,7 +1188,7 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
                         geneID = geneID.rsplit('.', maxsplit=1)[0] + '.egf.' + geneID.rsplit('.', maxsplit=1)[1]
                         name = 'exonerate_gene_find_' + geneID
                         # Extract details
-                        firstCoord = value[0][0]        # We need to do this the long way since our changes due to cds_extension aren't reflected in the GFF3 index
+                        firstCoord = value[0][0]        # We need to do this the long way since our changes due to cds_extension_maximal aren't reflected in the GFF3 index
                         firstInts = [int(firstCoord[0]), int(firstCoord[1])]
                         lastCoord = value[0][-1]
                         lastInts = [int(lastCoord[0]), int(lastCoord[1])]
@@ -1143,6 +1243,82 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
                         endComment = '#PROT ' + mrnaID + ' ' + geneID + '\t' + protein
                         fileOut.write(endComment + '\n')
 
+## signalP-related
+def signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, fastaFile, sigpResultFile):
+        import os, subprocess, platform
+        # Get the full fasta file location
+        fastaFile = os.path.abspath(fastaFile)
+        # Format signalP script text
+        scriptText = '"' + os.path.join(signalpdir, 'signalp') + '" -t ' + organism + ' -f short -n "' + sigpResultFile + '" "' + fastaFile + '"'
+        # Generate a script for use with cygwin (if on Windows)
+        if platform.system() == 'Windows':
+                sigpScriptFile = os.path.join(tmpDir, file_name_gen('tmp_sigpScript_' + os.path.basename(fastaFile), '.sh'))
+                with open(sigpScriptFile, 'w') as fileOut:
+                        fileOut.write(scriptText.replace('\\', '/'))
+        # Run signalP depending on operating system
+        if platform.system() == 'Windows':
+                cmd = os.path.join(cygwindir, 'bash') + ' -l -c "' + sigpScriptFile.replace('\\', '/') + '"'
+                runsigP = subprocess.Popen(cmd, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
+                sigpout, sigperr = runsigP.communicate()
+                os.remove(sigpScriptFile)       # Clean up temporary file
+        else:
+                os.putenv("PYTHONPATH",os.pathsep.join([os.getenv("PYTHONPATH",""),signalpdir]))
+                runsigP = subprocess.Popen(scriptText, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
+                sigpout, sigperr = runsigP.communicate()
+        # Process output
+        okayLines = ['is an unknown amino amino acid', 'perl: warning:', 'LC_ALL =', 'LANG =', 'are supported and installed on your system']
+        for line in sigperr.decode("utf-8").split('\n'):
+                # If sigperr indicates null result, create an output file we can skip later
+                if line.rstrip('\n') == '# No sequences predicted with a signal peptide':
+                        with open(sigpResultFile, 'w') as fileOut:
+                                fileOut.write(line)
+                        break
+                # Check if this line has something present within okayLines
+                okay = 'n'
+                for entry in okayLines:
+                        if entry in line or line == '':
+                                okay = 'y'
+                                break
+                if okay == 'y':
+                        continue
+                # If nothing matches the okayLines list, we have a potentially true error
+                else:
+                        raise Exception('SignalP error occurred when processing file name ' + fastaFile + '. Error text below\n' + sigperr.decode("utf-8"))
+
+def run_signalp_sequence(signalpdir, cygwindir, organism, tmpDir, seqID, protString):
+        # Generate temporary file for sequence
+        tmpFileName = file_name_gen(os.path.join(tmpDir, 'tmp_sigpInput_' + seqID + '_'), '.fasta')
+        with open(tmpFileName, 'w') as fileOut:
+                fileOut.write('>' + seqID.lstrip('>') + '\n' + protString + '\n')      # lstrip any > characters just in case they're already present
+        # Run signalP
+        sigpResultFile = file_name_gen(os.path.join(tmpDir, 'tmp_sigpResults_' + seqID + '_'), '.txt')
+        signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, tmpFileName, sigpResultFile)
+        # Join and parse signalP results files
+        sigPredictions = {}
+        with open(sigpResultFile, 'r') as fileIn:
+                for line in fileIn:
+                        if line.startswith('#'):
+                                continue
+                        sl = line.split('\t')
+                        sigPredictions[sl[0]] = [int(sl[3]), int(sl[4])]
+        # Clean up temporary 
+        os.remove(tmpFileName)
+        os.remove(sigpResultFile)
+        # Return signalP prediction dictionary
+        return sigPredictions
+
+## General purpose funtions
+def file_name_gen(prefix, suffix):
+        import os
+        ongoingCount = 2
+        while True:
+                if not os.path.isfile(prefix + '1' + suffix):
+                        return prefix + '1' + suffix
+                elif os.path.isfile(prefix + str(ongoingCount) + suffix):
+                        ongoingCount += 1
+                else:
+                        return prefix + str(ongoingCount) + suffix
+
 # Set arbitrary values for later use
 segLCRCutoff = 60
 '''60 acts as a way of saying that we want our short peptides to not be entirely LCR
@@ -1170,26 +1346,64 @@ p.add_argument("-e", "-exonerate", dest="exonerateFile", type=str,
                help="Specify the exonerate output file containing GFF predictions")
 p.add_argument("-f", "-fasta", dest="fastaFile", type=str,
                help="Specify the fasta file containing amino acid sequences used for exonerate query")
-p.add_argument("-gm", "-gmapFile", dest="gmapFile", type=str,
-               help="Input GMAP GFF3 (-f 2) file from transcriptome alignment.")
-p.add_argument("-cd", "-cdsFile", dest="cdsFile", type=str,
-               help="Input CDS fasta file (this file was used for GMAP alignment).")
 p.add_argument("-seg", "-segdir", dest="segdir", type=str,
                help="Specify the directory where seg executables are located.")
 p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
                help="Specify the identity cutoff for retrieving exonerate hits (default==60.00)", default=60.00)
 p.add_argument("-si", "-similarity", dest="similarityCutoff", type=float,
                help="Specify the similarity cutoff for retrieving exonerate hits (default==80.00)", default=80.00)
+p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
+               help="Specify the coverage cut-off for retrieving exonerate hits (default == 90.00).", default=90.00)
 p.add_argument("-in", "-intron", dest="intronCutoff", type=float,
                help="Specify the maximum intron length allowed for exonerate hits (default==50000)", default=50000)     # This value is a bit arbitrary, but exonerate can go "fishing" for matches and this can help to constrain this behaviour
+p.add_argument("-t", "-translation", dest="translationTable", type=int, default=1,
+               help="Optionally specify the NCBI numeric genetic code to utilise for CDS translation; this should be an integer from 1 to 31 (default == 1 i.e., Standard Code)")
 p.add_argument("-o", "-outputFile", dest="outputFileName", type=str,
                help="Output file name")
+# SignalP opts
+p.add_argument("-sigp", dest="signalp", action='store_true', default=False,
+               help="""Optionally use signalP evidence for determining the optimal start site
+               for sequences when these sequences are expected to begin with a signal peptide""")
+p.add_argument("-sigpdir", "-signalpdir", dest="signalpdir", type=str,
+               help="""If -sigp is provided, specify the directory where signalp executables are located.
+               If this is already in your PATH, you can leave this blank.""")
+p.add_argument("-sigporg", dest="signalporg", type = str, choices = ['euk', 'gram-', 'gram+'], default='euk',
+               help="""If -sigp is provided, specify the type of organism for SignalP from the available
+               options. Refer to the SignalP manual if unsure what these mean (default == 'euk').""")
+p.add_argument("-c", "-cygwindir", dest="cygwindir", type=str,
+               help="""If -sigp is provided, Cygwin is required since you are running this program on a Windows computer.
+               Specify the location of the bin directory here or, if this is already in your PATH, you can leave this blank."""
+               if platform.system() == 'Windows' else argparse.SUPPRESS)
+# Behaviour opts
+p.add_argument("-nogmapskip", dest="nogmapskip", action='store_true', default=False,
+               help="""Optionally disallow predictions that lack support from GMAP alignment""")
+p.add_argument("-nosigpskip", dest="nosigpskip", action='store_true', default=False,
+               help="""Optionally disallow predictions that lack signal peptide prediction""")
 
 args = p.parse_args()
+## HARDCODED TESTS
+#args.genomeFile = r'act_smrtden.ar3.pil2.deGRIT2.noredun.fasta'
+#args.exonerateFile = r'act_smrtden.ar3.pil2.deGRIT2.noredun.fasta_exonerate_toxprotatenpro.gff3'
+#args.fastaFile = r'toxprot_plus_atenproteomics.fasta'
+#args.gmapFile = r'act_smart_okay-okalt.cds_gmap.gff3'
+#args.cdsFile = r'act_smart_okay-okalt.cds'
+#args.outputFileName = r'act_exonerateparse.gff3'
+args.genomeFile = r'cal_smrtden.ar4.pil2.deGRIT2.noredun.fasta'
+args.exonerateFile = r'cal_smrtden.ar4.pil2.deGRIT2.noredun.fasta_exonerate_toxprot_aten_telma_pro.gff3'
+args.fastaFile = r'toxprot_plus_aten_telma_proteomics.fasta'
+args.gmapFile = r'cal_smart_okay-okalt.cds_gmap.gff3'
+args.cdsFile = r'cal_smart_okay-okalt.cds'
+args.outputFileName = r'cal_exonerateparse.gff3'
+args.signalp = True
+
+args.segdir = r'/home/lythl/bioinformatics/seg'
 validate_args(args)
 
 # Load the genome fasta file and parse its contents
 genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
+
+# Load the CDS fasta file and parse its contents
+exonerateRecords = SeqIO.to_dict(SeqIO.parse(open(args.fastaFile, 'r'), 'fasta'))
 
 # Parse exonerate file and extract GFF3 lines
 tmpExonerateFile = exonerate_gff_tmpfile(args.exonerateFile)
@@ -1211,6 +1425,9 @@ segIDBits = {}
 for candidate in segCandidates:
         sequenceBit = candidate.split('|')
         sequenceBit.sort(key=len, reverse=True)
+        # Specifically handle older Trinity-style IDs [I don't really like hardcoding sequence ID handling, but it's hard to get the "best" sequence bit otherwise]
+        if sequenceBit[1].startswith('TR') and sequenceBit[1][2:].isdigit():
+                sequenceBit[0] = sequenceBit[1] + '_' + sequenceBit[0]
         segIDBits[sequenceBit[0]] = ''                          # This gives us just the ID bit that's part of our exonerateCandidates as part of a dict for fast lookup
 goodCandidates = []
 for candidate in exonerateCandidates:
@@ -1230,38 +1447,28 @@ for candidate in goodCandidates:
 gmapIndex = gff3_index(args.gmapFile)
 gmapNcls, gmapLoc = gff3_parse_ncls_mrna(args.gmapFile)
 
-# Find overlapping GMAP models corresponding to each candidate
+# Assess predictions
 candidateModelDict = {}
-for candidate in goodIntronCandidates:
-        mrnaID = exonerateIndex[candidate]['feature_list'][0]
-        candidateMrnaObj = exonerateIndex[candidate][mrnaID]
-        candidateMrnaCoords = candidateMrnaObj['coords']
-        candidateCDSCoords = candidateMrnaObj['CDS']['coords']
+for candidateID in goodIntronCandidates:
+        ## Curation phase: remove exonerate alignments that do not meet quality cutoffs
+        # Grab relevant candidate details
+        mrnaID = exonerateIndex[candidateID]['feature_list'][0]
+        candidateMrnaObj = exonerateIndex[candidateID][mrnaID]
         candidateLen = 0
-        for coord in candidateCDSCoords:
+        for coord in candidateMrnaObj['CDS']['coords']:
                 candidateLen += coord[1] - coord[0] + 1
-        # Extend exonerate CDS
-        '''This is necessary since exonerate doesn't include the stop codon in its CDS coordinates,
-        and it's also more likely to not capture the full ORF if we're aligning proteins from other species'''
-        candidateCDSCoords, candidateCDS = cds_extension(candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords)
-        # If CDS extension fails, exonerate's prediction contains an internal stop codon and we should skip this model
-        if candidateCDSCoords == False:
-                print('Failed: ' + candidate)
+        origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
+        # Obtain the original sequence used for exonerate alignment
+        exonerateSeqID = exonerateIndex[candidateID]['attributes']['Sequence']
+        exonerateSeq = exonerateRecords[exonerateSeqID]
+        # Skip any alignments that don't meet coverage cutoff
+        if len(origCandidateCDS) < (len(exonerateSeq)*3)*(args.coverageCutoff/100):
                 continue
-        # If extension changed the sequence length more than a short bit, this is reason for concern and we should drop the model here
-        if len(candidateCDS) > (candidateLen + (candidateLen*0.25)):
-                print('Over-extension: ' + candidate)
-                continue
-        # Query NCLS object for overlaps
-        dictEntries = []
-        start, stop = candidateMrnaCoords
-        dictEntries = ncls_finder(gmapNcls, gmapLoc, start, stop, candidateMrnaObj['contig_id'], 4)    # 4 refers to the index position in the gff3Loc dictionary for the contigID
-        # If no overlaps exist, continue
-        if dictEntries == []:
-                print('No GMAP overlap: ' + candidate)
-                continue
+        ## Replacement phase: replace exonerate alignments with GMAP alignments if similar ones exist
+        # Query NCLS object for overlaps with transcriptome alignments
+        dictEntries = ncls_finder(gmapNcls, gmapLoc, candidateMrnaObj['coords'][0], candidateMrnaObj['coords'][1], candidateMrnaObj['contig_id'], 4)    # 4 refers to the index position in the gff3Loc dictionary for the contigID
         # If more than one overlap, determine which is best
-        ovlPctDict = overlapping_gff3_models(dictEntries, gmapIndex, candidateCDSCoords)
+        ovlPctDict = overlapping_gff3_models(dictEntries, gmapIndex, candidateMrnaObj['CDS']['coords'])
         bestPctList = []
         if len(ovlPctDict) < 2:
                 for key, value in ovlPctDict.items():
@@ -1282,29 +1489,74 @@ for candidate in goodIntronCandidates:
                         # Hold onto equivalent bests
                         elif value[0] == bestPctList[0][0] and value[1] == bestPctList[0][1]:
                                 bestPctList.append(value)
-        bestPctList = bestPctList[0]    # If we have multiple equivalent CDS bits (probably from duplicated genes with less conserved UTRs) then it shouldn't matter which one we choose
-        # Get protein sequences and relevant details for this exonerate and GMAP model from index
-        exonerateProt = translate_cds(genomeRecords, candidateCDSCoords, candidateMrnaObj['orientation'], candidateMrnaObj['CDS']['frame'], candidateMrnaObj['contig_id'], mrnaID)
-        gmapMrnaID = gmapIndex[bestPctList[5]]['feature_list'][0]       # bestPctList[5] corresponds to the mRNA ID from exonerate's GFF
-        gmapMrnaObj = gmapIndex[bestPctList[5]][gmapMrnaID]
-        if 'CDS' not in gmapMrnaObj:    # This handles unusual cases where GMAP alignments don't have CDS features; from what I understand, these have internal stop codons
-                continue
-        gmapProt = translate_cds(genomeRecords, gmapMrnaObj['CDS']['coords'], gmapMrnaObj['orientation'], gmapMrnaObj['CDS']['frame'], candidateMrnaObj['contig_id'], gmapMrnaID)
-        if gmapProt == False:
-                bestPctList[0], bestPctList[1] = 0.00, 0.00     # This is a way of ensuring that we only store the exonerate model if GMAP's contains internal stop codons
-        # If both exonerate and GMAP models are very similar, store both for later collapsing with compare_novels()
-        if bestPctList[0] >= 0.95 and bestPctList[1] >= 0.95:
-                candidateModelDict[mrnaID] = [candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], exonerateProt, mrnaID]
-                candidateModelDict[bestPctList[5]] = [gmapMrnaObj['CDS']['coords'], gmapMrnaObj['contig_id'], gmapMrnaObj['orientation'], gmapProt, mrnaID]
-                print('Stored both: ' + candidate)
-        # Else if the exonerate hit is almost entirely engulfed by a GMAP model, just store the GMAP model since we trust the transcriptome more than the queried proteome [this is because the transcriptome should be from this species but the proteome may be something like ToxProt]
-        elif bestPctList[0] >= 0.95 and bestPctList[1] >= 0.50:
-                candidateModelDict[bestPctList[5]] = [gmapMrnaObj['CDS']['coords'], gmapMrnaObj['contig_id'], gmapMrnaObj['orientation'], gmapProt, mrnaID]
-                print('Stored GMAP: ' + candidate)
-        # Else if they both differ a fair bit then just store the exonerate hit
+        # If no CDS overlaps exist, continue if this behaviour was specified
+        if bestPctList == []:
+                if args.nogmapskip:
+                        continue
+        elif bestPctList[0][0] < args.coverageCutoff/100:       # Applying the coverageCutoff here should ensure that the GMAP alignment would also score roughly the same against the original exonerate query sequence
+                if args.nogmapskip:
+                        continue
+        # If there is CDS overlap that is significant, we'll replace this exonerate model with the GMAP one
+        # '''It's possible that exonerate alignments from different species are occurring, which means that our exonerate model might
+        # be ~90% identical but with some divergence at the start or end. Our GMAP alignments are assumed to be same-species alignments
+        # so these should be more reliable in such cases'''
         else:
-                candidateModelDict[mrnaID] = [candidateCDSCoords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], exonerateProt, mrnaID]
-                print('Stored exonerate: ' + candidate)
+                bestPctList = bestPctList[0]    
+                candidateMrnaObj = gmapIndex[bestPctList[2]][gmapIndex[bestPctList[2]]['feature_list'][0]]      # If we have multiple equivalent CDS bits (probably from duplicated genes with less conserved UTRs) then it shouldn't matter which one we choose
+                if 'CDS' not in candidateMrnaObj:                               # If the GMAP prediction lacks CDS then there's something wrong with it and we'll stick to the exonerate alignment which we know does not have internal stop codons
+                        if args.nogmapskip:                                     # If this is our behaviour then we need to skip since we're not going to treat flawed GMAP matches as legitimate ones
+                                continue
+                        candidateMrnaObj = exonerateIndex[candidateID][mrnaID]
+                origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
+        # Obtain the maximally bounded CDS region with an accepted start codon
+        ## WHY IS THIS BUGGED? [[51401, 9]]
+        candidateMrnaObj['CDS']['coords'], candidateCDS, acceptedStartCodons = cds_extension_maximal(candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords, args.translationTable)
+        # If CDS extension fails, the prediction contains an internal stop codon and we should skip this model
+        if candidateMrnaObj['CDS']['coords'] == False:
+                print('Failed: ' + candidateID)
+                continue
+        # If extension changed the sequence length more than a short bit, this is reason for concern and we should drop the model here
+        '''If we're able to extend sequences by quite a bit, then it becomes possible that our first predicted exon is only a fragment
+        of a larger exon'''
+        if len(candidateCDS) > (candidateLen + (candidateLen*0.25)):
+                print('Over-extension: ' + candidateID)
+                continue
+        # Figure out the original CDS start location in our maximally extended region
+        origStartIndex = candidateCDS.find(origCandidateCDS)
+        # Obtain possible start sites
+        startIndices = []
+        allowedShortening = 0.25         # Arbitrary; we want to prevent a sequence from being shortened excessively
+        for x in range(0, int(round(len(exonerateSeq)*allowedShortening, 0)), 3):
+                codon = candidateCDS[x:x+3]
+                if codon.lower() in acceptedStartCodons:
+                        startIndices.append([x, codon.lower()])
+        # Format our evidence list and sort candidates based on weighting of ranks in order of priority commonDist > startDist > startProp > aaProp > length
+        startCandidates = []
+        for indexPair in startIndices:
+                # Format information from direct sequence attributes
+                startDist = abs(indexPair[0] - origStartIndex)
+                mStart = 0
+                if indexPair[1] == 'atg':
+                        mStart = 1
+                # Identify signal peptides if relevant
+                signalPep = 0
+                if args.signalp:
+                        indexProt = cds_to_prot(candidateCDS[indexPair[0]:], '.', candidateID, args.translationTable)
+                        sigpPredictions = run_signalp_sequence(args.signalpdir, args.cygwindir, args.signalporg, os.path.dirname(args.outputFileName), candidateID, indexProt)
+                        if sigpPredictions != {}:
+                                signalPep = 1
+                # Store results
+                startCandidates.append([indexPair[0], signalPep, mStart, startDist])    # The 0 relates to the signalP prediction evidence; we'll decide if we need to run signalP below
+        # Sort candidates on the basis of evidence
+        startCandidates.sort(key = lambda x: (-x[1], -x[2], x[3], x[0]))
+        bestCandidate = startCandidates[0]
+        if args.nosigpskip and bestCandidate[1] == 0:
+                continue
+        # Derive and update the model coordinates for this position & grab the CDS and protein sequences
+        candidateMrnaObj['CDS']['coords'] = coord_cds_region_update(candidateMrnaObj['CDS']['coords'], bestCandidate[0], 0, candidateMrnaObj['orientation'])
+        candidateCDS = candidateCDS[bestCandidate[0]:]
+        candidateProt = cds_to_prot(candidateCDS, '.', candidateID, args.translationTable)
+        candidateModelDict[mrnaID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
 
 # Collapse overlapping GMAP/exonerate models by selecting the 'best' according to canonical splicing and other rules
 novelDict = compare_novels(candidateModelDict, genomeRecords)
@@ -1330,7 +1582,8 @@ for candidate, hitDetails in novelDict.items():
         lengthAllowance = round(queryLen * 0.25, 0)
         if candidateLen <= queryLen + lengthAllowance and candidateLen >= queryLen - lengthAllowance:
                 finalDict[hitDetails[4]] = hitDetails   # Transition our ID system to the exonerate system; this lets our sequence IDs be more informative w/r/t which protein led to their annotation
-
+        
+        
 # Final filtration of models derived from partial hits which consist primarily of LCR
 tmpModelFastaName = tmp_file_name_gen('tmp_EGF_', '.fasta', hitDetails[4])      # The hashstring can just be the last entry in finalDict, this should vary between runs with different inputs
 with open(tmpModelFastaName, 'w') as fileOut:
