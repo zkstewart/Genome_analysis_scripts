@@ -567,15 +567,15 @@ def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticC
                 for i in range(0, len(genomeSeq), 3):
                         codon = str(genomeSeq[i:i+3].seq)
                         if codon.lower() in stopCodonsNeg:
-                                break
+                                break                                   # After this, i will equal the distance from the currentStart to the stop codon boundary
                 if str(genomeSeq.seq) == '':                            # Handles scenario where the gene model starts at the last base of the contig
                         i = startCoord
                 # Crawl back down from the stop position looking for the first current start or ATG
                 accepted = None
-                for x in range(i-1, -1, -3):
+                for x in range(i-1, -1, -3):                            # Here, we go from our stop codon boundary (which we went out/to the right to derive earlier) back in to the sequence/to the left
                         codon = str(genomeSeq[x-2:x+1].seq)
                         if codon.lower() in startCodonsNeg:
-                                accepted = x + 1                        # Note that this x represents the distance in from the stop codon boundary; +1 to reconvert this to 1-based
+                                accepted = x + startCoord + 1           # Note that this x represents the distance out to the stop codon boundary; +startCoord to  +1 to reconvert this to 1-based
                                 break
                 # Update this in our coords value
                 if accepted != None:
@@ -1334,10 +1334,11 @@ techniques) alongside GMAP alignment of transcripts. The exonerate input file sh
 have been generated with argument '--showtargetgff yes' and GMAP's GFF3 should
 have been generated with argument '-f 2' and a large value for '-n'. When
 aligning older paralogous or orthologous proteins, identity score may be reduced
-while similarity may remain high - the rule I've encountered for that is 60-80
+while similarity may remain high - the rule for that appears to be 60-80
 which is reflected in the defaults, but depending on your queried sequences (e.g.,
 if they are all from the species being targeted) you may want to increase the identity
-cut-off to be equivalent to the similarity i.e., 80-80.
+cut-off. Coverage should be specified to a relatively high value (at least 70) unless
+you provide -nogmapskip.
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("-ge", "-genomeFile", dest="genomeFile",
@@ -1353,7 +1354,7 @@ p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
 p.add_argument("-si", "-similarity", dest="similarityCutoff", type=float,
                help="Specify the similarity cutoff for retrieving exonerate hits (default==80.00)", default=80.00)
 p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
-               help="Specify the coverage cut-off for retrieving exonerate hits (default == 90.00).", default=90.00)
+               help="Specify the coverage cut-off for retrieving exonerate hits (default==70.00).", default=70.00)
 p.add_argument("-in", "-intron", dest="intronCutoff", type=float,
                help="Specify the maximum intron length allowed for exonerate hits (default==50000)", default=50000)     # This value is a bit arbitrary, but exonerate can go "fishing" for matches and this can help to constrain this behaviour
 p.add_argument("-t", "-translation", dest="translationTable", type=int, default=1,
@@ -1376,27 +1377,13 @@ p.add_argument("-c", "-cygwindir", dest="cygwindir", type=str,
                if platform.system() == 'Windows' else argparse.SUPPRESS)
 # Behaviour opts
 p.add_argument("-nogmapskip", dest="nogmapskip", action='store_true', default=False,
-               help="""Optionally disallow predictions that lack support from GMAP alignment""")
+               help="""Optionally disallow predictions that lack support from GMAP alignment
+               (recommended if coverageCutoff is less than or equal to 70)""")
 p.add_argument("-nosigpskip", dest="nosigpskip", action='store_true', default=False,
-               help="""Optionally disallow predictions that lack signal peptide prediction""")
+               help="""Optionally disallow predictions that lack signal peptide prediction
+               (recommended for the prediction of genes which should have a signal peptide)""")
 
 args = p.parse_args()
-## HARDCODED TESTS
-#args.genomeFile = r'act_smrtden.ar3.pil2.deGRIT2.noredun.fasta'
-#args.exonerateFile = r'act_smrtden.ar3.pil2.deGRIT2.noredun.fasta_exonerate_toxprotatenpro.gff3'
-#args.fastaFile = r'toxprot_plus_atenproteomics.fasta'
-#args.gmapFile = r'act_smart_okay-okalt.cds_gmap.gff3'
-#args.cdsFile = r'act_smart_okay-okalt.cds'
-#args.outputFileName = r'act_exonerateparse.gff3'
-args.genomeFile = r'cal_smrtden.ar4.pil2.deGRIT2.noredun.fasta'
-args.exonerateFile = r'cal_smrtden.ar4.pil2.deGRIT2.noredun.fasta_exonerate_toxprot_aten_telma_pro.gff3'
-args.fastaFile = r'toxprot_plus_aten_telma_proteomics.fasta'
-args.gmapFile = r'cal_smart_okay-okalt.cds_gmap.gff3'
-args.cdsFile = r'cal_smart_okay-okalt.cds'
-args.outputFileName = r'cal_exonerateparse.gff3'
-args.signalp = True
-
-args.segdir = r'/home/lythl/bioinformatics/seg'
 validate_args(args)
 
 # Load the genome fasta file and parse its contents
@@ -1509,7 +1496,6 @@ for candidateID in goodIntronCandidates:
                         candidateMrnaObj = exonerateIndex[candidateID][mrnaID]
                 origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
         # Obtain the maximally bounded CDS region with an accepted start codon
-        ## WHY IS THIS BUGGED? [[51401, 9]]
         candidateMrnaObj['CDS']['coords'], candidateCDS, acceptedStartCodons = cds_extension_maximal(candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords, args.translationTable)
         # If CDS extension fails, the prediction contains an internal stop codon and we should skip this model
         if candidateMrnaObj['CDS']['coords'] == False:
@@ -1561,50 +1547,11 @@ for candidateID in goodIntronCandidates:
 # Collapse overlapping GMAP/exonerate models by selecting the 'best' according to canonical splicing and other rules
 novelDict = compare_novels(candidateModelDict, genomeRecords)
 
-# Filter candidates based on length similarity to the original query
-finalDict = {}
-for candidate, hitDetails in novelDict.items():
-        # Pull out the sequence ID bit
-        sequenceBit = hitDetails[4].split('.', maxsplit=1)[1]
-        sequenceBit = sequenceBit.rsplit('.')[0]        # We do it like this just in case the sequenceBit contains . characters
-        # Retrieve the length of this sequence from the FASTA file
-        queryLen = None
-        for key, value in fastaLens.items():
-                if sequenceBit in key:
-                        queryLen = value * 3            # Our exonerate query sequences are amino acids, so we need to do this
-                        break
-        assert queryLen != None
-        # Determine the length of this candidate hit
-        candidateLen = 0
-        for coord in hitDetails[0]:
-                candidateLen += coord[1] - coord[0] + 1
-        # Retain any candidates +- certain length cutoff
-        lengthAllowance = round(queryLen * 0.25, 0)
-        if candidateLen <= queryLen + lengthAllowance and candidateLen >= queryLen - lengthAllowance:
-                finalDict[hitDetails[4]] = hitDetails   # Transition our ID system to the exonerate system; this lets our sequence IDs be more informative w/r/t which protein led to their annotation
-        
-        
-# Final filtration of models derived from partial hits which consist primarily of LCR
-tmpModelFastaName = tmp_file_name_gen('tmp_EGF_', '.fasta', hitDetails[4])      # The hashstring can just be the last entry in finalDict, this should vary between runs with different inputs
-with open(tmpModelFastaName, 'w') as fileOut:
-        for seqid, value in finalDict.items():
-                fileOut.write('>' + seqid + '\n' + value[3] + '\n')
-segPredictions = run_seg(args.segdir, [tmpModelFastaName]) # run_seg expects a list of file names, cbf changing this behaviour to work internally like it does with gff3_index_cutoff_candidates
-fastaLens = fasta_file_length_dict(tmpModelFastaName)
-segCandidates = segprediction_fastalens_proportions(segPredictions, fastaLens, segLCRCutoff)
-os.unlink(tmpModelFastaName)
-
-# Cull models from the dictionary that don't pass the final seg filtration
-dictKeys = list(finalDict.keys())
-for key in dictKeys:
-        if key not in segCandidates:
-                del finalDict[key]
-
 # Output to file
-output_func(finalDict, exonerateIndex, gmapIndex, args.outputFileName)
+output_func(novelDict, exonerateIndex, gmapIndex, args.outputFileName)
 
 # Done!
 print('Program completed successfully!')
 
 # Give some extra info
-print(str(len(finalDict)) + ' models were discovered.')
+print(str(len(novelDict)) + ' models were discovered.')
