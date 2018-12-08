@@ -1497,14 +1497,8 @@ gmapNcls, gmapLoc = gff3_parse_ncls_mrna(args.gmapFile)
 
 # Assess predictions
 candidateModelDict = {}
-covDrops = []   ## FOR TESTING: Probably not much I can do about these, they're probably just spurious alignments
-# 'utg74.TR20933_c0_g1_i1.1' is a HSP and doesn't have an actual signal peptide
-# 'utg474.TR9214_c0_g1_i1.1' is probably correctly annotated, it just doesn't have a signal peptide
-'''Improvements: instead of dropping sequences without a signal peptide, why don't we mark them as non-sigp
-models. This lets us annotate proteins in the venom while still providing some differentiation that they are
-not toxins but might be things like HSPs instead
-'''
-sigpDrops = []  ## FOR TESTING: Am I failing to discover the signal peptides for these sequences? Why?
+covDrops = {}
+sigpDrops = {}
 for candidateID in goodIntronCandidates:
         ## Curation phase: remove exonerate alignments that do not meet quality cutoffs
         # Grab relevant candidate details
@@ -1517,10 +1511,10 @@ for candidateID in goodIntronCandidates:
         # Obtain the original sequence used for exonerate alignment
         exonerateSeqID = exonerateIndex[candidateID]['attributes']['Sequence']
         exonerateSeq = exonerateRecords[exonerateSeqID]
-        # Skip any alignments that don't meet coverage cutoff
-        if len(origCandidateCDS) < (len(exonerateSeq)*3)*(args.coverageCutoff/100):
-                covDrops.append(candidateID)    ## TESTING
-                continue
+        if candidateMrnaObj['orientation'] == '+':
+                exonerateStart = candidateMrnaObj['coords'][0]  # We'll hold onto this information for "rescuing" partial alignments which provide indication of the start site
+        else:
+                exonerateStart = candidateMrnaObj['coords'][1]
         ## Replacement phase: replace exonerate alignments with GMAP alignments if similar ones exist
         # Query NCLS object for overlaps with transcriptome alignments
         dictEntries = ncls_finder(gmapNcls, gmapLoc, candidateMrnaObj['coords'][0], candidateMrnaObj['coords'][1], candidateMrnaObj['contig_id'], 4)    # 4 refers to the index position in the gff3Loc dictionary for the contigID
@@ -1550,14 +1544,29 @@ for candidateID in goodIntronCandidates:
         if bestPctList == []:
                 if args.nogmapskip:
                         continue
-        elif bestPctList[0][0] < args.coverageCutoff/100:       # Applying the coverageCutoff here should ensure that the GMAP alignment would also score roughly the same against the original exonerate query sequence
+        elif bestPctList[0][0] < args.coverageCutoff/100:                       # Applying the coverageCutoff here should ensure that the GMAP alignment would also score roughly the same against the original exonerate query sequence
                 if args.nogmapskip:
                         continue
-        # If there is CDS overlap that is significant, we'll replace this exonerate model with the GMAP one
-        # '''It's possible that exonerate alignments from different species are occurring, which means that our exonerate model might
-        # be ~90% identical but with some divergence at the start or end. Our GMAP alignments are assumed to be same-species alignments
-        # so these should be more reliable in such cases'''
-        else:
+        # Skip any alignments that don't meet coverage cutoff at this point
+        '''This check used to be above, but putting it here lets us perform a "start rescue" condition
+        where if our exonerate alignment indicates the exact same start site as the transcript
+        CDS prediction then we assume they are, essentially, the same gene but with 3' divergence'''
+        if len(origCandidateCDS) < (len(exonerateSeq)*3)*(args.coverageCutoff/100):
+                if bestPctList != []:
+                        if (candidateMrnaObj['orientation'] == '+' and not bestPctList[0][3] == exonerateStart) or (candidateMrnaObj['orientation'] == '-' and not bestPctList[0][4] == exonerateStart):
+                                candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
+                                covDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+                                continue
+                else:
+                        candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
+                        covDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+                        continue
+        # If there is any CDS overlap that is significant, we'll replace this exonerate model with the GMAP one
+        '''It's possible that exonerate alignments from different species are occurring, which means that our exonerate model might
+        be ~90% identical but with some divergence at the start or end resulting in a flawed model. Our GMAP alignments are assumed
+        to be same-species alignments so these should be more reliable in such cases; the exonerate alignment thus acts as a way to
+        predict regions similar to our proteomic sequences, and then we just take the transcriptomic evidence from here'''
+        if bestPctList != []:
                 bestPctList = bestPctList[0]
                 candidateMrnaObj = gmapIndex[bestPctList[2]][gmapIndex[bestPctList[2]]['feature_list'][0]]      # If we have multiple equivalent CDS bits (probably from duplicated genes with less conserved UTRs) then it shouldn't matter which one we choose
                 if 'CDS' not in candidateMrnaObj:                               # If the GMAP prediction lacks CDS then there's something wrong with it and we'll stick to the exonerate alignment which we know does not have internal stop codons
@@ -1609,13 +1618,13 @@ for candidateID in goodIntronCandidates:
         # Sort candidates on the basis of evidence
         startCandidates.sort(key = lambda x: (-x[1], -x[2], x[3], x[0]))
         bestCandidate = startCandidates[0]
-        if args.nosigpskip and bestCandidate[1] == 0:
-                sigpDrops.append(candidateID)   ## TESTING
-                continue
         # Derive and update the model coordinates for this position & grab the CDS and protein sequences
         candidateMrnaObj['CDS']['coords'] = coord_cds_region_update(candidateMrnaObj['CDS']['coords'], bestCandidate[0], 0, candidateMrnaObj['orientation'])
         candidateCDS = candidateCDS[bestCandidate[0]:]
         candidateProt = cds_to_prot(candidateCDS, '.', candidateID, args.translationTable)
+        if args.nosigpskip and bestCandidate[1] == 0:
+                sigpDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+                continue
         candidateModelDict[mrnaID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
 
 # Collapse overlapping GMAP/exonerate models by selecting the 'best' according to canonical splicing and other rules
@@ -1623,6 +1632,8 @@ novelDict = compare_novels(candidateModelDict, genomeRecords)
 
 # Output to file
 output_func(novelDict, exonerateIndex, gmapIndex, args.outputFileName)
+output_func(covDrops, exonerateIndex, gmapIndex, args.outputFileName + '_covDrops')
+output_func(sigpDrops, exonerateIndex, gmapIndex, args.outputFileName + '_sigpDrops')
 
 # Done!
 print('Program completed successfully!')
