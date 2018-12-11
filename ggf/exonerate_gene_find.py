@@ -7,7 +7,7 @@
 # we can use less strict criteria for gene annotation (e.g., splice rules
 # and gene length are irrelevant when this product is validated).
 
-import os, argparse, platform
+import os, argparse, platform, copy
 from Bio import SeqIO
 
 # Define functions for later use
@@ -94,7 +94,7 @@ def cygwin_program_execution_check(outDir, cygwinDir, exeDir, exeFile):
         import subprocess, os
         # Format script for cygwin execution
         scriptText = os.path.join(exeDir, exeFile)
-        scriptFile = file_name_gen('tmpscript', '.sh')
+        scriptFile = tmp_file_name_gen('tmpscript', '.sh', scriptText)
         with open(os.path.join(outDir, scriptFile), 'w') as fileOut:
                 fileOut.write(scriptText)
         # Format cmd for execution
@@ -398,8 +398,9 @@ def exonerate_geneid_produce(contigID, sequenceID, idDict):
         sequenceBit = sequenceID.split('|')
         sequenceBit.sort(key=len, reverse=True) # This should help to handle sequence IDs like eg|asdf|c1; we assume the longest part is the most informative which should be true with Trinity and GenBank/Swiss-Prot IDs
         # Specifically handle older Trinity-style IDs
-        if sequenceBit[1].startswith('TR') and sequenceBit[1][2:].isdigit():
-                sequenceBit[0] = sequenceBit[1] + '_' + sequenceBit[0]
+        if len(sequenceBit) > 1:
+                if sequenceBit[1].startswith('TR') and sequenceBit[1][2:].isdigit():
+                        sequenceBit[0] = sequenceBit[1] + '_' + sequenceBit[0]
         geneID = contigID + '.' + sequenceBit[0]
         if geneID not in idDict:
                 idDict[geneID] = 1
@@ -411,7 +412,7 @@ def exonerate_geneid_produce(contigID, sequenceID, idDict):
 def exonerate_gff_tmpfile(exonerateFile):
         # Setup        
         geneIDDict = {}
-        tmpFileName = tmp_file_name_gen('exonerate', '.parse', 'tmpfile')
+        tmpFileName = tmp_file_name_gen('exonerate', '.parse', exonerateFile)
         # Main function
         with open(exonerateFile, 'r') as fileIn, open(tmpFileName, 'w') as fileOut:
                 for line in fileIn:
@@ -853,7 +854,7 @@ def seg_thread(segdir, fastaFile, resultNames):
         import os, subprocess
         # Get the full fasta file location & derive our output file name
         fastaFile = os.path.abspath(fastaFile)
-        segResultFile = os.path.join(os.getcwd(), tmp_file_name_gen('tmp_segResults_' + os.path.basename(fastaFile), '.seg', ''))
+        segResultFile = os.path.join(os.getcwd(), tmp_file_name_gen('tmp_segResults_' + os.path.basename(fastaFile), '.seg', fastaFile))
         # Format seg command and run
         cmd = os.path.join(segdir, 'seg') + ' "' + fastaFile + '" -x > ' + '"' + segResultFile + '"'
         runseg = subprocess.Popen(cmd, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
@@ -1181,39 +1182,6 @@ def translate_cds(genomeRecords, cdsCoords, orientation, frame, contigID, seqid,
         prot = cds_to_prot(cds, frame[0], seqid, geneticCode)                        # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
         return prot
 
-## General purpose functions
-def tmp_file_name_gen(prefix, suffix, hashString):
-        # Setup
-        import hashlib, time
-        # Main function
-        tmpHash = hashlib.md5(bytes(hashString + str(time.time()), 'utf-8') ).hexdigest()       # This should always give us something unique even if the string for hashString is the same across different runs
-        while True:
-                if os.path.isfile(prefix + tmpHash + suffix):
-                        tmpHash += 'X'
-                else:
-                        return prefix + tmpHash + suffix
-
-def fasta_file_length_dict(fastaFile):
-        # Setup
-        from Bio import SeqIO
-        lengthDict = {}
-        # Main function
-        records = SeqIO.parse(open(fastaFile, 'r'), 'fasta')
-        for record in records:
-                lengthDict[record.id] = len(record)
-        return lengthDict
-
-def pair_coord_introns(inputList):
-        introns = []
-        for i in range(0, len(inputList)-1):
-                exon1 = inputList[i]
-                exon2 = inputList[i+1]
-                start = min(int(exon1[1]), int(exon2[0])) + 1   # +1 gets our first bp of intron.
-                end = max(int(exon1[1]), int(exon2[0])) - 1     # -1 does the same on the opposite border of the intron.
-                intLen = end - start + 1                        # +1 as above scenario in pair_coord_exons
-                introns.append(intLen)
-        return introns
-
 ## Output function
 def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
         with open(outFileName, 'w') as fileOut:
@@ -1302,7 +1270,7 @@ def signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, fastaFile, sigpR
         scriptText = '"' + os.path.join(signalpdir, 'signalp') + '" -t ' + organism + ' -f short -n "' + sigpResultFile + '" "' + fastaFile + '"'
         # Generate a script for use with cygwin (if on Windows)
         if platform.system() == 'Windows':
-                sigpScriptFile = os.path.join(tmpDir, file_name_gen('tmp_sigpScript_' + os.path.basename(fastaFile), '.sh'))
+                sigpScriptFile = os.path.join(tmpDir, tmp_file_name_gen('tmp_sigpScript_' + os.path.basename(fastaFile), '.sh', scriptText))
                 with open(sigpScriptFile, 'w') as fileOut:
                         fileOut.write(scriptText.replace('\\', '/'))
         # Run signalP depending on operating system
@@ -1337,11 +1305,11 @@ def signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, fastaFile, sigpR
 
 def run_signalp_sequence(signalpdir, cygwindir, organism, tmpDir, seqID, protString):
         # Generate temporary file for sequence
-        tmpFileName = file_name_gen(os.path.join(tmpDir, 'tmp_sigpInput_' + seqID + '_'), '.fasta')
+        tmpFileName = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpInput_' + seqID + '_'), '.fasta', protString)
         with open(tmpFileName, 'w') as fileOut:
                 fileOut.write('>' + seqID.lstrip('>') + '\n' + protString + '\n')      # lstrip any > characters just in case they're already present
         # Run signalP
-        sigpResultFile = file_name_gen(os.path.join(tmpDir, 'tmp_sigpResults_' + seqID + '_'), '.txt')
+        sigpResultFile = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpResults_' + seqID + '_'), '.txt', protString)
         signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, tmpFileName, sigpResultFile)
         # Join and parse signalP results files
         sigPredictions = {}
@@ -1357,21 +1325,68 @@ def run_signalp_sequence(signalpdir, cygwindir, organism, tmpDir, seqID, protStr
         # Return signalP prediction dictionary
         return sigPredictions
 
-## General purpose funtions
-def file_name_gen(prefix, suffix):
+def signalp_copy4temp(args, signalPdir):        # Note that the values within args are irrelevant, it's just to produce a hash string which should be unique across program runs
         import os
-        ongoingCount = 2
+        from pathlib import Path
+        # Derive our directory name and create it
+        sigpTmpDir = Path(os.getcwd(), tmp_file_name_gen('', '', ''.join(map(str, vars(args).items()))))
+        os.mkdir(sigpTmpDir)
+        os.mkdir(Path(sigpTmpDir, 'tmp'))
+        # Copy and edit the temporary directory location in the signalp file
+        with open(Path(signalPdir, 'signalp'), 'r') as fileIn, open(Path(sigpTmpDir, 'signalp'), 'w') as fileOut:
+                lineEnd = None
+                for line in fileIn:
+                        if lineEnd == None:
+                                if '\r\n' in line:
+                                        lineEnd = '\r\n'
+                                else:
+                                        lineEnd = '\n'
+                        if line.startswith('my $outputDir = '):
+                                fileOut.write('my $outputDir = "' + Path(sigpTmpDir, 'tmp').as_posix() + '";' + lineEnd)        # Even on Windows, SignalP expects paths to be formatted as unix-like
+                        else:
+                                fileOut.write(line)
+        # Change permissions to be executable
+        os.chmod(str(Path(sigpTmpDir, 'signalp')), 0o777)
+        return sigpTmpDir
+
+## General purpose funtions
+def tmp_file_name_gen(prefix, suffix, hashString):
+        # Setup
+        import hashlib, time
+        # Main function
+        tmpHash = hashlib.md5(bytes(hashString + str(time.time()), 'utf-8') ).hexdigest()       # This should always give us something unique even if the string for hashString is the same across different runs
         while True:
-                if not os.path.isfile(prefix + '1' + suffix):
-                        return prefix + '1' + suffix
-                elif os.path.isfile(prefix + str(ongoingCount) + suffix):
-                        ongoingCount += 1
+                if os.path.isfile(prefix + tmpHash + suffix):
+                        tmpHash += 'X'
                 else:
-                        return prefix + str(ongoingCount) + suffix
+                        return prefix + tmpHash + suffix
+
+def fasta_file_length_dict(fastaFile):
+        # Setup
+        from Bio import SeqIO
+        lengthDict = {}
+        # Main function
+        records = SeqIO.parse(open(fastaFile, 'r'), 'fasta')
+        for record in records:
+                lengthDict[record.id] = len(record)
+        return lengthDict
+
+def pair_coord_introns(inputList):
+        introns = []
+        for i in range(0, len(inputList)-1):
+                exon1 = inputList[i]
+                exon2 = inputList[i+1]
+                start = min(int(exon1[1]), int(exon2[0])) + 1   # +1 gets our first bp of intron.
+                end = max(int(exon1[1]), int(exon2[0])) - 1     # -1 does the same on the opposite border of the intron.
+                intLen = end - start + 1                        # +1 as above scenario in pair_coord_exons
+                introns.append(intLen)
+        return introns
 
 ## Shortcut functions [i.e., just reducing code length]
 def auto_stopcodon_fix(origCandidateCDS, coords, orientation):
         fixProt, fixCDS = find_longest_orf_nostopallowed(origCandidateCDS, origCandidateCDS[0:3])       # This function name is changed from that in GGF since we're allowing the absence of stop codons to be returned here
+        if [fixProt, fixCDS] == ['', '']:
+                return False
         startChange = origCandidateCDS.find(fixCDS)
         assert startChange != -1
         stopChange = len(origCandidateCDS) - len(fixCDS) - startChange
@@ -1408,6 +1423,10 @@ p.add_argument("-e", "-exonerate", dest="exonerateFile", type=str,
                help="Specify the exonerate output file containing GFF predictions")
 p.add_argument("-f", "-fasta", dest="fastaFile", type=str,
                help="Specify the fasta file containing amino acid sequences used for exonerate query")
+p.add_argument("-gm", "-gmapFile", dest="gmapFile", type=str,
+               help="Input GMAP GFF3 (-f 2) file from transcriptome alignment.")
+p.add_argument("-cd", "-cdsFile", dest="cdsFile", type=str,
+               help="Input CDS fasta file (this file was used for GMAP alignment).")
 p.add_argument("-seg", "-segdir", dest="segdir", type=str,
                help="Specify the directory where seg executables are located.")
 p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
@@ -1474,8 +1493,9 @@ for candidate in segCandidates:
         sequenceBit = candidate.split('|')
         sequenceBit.sort(key=len, reverse=True)
         # Specifically handle older Trinity-style IDs [I don't really like hardcoding sequence ID handling, but it's hard to get the "best" sequence bit otherwise]
-        if sequenceBit[1].startswith('TR') and sequenceBit[1][2:].isdigit():
-                sequenceBit[0] = sequenceBit[1] + '_' + sequenceBit[0]
+        if len(sequenceBit) > 1:
+                if sequenceBit[1].startswith('TR') and sequenceBit[1][2:].isdigit():
+                        sequenceBit[0] = sequenceBit[1] + '_' + sequenceBit[0]
         segIDBits[sequenceBit[0]] = ''                          # This gives us just the ID bit that's part of our exonerateCandidates as part of a dict for fast lookup
 goodCandidates = []
 for candidate in exonerateCandidates:
@@ -1495,6 +1515,16 @@ for candidate in goodCandidates:
 gmapIndex = gff3_index(args.gmapFile)
 gmapNcls, gmapLoc = gff3_parse_ncls_mrna(args.gmapFile)
 
+# Setup temporary directory for signalP if relevant
+'''SignalP sometimes trips over itself when running multiple
+instances since it shares a temporary directory that you cannot modify
+by command-line argument and some of these temporary files are used
+by multiple instances of the program (why??). To allow this program to run in
+multiple instances we need to make a unique signalP temporary directory for each
+program run. This is annoying but necessary.'''
+if args.signalp:
+        args.signalpdir = signalp_copy4temp(args, args.signalpdir)
+
 # Assess predictions
 candidateModelDict = {}
 covDrops = {}
@@ -1507,6 +1537,8 @@ for candidateID in goodIntronCandidates:
         origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
         # Fix internal stop codons
         candidateMrnaObj['CDS']['coords'] = auto_stopcodon_fix(origCandidateCDS, candidateMrnaObj['CDS']['coords'], candidateMrnaObj['orientation'])
+        if candidateMrnaObj['CDS']['coords'] == False:  # This means the ORF is riddled with stop codons
+                continue
         origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
         # Obtain the original sequence used for exonerate alignment
         exonerateSeqID = exonerateIndex[candidateID]['attributes']['Sequence']
@@ -1567,14 +1599,16 @@ for candidateID in goodIntronCandidates:
         to be same-species alignments so these should be more reliable in such cases; the exonerate alignment thus acts as a way to
         predict regions similar to our proteomic sequences, and then we just take the transcriptomic evidence from here'''
         if bestPctList != []:
-                bestPctList = bestPctList[0]
-                candidateMrnaObj = gmapIndex[bestPctList[2]][gmapIndex[bestPctList[2]]['feature_list'][0]]      # If we have multiple equivalent CDS bits (probably from duplicated genes with less conserved UTRs) then it shouldn't matter which one we choose
+                bestPctList = bestPctList[0]    # Note below that we need to copy.deepcopy the value since we do make changes to it and future alignments might also refer to the same object; this was causing errors before which I wasn't able to definitively track down, but doing this copy fixes things
+                candidateMrnaObj = copy.deepcopy(gmapIndex[bestPctList[2]][gmapIndex[bestPctList[2]]['feature_list'][0]])   # If we have multiple equivalent CDS bits (probably from duplicated genes with less conserved UTRs) then it shouldn't matter which one we choose
                 if 'CDS' not in candidateMrnaObj:                               # If the GMAP prediction lacks CDS then there's something wrong with it and we'll stick to the exonerate alignment which we know does not have internal stop codons
                         if args.nogmapskip:                                     # If this is our behaviour then we need to skip since we're not going to treat flawed GMAP matches as legitimate ones
                                 continue
-                        candidateMrnaObj = exonerateIndex[candidateID][mrnaID]
+                        candidateMrnaObj = exonerateIndex[candidateID][mrnaID]  # Go back to what we were using before
                 origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
                 candidateMrnaObj['CDS']['coords'] = auto_stopcodon_fix(origCandidateCDS, candidateMrnaObj['CDS']['coords'], candidateMrnaObj['orientation'])
+                if candidateMrnaObj['CDS']['coords'] == False:
+                        continue        # As above, if this fails it is riddled with stop codons; it shouldn't happen at this level, however
                 origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
         # Obtain the maximally bounded CDS region with an accepted start codon
         candidateMrnaObj['CDS']['coords'], candidateCDS, acceptedStartCodons = cds_extension_maximal(candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords, args.translationTable)
@@ -1583,13 +1617,13 @@ for candidateID in goodIntronCandidates:
         # Figure out how much we're going to allow this sequence to be shortened
         allowedShortenLen = origStartIndex
         if candidateMrnaObj['orientation'] == '+':
-                if exonerateIndex[candidateID][mrnaID]['coords'][0] > candidateMrnaObj['CDS']['coords'][0][0]:  # If the exonerate alignment is shorter than the maximal region, we want to allow the sequence to _at least_ be able to be shortened to where the exonerate alignment starts
+                if exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][0] > candidateMrnaObj['CDS']['coords'][0][0]:  # If the exonerate alignment is shorter than the maximal region, we want to allow the sequence to _at least_ be able to be shortened to where the exonerate alignment starts
                         if exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][1] > candidateMrnaObj['CDS']['coords'][0][0] and candidateMrnaObj['CDS']['coords'][0][1] > exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][0]:       # i.e., if the exons overlap then we're starting at roughly the same place
-                                allowedShortenLen += exonerateIndex[candidateID][mrnaID]['coords'][0] - candidateMrnaObj['CDS']['coords'][0][0] - origStartIndex        # We minus the origStartIndex because, in some cases, origStartIndex will equal the preceding subtraction value
+                                allowedShortenLen += exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][0] - candidateMrnaObj['CDS']['coords'][0][0] - origStartIndex        # We minus the origStartIndex because, in some cases, origStartIndex will equal the preceding subtraction value
         else:
                 if exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][1] < candidateMrnaObj['CDS']['coords'][0][1]:
                         if exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][1] > candidateMrnaObj['CDS']['coords'][0][0] and candidateMrnaObj['CDS']['coords'][0][1] > exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][0]:       # If they start at different exons, we don't do this.
-                                allowedShortenLen += candidateMrnaObj['CDS']['coords'][0][1] - exonerateIndex[candidateID][mrnaID]['coords'][1] - origStartIndex        # This happens when the GMAP alignment start position is the same as the exonerate alignment start
+                                allowedShortenLen += candidateMrnaObj['CDS']['coords'][0][1] - exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][1] - origStartIndex        # This happens when the GMAP alignment start position is the same as the exonerate alignment start
         allowedShortRatio = 0.10         # Arbitrary; we want to prevent a sequence from being shortened excessively
         allowedShortenLen += int(round(len(origCandidateCDS)*allowedShortRatio, 0))
         # Obtain possible start sites
@@ -1610,7 +1644,7 @@ for candidateID in goodIntronCandidates:
                 signalPep = 0
                 if args.signalp:
                         indexProt = cds_to_prot(candidateCDS[indexPair[0]:], '.', candidateID, args.translationTable)
-                        sigpPredictions = run_signalp_sequence(args.signalpdir, args.cygwindir, args.signalporg, os.path.dirname(args.outputFileName), candidateID, indexProt)
+                        sigpPredictions = run_signalp_sequence(str(args.signalpdir), args.cygwindir, args.signalporg, str(args.signalpdir), candidateID, indexProt)
                         if sigpPredictions != {}:
                                 signalPep = 1
                 # Store results
