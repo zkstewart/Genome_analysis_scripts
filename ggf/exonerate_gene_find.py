@@ -7,7 +7,7 @@
 # we can use less strict criteria for gene annotation (e.g., splice rules
 # and gene length are irrelevant when this product is validated).
 
-import os, argparse, platform, copy
+import os, argparse, platform, copy, shutil
 from Bio import SeqIO
 
 # Define functions for later use
@@ -49,6 +49,13 @@ def validate_args(args):
         if args.signalpdir == None:
                 args.signalpdir = ''
         if args.signalp != False:
+                if args.signalpdir == None:
+                        print('signalpdir argument was not specified when -signalp was provided; fix your input and try again.')
+                        quit()
+                if not os.path.isfile(os.path.join(args.signalpdir, 'signalp')):
+                        print('I am unable to locate the signalp execution file "signalp" within specified directory (' + args.signalpdir + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
                 if platform.system() == 'Windows':
                         program_execution_check(os.path.join(args.cygwindir, 'bash.exe --version'))
                         cygwin_program_execution_check(args.outputLocation, args.cygwindir, args.signalpdir, 'signalp -h')
@@ -977,8 +984,9 @@ def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):
         return nclsEntries
 
 ## Overlap collapsing
-def compare_novels(inputDict, genomeRecords):   # This section of code was borrowed from gmap_gene_find.py; changes there should be updated here as well
-        # Exonerate-specific values
+def compare_novels_store_rejects(inputDict, genomeRecords):   # This section of code was borrowed from gmap_gene_find.py; important changes there should be updated here as well, but this function does behave differently
+        # Setup
+        import copy
         spliceLenCorrection = 9 # This value will allow our length comparison check to have some flexibility to pick the best model based on splice rules except where the length differs quite a bit
         # Find our contig IDs from the genome
         contigIDs = list(genomeRecords.keys())
@@ -1120,10 +1128,12 @@ def compare_novels(inputDict, genomeRecords):   # This section of code was borro
                         acceptedModels.append(entry[0])
         # Cull models from the dictionary that don't pass curation
         dictKeys = list(inputDict.keys())
+        rejectDict = {}
         for key in dictKeys:
                 if key not in acceptedModels:
+                        rejectDict[key] = copy.deepcopy(inputDict[key])
                         del inputDict[key]
-        return inputDict
+        return inputDict, rejectDict
 
 ## gff3_to_fasta-related functions
 def cds_to_prot(seq, phase, seqid, geneticCode):
@@ -1145,41 +1155,6 @@ def cds_to_prot(seq, phase, seqid, geneticCode):
                         prot = str(nucl.translate(table=geneticCode))
         if '*' in prot[:-1]:
                 return False                                            # EXONERATE-SPECIFIC: This can occur for GMAP models when they contain internal stop codons; we want to filter these out without providing warning messages
-        return prot
-
-def translate_cds(genomeRecords, cdsCoords, orientation, frame, contigID, seqid, geneticCode):  # This code is repurposed from gff3_to_fasta.py
-        # Retrieve genomic sequence
-        try:
-                genomeSeq = str(genomeRecords[contigID].seq)
-        except:
-                print('Contig ID "' + contigID + '" is not present in your FASTA file; mRNA ID "' + seqid + '" cannot be handled.')
-                print('This represents a major problem with your inputs, so I\'m going to stop processing now. Make sure you are using the correct FASTA file and try again.')
-                quit()
-        # Sort coords lists for consistency [this can be relevant since not all GFF3's are ordered equivalently]
-        cdsSort = list(zip(cdsCoords, frame))
-        if orientation == '+':
-                cdsSort.sort(key = lambda x: (int(x[0][0]), int(x[0][1])))
-                cdsCoords = [coord for coord,frame in cdsSort]
-                frame = [frame for coord,frame in cdsSort]
-        elif orientation == '-':
-                cdsSort.sort(key = lambda x: (-int(x[0][0]), -int(x[0][1])))
-                cdsCoords = [coord for coord,frame in cdsSort]
-                frame = [frame for coord,frame in cdsSort]
-        else:
-                print(seqid + ' lacks proper orientation specification within GFF3 (it is == "' + str(orientation) + '"; this may result in problems.')
-        # Reverse the coord lists if we're looking at a '-' model so we start at the 3' end of the gene model
-        if orientation == '-':
-                cdsCoords.reverse()
-        # Join sequence segments
-        cds = ''
-        for coord in cdsCoords:
-                segment = genomeSeq[int(coord[0])-1:int(coord[1])]      # Make it 1-based by -1 to the first coordinate
-                cds += segment
-        # Reverse comp if necessary
-        if orientation == '-':
-                cds = reverse_comp(cds)
-        # Derive and return protein sequence
-        prot = cds_to_prot(cds, frame[0], seqid, geneticCode)                        # Because we reversed the coords but not the frame details for '-' orientation, our first frame value always corresponds to the CDS' start
         return prot
 
 ## Output function
@@ -1304,12 +1279,34 @@ def signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, fastaFile, sigpR
                         raise Exception('SignalP error occurred when processing file name ' + fastaFile + '. Error text below\n' + sigperr.decode("utf-8"))
 
 def run_signalp_sequence(signalpdir, cygwindir, organism, tmpDir, seqID, protString):
+        # Determine whether seqId and protString values are the proper type
+        if not type(seqID) == str and not type(protString) == str:
+                if not type(seqID) == list and not type(protString) == list:
+                        print('run_signalp_sequence: seqID and protString inputs should both be str or both be list; this isn\'t true here, so I cannot procede.')
+                        print('Fix the code leading up to this function call.')
+                        quit()
+                # If they are lists, ensure they have the same length
+                else:
+                        if len(seqID) != len(protString):
+                                print('run_signalp_sequence: seqID and protString inputs are lists of nonequivalent length; I cannot procede unless this is true.')
+                                print('Fix the code leading up to this function call.')
+                                quit()
         # Generate temporary file for sequence
-        tmpFileName = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpInput_' + seqID + '_'), '.fasta', protString)
+        if type(seqID) == list:
+                tmpFileName = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpInput_' + ''.join([sid[0:5] for sid in seqID])[0:25] + '_'), '.fasta', ''.join([prot[0:10] for prot in protString]))
+        else:
+                tmpFileName = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpInput_' + seqID + '_'), '.fasta', protString)
         with open(tmpFileName, 'w') as fileOut:
-                fileOut.write('>' + seqID.lstrip('>') + '\n' + protString + '\n')      # lstrip any > characters just in case they're already present
+                if type(seqID) == list:
+                        for i in range(len(seqID)):
+                                fileOut.write('>' + seqID[i].lstrip('>') + '\n' + protString[i] + '\n')      # lstrip any > characters just in case they're already present
+                else:
+                        fileOut.write('>' + seqID.lstrip('>') + '\n' + protString + '\n')
         # Run signalP
-        sigpResultFile = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpResults_' + seqID + '_'), '.txt', protString)
+        if type(seqID) == list:
+                sigpResultFile = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpResults_' + ''.join([sid[0:5] for sid in seqID])[0:25] + '_'), '.txt', ''.join([prot[0:10] for prot in protString]))
+        else:
+                sigpResultFile = tmp_file_name_gen(os.path.join(tmpDir, 'tmp_sigpResults_' + seqID + '_'), '.txt', protString)
         signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, tmpFileName, sigpResultFile)
         # Join and parse signalP results files
         sigPredictions = {}
@@ -1354,7 +1351,7 @@ def tmp_file_name_gen(prefix, suffix, hashString):
         # Setup
         import hashlib, time
         # Main function
-        tmpHash = hashlib.md5(bytes(hashString + str(time.time()), 'utf-8') ).hexdigest()       # This should always give us something unique even if the string for hashString is the same across different runs
+        tmpHash = hashlib.md5(bytes(str(hashString) + str(time.time()), 'utf-8') ).hexdigest()       # This should always give us something unique even if the string for hashString is the same across different runs
         while True:
                 if os.path.isfile(prefix + tmpHash + suffix):
                         tmpHash += 'X'
@@ -1420,9 +1417,9 @@ p = argparse.ArgumentParser(description=usage)
 p.add_argument("-ge", "-genomeFile", dest="genomeFile",
                help="Input genome FASTA file name.")
 p.add_argument("-e", "-exonerate", dest="exonerateFile", type=str,
-               help="Specify the exonerate output file containing GFF predictions")
+               help="Specify the exonerate output file containing GFF predictions.")
 p.add_argument("-f", "-fasta", dest="fastaFile", type=str,
-               help="Specify the fasta file containing amino acid sequences used for exonerate query")
+               help="Specify the fasta file containing amino acid sequences used for exonerate query.")
 p.add_argument("-gm", "-gmapFile", dest="gmapFile", type=str,
                help="Input GMAP GFF3 (-f 2) file from transcriptome alignment.")
 p.add_argument("-cd", "-cdsFile", dest="cdsFile", type=str,
@@ -1430,24 +1427,23 @@ p.add_argument("-cd", "-cdsFile", dest="cdsFile", type=str,
 p.add_argument("-seg", "-segdir", dest="segdir", type=str,
                help="Specify the directory where seg executables are located.")
 p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
-               help="Specify the identity cutoff for retrieving exonerate hits (default==60.00)", default=60.00)
+               help="Specify the identity cutoff for retrieving exonerate hits (default==60.00).", default=60.00)
 p.add_argument("-si", "-similarity", dest="similarityCutoff", type=float,
-               help="Specify the similarity cutoff for retrieving exonerate hits (default==80.00)", default=80.00)
+               help="Specify the similarity cutoff for retrieving exonerate hits (default==80.00).", default=80.00)
 p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
                help="Specify the coverage cut-off for retrieving exonerate hits (default==70.00).", default=70.00)
 p.add_argument("-in", "-intron", dest="intronCutoff", type=float,
-               help="Specify the maximum intron length allowed for exonerate hits (default==50000)", default=50000)     # This value is a bit arbitrary, but exonerate can go "fishing" for matches and this can help to constrain this behaviour
+               help="Specify the maximum intron length allowed for exonerate hits (default==50000).", default=50000)     # This value is a bit arbitrary, but exonerate can go "fishing" for matches and this can help to constrain this behaviour
 p.add_argument("-t", "-translation", dest="translationTable", type=int, default=1,
-               help="Optionally specify the NCBI numeric genetic code to utilise for CDS translation; this should be an integer from 1 to 31 (default == 1 i.e., Standard Code)")
+               help="Optionally specify the NCBI numeric genetic code to utilise for CDS translation; this should be an integer from 1 to 31 (default == 1 i.e., Standard Code).")
 p.add_argument("-o", "-outputFile", dest="outputFileName", type=str,
                help="Output file name")
 # SignalP opts
 p.add_argument("-sigp", dest="signalp", action='store_true', default=False,
                help="""Optionally use signalP evidence for determining the optimal start site
-               for sequences when these sequences are expected to begin with a signal peptide""")
+               for sequences when these sequences are expected to begin with a signal peptide.""")
 p.add_argument("-sigpdir", "-signalpdir", dest="signalpdir", type=str,
-               help="""If -sigp is provided, specify the directory where signalp executables are located.
-               If this is already in your PATH, you can leave this blank.""")
+               help="""If -sigp is provided, specify the directory where signalp executables are located.""")
 p.add_argument("-sigporg", dest="signalporg", type = str, choices = ['euk', 'gram-', 'gram+'], default='euk',
                help="""If -sigp is provided, specify the type of organism for SignalP from the available
                options. Refer to the SignalP manual if unsure what these mean (default == 'euk').""")
@@ -1458,10 +1454,10 @@ p.add_argument("-c", "-cygwindir", dest="cygwindir", type=str,
 # Behaviour opts
 p.add_argument("-nogmapskip", dest="nogmapskip", action='store_true', default=False,
                help="""Optionally disallow predictions that lack support from GMAP alignment
-               (recommended if coverageCutoff is less than or equal to 70)""")
+               (recommended if coverageCutoff is less than or equal to 70).""")
 p.add_argument("-nosigpskip", dest="nosigpskip", action='store_true', default=False,
                help="""Optionally disallow predictions that lack signal peptide prediction
-               (recommended for the prediction of genes which should have a signal peptide)""")
+               (recommended for the prediction of genes which should have a signal peptide).""")
 
 args = p.parse_args()
 validate_args(args)
@@ -1516,12 +1512,12 @@ gmapIndex = gff3_index(args.gmapFile)
 gmapNcls, gmapLoc = gff3_parse_ncls_mrna(args.gmapFile)
 
 # Setup temporary directory for signalP if relevant
-'''SignalP sometimes trips over itself when running multiple
-instances since it shares a temporary directory that you cannot modify
-by command-line argument and some of these temporary files are used
-by multiple instances of the program (why??). To allow this program to run in
+'''SignalP sometimes trips over itself when running multiple instances
+and sharing a temporary directory. To allow this program to run in
 multiple instances we need to make a unique signalP temporary directory for each
-program run. This is annoying but necessary.'''
+program run. Note that the way this code performs this is not actually necessary
+since you can specify the tmp dir as a command-line argument to signalP but it is
+the way it is for now - maybe I'll change it later to be better.'''
 if args.signalp:
         args.signalpdir = signalp_copy4temp(args, args.signalpdir)
 
@@ -1587,12 +1583,18 @@ for candidateID in goodIntronCandidates:
                 if bestPctList != []:
                         if (candidateMrnaObj['orientation'] == '+' and not bestPctList[0][3] == exonerateStart) or (candidateMrnaObj['orientation'] == '-' and not bestPctList[0][4] == exonerateStart):
                                 candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
-                                covDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
-                                continue
+                                if candidateProt == False:      # If there's a stop codon internally False will be returned by cds_to_prot. Technically this shouldn't happen because of auto_stopcodon_fix(), but I think it does...
+                                        continue                # Since this is a rare occurrence I'm assuming there's something very unusual about these occurrences, so it shouldn't be a problem to just skip these sequences
+                                else:
+                                        covDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+                                        continue
                 else:
                         candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
-                        covDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
-                        continue
+                        if candidateProt == False:
+                                continue
+                        else:
+                                covDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+                                continue
         # If there is any CDS overlap that is significant, we'll replace this exonerate model with the GMAP one
         '''It's possible that exonerate alignments from different species are occurring, which means that our exonerate model might
         be ~90% identical but with some divergence at the start or end resulting in a flawed model. Our GMAP alignments are assumed
@@ -1624,15 +1626,21 @@ for candidateID in goodIntronCandidates:
                 if exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][1] < candidateMrnaObj['CDS']['coords'][0][1]:
                         if exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][1] > candidateMrnaObj['CDS']['coords'][0][0] and candidateMrnaObj['CDS']['coords'][0][1] > exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][0]:       # If they start at different exons, we don't do this.
                                 allowedShortenLen += candidateMrnaObj['CDS']['coords'][0][1] - exonerateIndex[candidateID][mrnaID]['CDS']['coords'][0][1] - origStartIndex        # This happens when the GMAP alignment start position is the same as the exonerate alignment start
-        allowedShortRatio = 0.10         # Arbitrary; we want to prevent a sequence from being shortened excessively
+        allowedShortRatio = 0.25        # Arbitrary; we want to prevent a sequence from being shortened excessively
+        allowedShortRatioExtra = 0.33   # Arbitrary; this lets us shorten the sequence a bit more to find an M start site
         allowedShortenLen += int(round(len(origCandidateCDS)*allowedShortRatio, 0))
         # Obtain possible start sites
         startIndices = []
-        for x in range(0, allowedShortenLen, 3):
+        foundM = False          # This condition lets us find the first M if none exist in our allowedShortenLen region which might be important
+        for x in range(0, len(candidateCDS)-3, 3):
                 codon = candidateCDS[x:x+3]
                 if codon.lower() in acceptedStartCodons:
                         startIndices.append([x, codon.lower()])
-        # Format our evidence list and sort candidates based on weighting of ranks in order of priority commonDist > startDist > startProp > aaProp > length
+                if codon.lower() == 'atg':
+                        foundM = True
+                if (foundM == True and x >= allowedShortenLen) or (foundM == False and x >= allowedShortenLen and x > int(round(len(origCandidateCDS)*allowedShortRatioExtra, 0))):
+                        break
+        # Format our evidence list for later sorting of candidates
         startCandidates = []
         for indexPair in startIndices:
                 # Format information from direct sequence attributes
@@ -1640,16 +1648,26 @@ for candidateID in goodIntronCandidates:
                 mStart = 0
                 if indexPair[1] == 'atg':
                         mStart = 1
-                # Identify signal peptides if relevant
-                signalPep = 0
-                if args.signalp:
-                        indexProt = cds_to_prot(candidateCDS[indexPair[0]:], '.', candidateID, args.translationTable)
-                        sigpPredictions = run_signalp_sequence(str(args.signalpdir), args.cygwindir, args.signalporg, str(args.signalpdir), candidateID, indexProt)
-                        if sigpPredictions != {}:
-                                signalPep = 1
                 # Store results
+                signalPep = 0   # We'll search for signal peptides below and update this value if appropriate
                 startCandidates.append([indexPair[0], signalPep, mStart, startDist])
-        # Sort candidates on the basis of evidence
+        # Call signalP if relevant
+        '''We can call the signalp function with individual sequences during the above loop, but I'm trying to minimise program
+        calls to speed things up / reduce the chance of signalP crashing which happens when there are many calls to the executable
+        for unknown reasons'''
+        if args.signalp:
+                # Format our signalP input values
+                seqIDs = []
+                indexProts = []
+                for i in range(len(startCandidates)):
+                        seqIDs.append(str(i))
+                        indexProts.append(cds_to_prot(candidateCDS[startCandidates[i][0]:], '.', candidateID, args.translationTable))
+                # Run signalP prediction and associate relevant results
+                sigpPredictions = run_signalp_sequence(str(args.signalpdir), args.cygwindir, args.signalporg, str(args.signalpdir), seqIDs, indexProts)
+                for i in range(len(startCandidates)):
+                        if str(i) in sigpPredictions:
+                                startCandidates[i][1] = 1
+        # Sort candidates on the basis of evidence signalP > mStart > startDist > length
         startCandidates.sort(key = lambda x: (-x[1], -x[2], x[3], x[0]))
         bestCandidate = startCandidates[0]
         # Derive and update the model coordinates for this position & grab the CDS and protein sequences
@@ -1662,15 +1680,23 @@ for candidateID in goodIntronCandidates:
         candidateModelDict[mrnaID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
 
 # Collapse overlapping GMAP/exonerate models by selecting the 'best' according to canonical splicing and other rules
-novelDict = compare_novels(candidateModelDict, genomeRecords)
+novelDict, rejectDict = compare_novels_store_rejects(candidateModelDict, genomeRecords)
 
 # Output to file
 output_func(novelDict, exonerateIndex, gmapIndex, args.outputFileName)
+output_func(rejectDict, exonerateIndex, gmapIndex, args.outputFileName + '_novelOverlapRejects')
 output_func(covDrops, exonerateIndex, gmapIndex, args.outputFileName + '_covDrops')
 output_func(sigpDrops, exonerateIndex, gmapIndex, args.outputFileName + '_sigpDrops')
+
+# Clean up temporary directory if relevant
+if args.signalp:
+        shutil.rmtree(args.signalpdir)
 
 # Done!
 print('Program completed successfully!')
 
 # Give some extra info
 print(str(len(novelDict)) + ' models were discovered.')
+print(str(len(rejectDict)) + ' models were removed due to overlap with discovered models.')
+print(str(len(covDrops)) + ' models were dropped due to coverage cutoff.')
+print(str(len(sigpDrops)) + ' models were dropped due to lacking signal peptide.')
