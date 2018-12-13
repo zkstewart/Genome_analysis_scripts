@@ -457,7 +457,7 @@ with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasi
                         mrnas = longest_iso(value)
                 # Loop through mRNAs and produce relevant outputs
                 for mrna in mrnas:
-                        transcript, cds = gff3_index_sequence_extract(gff3Index, mrna, genomeRecords, args.seqType)
+                        transcript, cds = gff3_index_sequence_extract(gff3Index, mrna, genomeRecords, 'both')   # We can hardcode the respond wanted from this function to be both, and return result selectively below
                         # Retrieve protein sequence if relevant
                         if args.seqType == 'cds' or args.seqType == 'both':
                                 prot = None
