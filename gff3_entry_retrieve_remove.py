@@ -143,6 +143,11 @@ def gff3_index(gff3File):
                                                 indexDict[parent][parent][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
                                                 indexDict[parent][parent][lineType]['score'] = [sl[5]]
                                                 indexDict[parent][parent][lineType]['frame'] = [sl[7]]
+                                                # Add extra details to this feature
+                                                if 'feature_list' not in indexDict[parent][parent]:
+                                                        indexDict[parent][parent]['feature_list'] = [lineType]
+                                                else:
+                                                        indexDict[parent][parent]['feature_list'].append(lineType)
                                         else:
                                                 # Add attributes
                                                 indexDict[parent][parent][lineType]['attributes'].append({})
@@ -162,10 +167,14 @@ def gff3_index(gff3File):
         
         geneDict['idValues'] = idValues
         indexDict['idValues'] = geneDict['idValues']
-        geneDict['geneValues'] = idValues['main']['gene']       # This and the mrnaValues below act as shortcuts
+        geneDict['geneValues'] = idValues['main']['gene']       # This, primaryValues, and the mrnaValues below act as shortcuts
         indexDict['geneValues'] = geneDict['geneValues']
+        geneDict['primaryValues'] = [feature for featureList in geneDict['idValues']['main'].values() for feature in featureList]
+        indexDict['primaryValues'] = geneDict['primaryValues']
         geneDict['mrnaValues'] = idValues['feature']['mRNA']
         indexDict['mrnaValues'] = geneDict['mrnaValues']
+        geneDict['secondaryValues'] = [feature for featureList in geneDict['idValues']['feature'].values() for feature in featureList]
+        indexDict['secondaryValues'] = geneDict['secondaryValues']
         contigValues = list(set(contigValues))
         try:
                 contigValues.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
@@ -258,15 +267,8 @@ def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, mode, beh
                 quit()
         # Main function
         with open(outputFileName, 'w') as fileOut:
-                # Generate our list for iteration (ensuring that genes come first)
-                iterList = []
-                if 'gene' in gff3IndexDict['idValues']['main']:
-                        iterList.append(gff3IndexDict['idValues']['main']['gene'])
-                for key in gff3IndexDict['idValues']['main'].keys():
-                        if key != 'gene':
-                                iterList.append(gff3IndexDict['idValues']['main'][key])
-                # Iterate through main features and determine if they are being written to file
-                for key in gff3IndexDict['geneValues']:
+                # Iterate through features and determine if they are being written to file
+                for key in gff3IndexDict['primaryValues']:
                         value = gff3IndexDict[key]
                         # Check if relevant sequence details are within our idList
                         found = []
@@ -288,6 +290,11 @@ def gff3_retrieve_remove_tofile(gff3IndexDict, outputFileName, idList, mode, beh
                                                 found.append(mrna)
                                         elif value[mrna]['source'] in idList:           # Checking subfeature source here
                                                 found.append(mrna)
+                        # Look through sequence attributes for matches
+                        if found == []:
+                                for k, v in value['attributes'].items():
+                                        if k in idList or v in idList:
+                                                found = True
                         # If we find all subfeatures, make our found == True so we know we're looking at the whole gene obj
                         if type(found) == list:
                                 if len(found) == len(value['feature_list']):    # If these lengths are equivalent, we know that we found all features
