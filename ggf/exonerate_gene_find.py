@@ -408,6 +408,10 @@ def exonerate_geneid_produce(contigID, sequenceID, idDict):
         if len(sequenceBit) > 1:
                 if sequenceBit[1].startswith('TR') and sequenceBit[1][2:].isdigit():
                         sequenceBit[0] = sequenceBit[1] + '_' + sequenceBit[0]
+        # Specifically handle ToxProt-style IDs [Note that, normally, the longest bit in a UniProt ID is what we want, but with toxprot the format differs e.g., with "toxprot_sp|P25660|VKT9_BUNFA" the longest section is ambiguous and might return the toxprot bit]
+        if len(sequenceBit) == 3 and sequenceID.split('|')[0] == 'toxprot_sp':
+                sequenceBit[0] = sequenceID.split('|')[2]
+        # Format gene ID
         geneID = contigID + '.' + sequenceBit[0]
         if geneID not in idDict:
                 idDict[geneID] = 1
@@ -520,31 +524,54 @@ def overlapping_gff3_models(nclsHits, gff3Dict, modelCoords):
                 ovlPctDict[mrnaID] = [modelPct, mrnaHitPct, geneID, min(flatMrnaCoords), max(flatMrnaCoords)]
         return ovlPctDict
 
-def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticCode):   # This code is repurposed from gmap_gene_find.py
+def determine_accepted_start_stop_codons(geneticCode, currentStart):
         # Setup
-        import warnings, copy
-        from Bio.Seq import Seq
-        from Bio.Alphabet import generic_dna
+        import copy
         from Bio.Data import CodonTable
-        # Determine what our accepted start and stop codons are depending on geneticCode and alignment start
-        ## Stop
+        # Ensure that currentStartCodon value is sensible
+        if currentStart != None:
+                if type(currentStart) != str:
+                        print('determine_accepted_start_stop_codons: currentStart value is not a string; fix the code leading up to this function call.')
+                        quit()
+                elif len(currentStart) != 3:
+                        print('determine_accepted_start_stop_codons: currentStart value is not a codon i.e., length of 3; fix the code leading up to this function call.')
+                        quit()
+                else:
+                        for letter in currentStart.lower():
+                                if letter not in {'a', 'g', 'c', 't'}:
+                                        print('determine_accepted_start_stop_codons: currentStart value contains non-nucleotide sequence i.e., not A,T,C,G.')
+                                        print('The offending character is "' + letter + '".')
+                                        print('This program cannot handle unambiguous nucleotide sequence; program will exit now.')
+                                        quit()
+        # Stop codon determination
         stopCodonsPos = copy.deepcopy(CodonTable.unambiguous_dna_by_id[geneticCode].stop_codons)
         for i in range(len(stopCodonsPos)):
                 stopCodonsPos[i] = stopCodonsPos[i].lower()
         stopCodonsNeg = []
         for i in range(len(stopCodonsPos)):
                 stopCodonsNeg.append(reverse_comp(stopCodonsPos[i]).lower())
-        ## Start
-        cds = make_cds(coords, genomeRecords, contigID, orientation)
-        currentStart = cds[0:3].lower()
+        # Start codon determination
         startCodonsPos = copy.deepcopy(CodonTable.unambiguous_dna_by_id[geneticCode].start_codons)
         for i in range(len(startCodonsPos)):
                 startCodonsPos[i] = startCodonsPos[i].lower()
-        if currentStart not in startCodonsPos:
-                startCodonsPos.append(currentStart)
+        if currentStart != None:
+                if currentStart.lower() not in startCodonsPos:
+                        startCodonsPos.append(currentStart.lower())
         startCodonsNeg = []
         for i in range(len(startCodonsPos)):
                 startCodonsNeg.append(reverse_comp(startCodonsPos[i]).lower())
+        # Return values
+        return startCodonsPos, startCodonsNeg, stopCodonsPos, stopCodonsNeg
+
+def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticCode):   # This code is repurposed from gmap_gene_find.py
+        # Setup
+        import warnings
+        from Bio.Seq import Seq
+        from Bio.Alphabet import generic_dna
+        # Determine what our accepted start and stop codons are depending on geneticCode and alignment start
+        cds = make_cds(coords, genomeRecords, contigID, orientation)
+        currentStart = cds[0:3].lower()
+        startCodonsPos, startCodonsNeg, stopCodonsPos, stopCodonsNeg = determine_accepted_start_stop_codons(geneticCode, currentStart)
         # Crawl up the genome sequence looking for a way to extend the ORF to an accepted start as determined above
         if orientation == '+':
                 # Crawl back looking for the first stop codon - this is our boundary
@@ -747,14 +774,15 @@ def splice_sites(coords, genomeRecords, contigID, orientation):
         # Return value
         return spliceTypes
 
-def reverse_comp(seq):
-        reversedSeq = seq[::-1].lower()
-        # Complement characters
-        reversedSeq = reversedSeq.replace('a', 'T')
-        reversedSeq = reversedSeq.replace('t', 'A')
-        reversedSeq = reversedSeq.replace('c', 'G')
-        reversedSeq = reversedSeq.replace('g', 'C')
-        return reversedSeq
+def check_model(detailDict, covCutoff, idCutoff):
+        # Cutoff 1: Coverage
+        if float(detailDict['coverage']) < covCutoff:
+                return False
+        # Cutoff 2: Identity
+        if float(detailDict['identity']) < idCutoff:
+                return False
+        # Passed all cutoffs!
+        return True
 
 def find_longest_orf_nostopallowed(seq, firstCodon):
         # Setup
@@ -1186,6 +1214,9 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
                         lastCoord = value[0][-1]
                         lastInts = [int(lastCoord[0]), int(lastCoord[1])]
                         protein = value[3]
+                        extraComment = None
+                        if len(value) > 4:
+                                extraComment = str(value[5])    # This is an optional value that might be present in the value; it's expected to be a string like "GFF3Attribute=String"
                         # Determine gene start and end coordinates with respect to orientation
                         if value[2] == '+':
                                 start = min(firstInts)
@@ -1199,6 +1230,8 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
                         # Format gene line
                         typeCol = 'exonerate_gene_find'
                         geneLine = '\t'.join([value[1], typeCol, 'gene', str(start), str(end), '.', value[2], '.', 'ID=' + geneID +';Name=' + name])
+                        if extraComment != None:
+                                geneLine += ';' + extraComment
                         fileOut.write(geneLine + '\n')
                         # Format mRNA line
                         mrnaLine = '\t'.join([value[1], typeCol, 'mRNA', str(start), str(end), '.', value[2], '.', 'ID=' + mrnaID +';Name=' + name + ';Parent=' + geneID])
@@ -1379,6 +1412,15 @@ def pair_coord_introns(inputList):
                 introns.append(intLen)
         return introns
 
+def reverse_comp(seq):
+        reversedSeq = seq[::-1].lower()
+        # Complement characters
+        reversedSeq = reversedSeq.replace('a', 'T')
+        reversedSeq = reversedSeq.replace('t', 'A')
+        reversedSeq = reversedSeq.replace('c', 'G')
+        reversedSeq = reversedSeq.replace('g', 'C')
+        return reversedSeq
+
 ## Shortcut functions [i.e., just reducing code length]
 def auto_stopcodon_fix(origCandidateCDS, coords, orientation):
         fixProt, fixCDS = find_longest_orf_nostopallowed(origCandidateCDS, origCandidateCDS[0:3])       # This function name is changed from that in GGF since we're allowing the absence of stop codons to be returned here
@@ -1408,9 +1450,9 @@ aligning older paralogous or orthologous proteins, identity score may be reduced
 while similarity may remain high - the rule for that appears to be 60-80
 which is reflected in the defaults, but depending on your queried sequences (e.g.,
 if they are all from the species being targeted) you may want to increase the identity
-cut-off. Coverage should be specified to a relatively high value (at least 70) unless
-you provide -nogmapskip which can be an important parameter since exonerate alignments
-in the absence of transcriptional support may often be spurious or flawed.
+cut-off. Coverage should be specified to a relatively high value (at least 70) and it
+is recommended that you do not provide -allownogmap since exonerate alignments in the
+absence of transcriptional support may often be fragmented, spurious, or otherwise flawed.
 """
 
 p = argparse.ArgumentParser(description=usage)
@@ -1452,9 +1494,9 @@ p.add_argument("-c", "-cygwindir", dest="cygwindir", type=str,
                Specify the location of the bin directory here or, if this is already in your PATH, you can leave this blank."""
                if platform.system() == 'Windows' else argparse.SUPPRESS)
 # Behaviour opts
-p.add_argument("-nogmapskip", dest="nogmapskip", action='store_true', default=False,
-               help="""Optionally disallow predictions that lack support from GMAP alignment
-               (recommended if coverageCutoff is less than or equal to 70).""")
+p.add_argument("-allownogmap", dest="allownogmap", action='store_true', default=False,
+               help="""Optionally allow predictions that lack support from GMAP alignment
+               (not recommended unless coverageCutoff is a large value e.g., greater than or equal to 90).""")
 p.add_argument("-nosigpskip", dest="nosigpskip", action='store_true', default=False,
                help="""Optionally disallow predictions that lack signal peptide prediction
                (recommended for the prediction of genes which should have a signal peptide).""")
@@ -1522,9 +1564,14 @@ if args.signalp:
         args.signalpdir = signalp_copy4temp(args, args.signalpdir)
 
 # Assess predictions
+gmapCovCutoff=70.00     # This and the below cutoff are from GGF's default values for identifying good paths. I could open this up to tweaking from the user,
+gmapIdCutoff=90.00      # but there's enough complexity in running this program that I'd rather just hardcode these values in since I know they work well
 candidateModelDict = {}
+nogmapDrops = {}
 covDrops = {}
+stopcodonDrops = {}
 sigpDrops = {}
+
 for candidateID in goodIntronCandidates:
         ## Curation phase: remove exonerate alignments that do not meet quality cutoffs
         # Grab relevant candidate details
@@ -1536,6 +1583,7 @@ for candidateID in goodIntronCandidates:
         if candidateMrnaObj['CDS']['coords'] == False:  # This means the ORF is riddled with stop codons
                 continue
         origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
+        exonerateOrigCDSStop = origCandidateCDS[-3:].lower()
         # Obtain the original sequence used for exonerate alignment
         exonerateSeqID = exonerateIndex[candidateID]['attributes']['Sequence']
         exonerateSeq = exonerateRecords[exonerateSeqID]
@@ -1568,20 +1616,24 @@ for candidateID in goodIntronCandidates:
                         # Hold onto equivalent bests
                         elif value[0] == bestPctList[0][0] and value[1] == bestPctList[0][1]:
                                 bestPctList.append(value)
-        # If no CDS overlaps exist, continue if this behaviour was specified
-        if bestPctList == []:
-                if args.nogmapskip:
-                        continue
-        elif bestPctList[0][0] < args.coverageCutoff/100:                       # Applying the coverageCutoff here should ensure that the GMAP alignment would also score roughly the same against the original exonerate query sequence
-                if args.nogmapskip:
-                        continue
+        # If no CDS overlaps exist OR, if coverageCutoff isn't met, continue if this behaviour was specified
+        if bestPctList == [] or (bestPctList[0][0] < args.coverageCutoff/100):   # Applying the coverageCutoff here should ensure that the GMAP alignment would also score roughly the same against the original exonerate query sequence
+                if args.allownogmap == False:
+                        candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
+                        if candidateProt == False:      # If there's a stop codon internally False will be returned by cds_to_prot. Technically this shouldn't happen because of auto_stopcodon_fix(), but I think it does...
+                                continue                # Since this is a rare occurrence I'm assuming there's something very unusual about these occurrences, so it shouldn't be a problem to just skip these sequences
+                        else:
+                                nogmapDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+                                continue
         # Skip any alignments that don't meet coverage cutoff at this point
         '''This check used to be above, but putting it here lets us perform a "start rescue" condition
-        where if our exonerate alignment indicates the exact same start site as the transcript
+        where if our exonerate alignment indicates, approximately, the same start site as the transcript
         CDS prediction then we assume they are, essentially, the same gene but with 3' divergence'''
+        borderDifference = 24   # Arbitrary; this value will let us handle minor differences in the borders of alignments
         if len(origCandidateCDS) < (len(exonerateSeq)*3)*(args.coverageCutoff/100):
                 if bestPctList != []:
-                        if (candidateMrnaObj['orientation'] == '+' and not bestPctList[0][3] == exonerateStart) or (candidateMrnaObj['orientation'] == '-' and not bestPctList[0][4] == exonerateStart):
+                        if (candidateMrnaObj['orientation'] == '+' and not abs(exonerateStart-bestPctList[0][3]) <= borderDifference) or (candidateMrnaObj['orientation'] == '-' and not abs(exonerateStart-bestPctList[0][4]) <= borderDifference):
+                                '''i.e., if the start position of the GMAP alignment differs by <= 8 AA we accept that they're starting at the same position, more or less; the above condition == True when they differ by more than 8 AA, so we drop the model'''
                                 candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
                                 if candidateProt == False:      # If there's a stop codon internally False will be returned by cds_to_prot. Technically this shouldn't happen because of auto_stopcodon_fix(), but I think it does...
                                         continue                # Since this is a rare occurrence I'm assuming there's something very unusual about these occurrences, so it shouldn't be a problem to just skip these sequences
@@ -1603,8 +1655,9 @@ for candidateID in goodIntronCandidates:
         if bestPctList != []:
                 bestPctList = bestPctList[0]    # Note below that we need to copy.deepcopy the value since we do make changes to it and future alignments might also refer to the same object; this was causing errors before which I wasn't able to definitively track down, but doing this copy fixes things
                 candidateMrnaObj = copy.deepcopy(gmapIndex[bestPctList[2]][gmapIndex[bestPctList[2]]['feature_list'][0]])   # If we have multiple equivalent CDS bits (probably from duplicated genes with less conserved UTRs) then it shouldn't matter which one we choose
-                if 'CDS' not in candidateMrnaObj:                               # If the GMAP prediction lacks CDS then there's something wrong with it and we'll stick to the exonerate alignment which we know does not have internal stop codons
-                        if args.nogmapskip:                                     # If this is our behaviour then we need to skip since we're not going to treat flawed GMAP matches as legitimate ones
+                decision = check_model(candidateMrnaObj['attributes'], gmapCovCutoff, gmapIdCutoff)
+                if 'CDS' not in candidateMrnaObj or decision == False:          # If the GMAP prediction lacks CDS then there's something wrong with it e.g., internal stop codons. Also, if decision is False then the GMAP alignment has poor coverage and/or identity score
+                        if args.allownogmap == False:                           # If this is our behaviour then we need to skip since we're not going to treat flawed GMAP matches as legitimate ones
                                 continue
                         candidateMrnaObj = exonerateIndex[candidateID][mrnaID]  # Go back to what we were using before
                 origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
@@ -1612,6 +1665,21 @@ for candidateID in goodIntronCandidates:
                 if candidateMrnaObj['CDS']['coords'] == False:
                         continue        # As above, if this fails it is riddled with stop codons; it shouldn't happen at this level, however
                 origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
+        # Skip alignments that lack stop codon presence
+        '''Although I am not certain, from testing this program with sea anemone venom toxin sequences, there appears to be cases
+        where an alignment occurs from exonerate & GMAP that correspond to some sort of commonly shared exon #1 which encodes the signal
+        peptide, but the alignment terminates after this. On the one hand, it's likely that these sites represent real toxin gene starts.
+        However, the alignment doesn't give us information regarding where the gene stops. Because of this, our maximal extension may result
+        in a truncated gene model that misses 1 or more exons at the 3' end of the gene.'''
+        startCodonsPos, startCodonsNeg, stopCodonsPos, stopCodonsNeg = determine_accepted_start_stop_codons(args.translationTable, None)
+        finalOrigCDSStop = origCandidateCDS[-3:].lower()
+        if exonerateOrigCDSStop not in stopCodonsPos and finalOrigCDSStop not in stopCodonsPos:
+                candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
+                if candidateProt == False:
+                        continue
+                else:
+                        stopcodonDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
+                        continue
         # Obtain the maximally bounded CDS region with an accepted start codon
         candidateMrnaObj['CDS']['coords'], candidateCDS, acceptedStartCodons = cds_extension_maximal(candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords, args.translationTable)
         # Figure out the original CDS start location in our maximally extended region
@@ -1675,9 +1743,9 @@ for candidateID in goodIntronCandidates:
         candidateCDS = candidateCDS[bestCandidate[0]:]
         candidateProt = cds_to_prot(candidateCDS, '.', candidateID, args.translationTable)
         if args.nosigpskip and bestCandidate[1] == 0:
-                sigpDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+                sigpDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
                 continue
-        candidateModelDict[mrnaID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
+        candidateModelDict[mrnaID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
 
 # Collapse overlapping GMAP/exonerate models by selecting the 'best' according to canonical splicing and other rules
 novelDict, rejectDict = compare_novels_store_rejects(candidateModelDict, genomeRecords)
@@ -1685,7 +1753,9 @@ novelDict, rejectDict = compare_novels_store_rejects(candidateModelDict, genomeR
 # Output to file
 output_func(novelDict, exonerateIndex, gmapIndex, args.outputFileName)
 output_func(rejectDict, exonerateIndex, gmapIndex, args.outputFileName + '_novelOverlapRejects')
+output_func(nogmapDrops, exonerateIndex, gmapIndex, args.outputFileName + '_nogmapDrops')
 output_func(covDrops, exonerateIndex, gmapIndex, args.outputFileName + '_covDrops')
+output_func(stopcodonDrops, exonerateIndex, gmapIndex, args.outputFileName + '_stopcodonDrops')
 output_func(sigpDrops, exonerateIndex, gmapIndex, args.outputFileName + '_sigpDrops')
 
 # Clean up temporary directory if relevant
@@ -1698,5 +1768,7 @@ print('Program completed successfully!')
 # Give some extra info
 print(str(len(novelDict)) + ' models were discovered.')
 print(str(len(rejectDict)) + ' models were removed due to overlap with discovered models.')
+print(str(len(nogmapDrops)) + ' models were dropped due to lacking GMAP alignment support.')
 print(str(len(covDrops)) + ' models were dropped due to coverage cutoff.')
+print(str(len(stopcodonDrops)) + ' models were dropped due to lack of stop codon in alignment region.')
 print(str(len(sigpDrops)) + ' models were dropped due to lacking signal peptide.')
