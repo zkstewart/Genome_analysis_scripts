@@ -1215,7 +1215,7 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
                         lastInts = [int(lastCoord[0]), int(lastCoord[1])]
                         protein = value[3]
                         extraComment = None
-                        if len(value) > 4:
+                        if len(value) > 5:
                                 extraComment = str(value[5])    # This is an optional value that might be present in the value; it's expected to be a string like "GFF3Attribute=String"
                         # Determine gene start and end coordinates with respect to orientation
                         if value[2] == '+':
