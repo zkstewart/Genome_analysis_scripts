@@ -182,7 +182,7 @@ def AltFastqGeneralIterator(handle):
 
 # File format derivation and handling
 def is_gz_file(filepath):
-        # Function designed by themaininthewoods; read at
+        # Function designed by themaninthewoods; read at
         # https://stackoverflow.com/questions/3703276/how-to-tell-if-a-file-is-gzip-compressed
         with open(filepath, 'rb') as test_f:
                 return binascii.hexlify(test_f.read(2)) == b'1f8b'
