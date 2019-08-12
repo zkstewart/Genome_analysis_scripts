@@ -1,331 +1,323 @@
 #! python3
 # gff3_handling.py
 # This file is intended to serve as the central storage location for GFF3-related
-# functions rather than having multiple versions spread across multiple files.
+# classes and functions rather than having multiple versions spread across multiple files.
 
-## GFF3 indexing
-def gff3_index(gff3File):
-        # Setup
-        import re
-        numRegex = re.compile(r'\d+')           # This is used for sorting our contig ID values
-        geneDict = {}                           # Our output structure will have 1 entry per gene which is stored in here
-        indexDict = {}                          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
-        idValues = {'main': {}, 'feature': {}}  # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
-        contigValues = []                       # Also note that we want the idValues dict ordered so we can produce consistently ordered outputs
-        # Gene object loop
-        with open(gff3File, 'r') as fileIn:
-                for line in fileIn:
-                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
-                        # Skip filler and comment lines
-                        if line == '\n' or line.startswith('#'):
-                                continue
-                        # Get details
-                        sl = line.rstrip('\n').split('\t')
-                        lineType = sl[2]
-                        details = sl[8].split(';')
-                        detailDict = {}
-                        for i in range(len(details)):
-                                if details[i] == '':
-                                        continue
-                                splitDetail = details[i].split('=')
-                                detailDict[splitDetail[0]] = splitDetail[1]
-                        contigValues.append(sl[0])
-                        # Build gene group dict objects
-                        if 'Parent' not in detailDict:          # If there is no Parent field in the details, this should BE the parent structure
-                                if 'ID' not in detailDict:      # Parent structures should also have ID= fields - see the human genome GFF3 biological_region values for why this is necessary
-                                        continue
-                                if detailDict['ID'] not in geneDict:
-                                        # Create entry
-                                        geneDict[detailDict['ID']] = {'attributes': {}}
-                                        # Add attributes
-                                        for k, v in detailDict.items():
-                                                geneDict[detailDict['ID']]['attributes'][k] = v
-                                        # Add all other gene details
-                                        geneDict[detailDict['ID']]['contig_id'] = sl[0]
-                                        geneDict[detailDict['ID']]['source'] = sl[1]
-                                        geneDict[detailDict['ID']]['feature_type'] = sl[2]
-                                        geneDict[detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
-                                        geneDict[detailDict['ID']]['score'] = sl[5]
-                                        geneDict[detailDict['ID']]['orientation'] = sl[6]
-                                        geneDict[detailDict['ID']]['frame'] = sl[7]
-                                        # Index in indexDict & idValues & geneIdValues
-                                        indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
-                                        if lineType not in idValues['main']:
-                                                idValues['main'][lineType] = [detailDict['ID']]
-                                        else:
-                                                idValues['main'][lineType].append(detailDict['ID'])
-                                        # Add extra details
-                                        geneDict[detailDict['ID']]['feature_list'] = []    # This provides us a structure we can iterate over to look at each feature within a gene entry
-                                        continue
-                                else:
-                                        print('Gene ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
-                                        print('For debugging purposes, the line == ' + line)
-                                        print('Program will exit now.')
-                                        quit()
-                        # Handle subfeatures within genes
-                        if detailDict['Parent'] in geneDict:
-                                parents = [detailDict['Parent']]
-                        else:
-                                parents = detailDict['Parent'].split(',')
-                        for parent in parents:
-                                # Handle primary subfeatures (e.g., mRNA/tRNA/rRNA/etc.) / handle primary features (e.g., protein) that behave like primary subfeatures
-                                if parent in geneDict and ('ID' in detailDict or ('ID' not in detailDict and parent not in geneDict[parent])):        # The last 'and' clause means we only do this once for proceeding into the next block of code
-                                        if 'ID' in detailDict:
-                                                idIndex = detailDict['ID']
-                                        else:
-                                                idIndex = parent
-                                        geneDict[parent][idIndex] = {'attributes': {}}
-                                        # Add attributes
-                                        for k, v in detailDict.items():
-                                                geneDict[parent][idIndex]['attributes'][k] = v
-                                        # Add all other gene details
-                                        geneDict[parent][idIndex]['contig_id'] = sl[0]
-                                        geneDict[parent][idIndex]['source'] = sl[1]
-                                        geneDict[parent][idIndex]['feature_type'] = sl[2]
-                                        geneDict[parent][idIndex]['coords'] = [int(sl[3]), int(sl[4])]
-                                        geneDict[parent][idIndex]['score'] = sl[5]
-                                        geneDict[parent][idIndex]['orientation'] = sl[6]
-                                        geneDict[parent][idIndex]['frame'] = sl[7]
-                                        # Index in indexDict & idValues
-                                        indexDict[idIndex] = geneDict[parent]
-                                        if lineType not in idValues['feature']:
-                                                idValues['feature'][lineType] = [idIndex]
-                                        else:
-                                                idValues['feature'][lineType].append(idIndex)
-                                        # Add extra details to this feature
-                                        geneDict[parent]['feature_list'].append(idIndex)
-                                        if 'ID' in detailDict:  # We don't need to proceed into the below code block if we're handling a normal primary subfeature; we do want to continue if it's something like a protein that behaves like a primary subfeature despite being a primary feature
-                                                continue
-                                # Handle secondary subfeatures (e.g., CDS/exon/etc.)
-                                if parent not in indexDict:
-                                        print(lineType + ' ID not identified already in your GFF3! "' + parent + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
-                                        print('For debugging purposes, the line == ' + line)
-                                        print('Program will exit now.')
-                                        quit()
-                                elif parent not in indexDict[parent]:
-                                        print(lineType + ' ID does not map to a feature in your GFF3! "' + parent + '" occurs within Parent= field without being present as an ID= field with its own Parent= field on another line first. File is incorrectly formatted and can\'t be processed, sorry.')
-                                        print('For debugging purposes, the line == ' + line)
-                                        print('Program will exit now.')
-                                        quit()
-                                else:
-                                        # Create/append to entry
-                                        if lineType not in indexDict[parent][parent]:
-                                                # Create entry
-                                                indexDict[parent][parent][lineType] =  {'attributes': [{}]}
-                                                # Add attributes
-                                                for k, v in detailDict.items():
-                                                        indexDict[parent][parent][lineType]['attributes'][-1][k] = v        # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
-                                                # Add all other lineType-relevant details
-                                                indexDict[parent][parent][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
-                                                indexDict[parent][parent][lineType]['score'] = [sl[5]]
-                                                indexDict[parent][parent][lineType]['frame'] = [sl[7]]
-                                                # Add extra details to this feature
-                                                if 'feature_list' not in indexDict[parent][parent]:
-                                                        indexDict[parent][parent]['feature_list'] = [lineType]
-                                                else:
-                                                        indexDict[parent][parent]['feature_list'].append(lineType)
-                                        else:
-                                                # Add attributes
-                                                indexDict[parent][parent][lineType]['attributes'].append({})
-                                                for k, v in detailDict.items():
-                                                        indexDict[parent][parent][lineType]['attributes'][-1][k] = v        # By using a list, we have an ordered set of attributes for each lineType
-                                                # Add all other lineType-relevant details
-                                                indexDict[parent][parent][lineType]['coords'].append([int(sl[3]), int(sl[4])])
-                                                indexDict[parent][parent][lineType]['score'].append(sl[5])
-                                                indexDict[parent][parent][lineType]['frame'].append(sl[7])
-        # Add extra details to dict
-        '''This dictionary has supplementary keys. These include 'idValues' which is a dict
-        containing 'main' and 'feature' keys which related to dicts that contain keys correspond to the types of values
-        encountered in your GFF3 (e.g., 'main' will contain 'gene' whereas 'feature' will contain mRNA or tRNA'). 'geneValues'
-        and 'mrnaValues' are shortcuts to thisDict['idValues']['main']['gene'] and thisDict['idValues']['feature']['mRNA']
-        respectively. 'contigValues' is a sorted list of contig IDs encountered in your GFF3. The remaining keys are your
-        main and feature values.'''
+# Modules imported for these functions
+import re
+
+# Gff3 class definition
+class Gff3:
+        def __init__(self, file_location=None, gene_dict={}, index_dict={}, id_values={'main': {}, 'feature': {}}, contig_values=[]):
+                assert file_location != None or (gene_dict != {} and index_dict != {} and id_values != {'main': {}, 'feature': {}} and contig_values != [])
+                self.file_location = file_location
+                self.gene_dict = gene_dict # Our output structure will have 1 entry per gene which is stored in here
+                self.index_dict = index_dict # The index_dict will wrap the gene_dict and index gene IDs and mRNA ID's to the shared single entry per gene ID
+                self.id_values = id_values # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
+                self.contig_values = contig_values
+                if file_location != None:
+                        self.parse_gff3()
         
-        geneDict['idValues'] = idValues
-        indexDict['idValues'] = geneDict['idValues']
-        geneDict['geneValues'] = idValues['main']['gene']       # This, primaryValues, and the mrnaValues below act as shortcuts
-        indexDict['geneValues'] = geneDict['geneValues']
-        geneDict['primaryValues'] = [feature for featureList in geneDict['idValues']['main'].values() for feature in featureList]
-        indexDict['primaryValues'] = geneDict['primaryValues']
-        geneDict['mrnaValues'] = idValues['feature']['mRNA']
-        indexDict['mrnaValues'] = geneDict['mrnaValues']
-        geneDict['secondaryValues'] = [feature for featureList in geneDict['idValues']['feature'].values() for feature in featureList]
-        indexDict['secondaryValues'] = geneDict['secondaryValues']
-        contigValues = list(set(contigValues))
-        try:
-                contigValues.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
-        except:
-                contigValues.sort()     # This is a bit crude, but necessary in cases where contigs lack numeric characters
-        geneDict['contigValues'] = contigValues
-        indexDict['contigValues'] = geneDict['contigValues']
-        # Return output
-        return indexDict
-
-## GFF3 index - line indexing and additional handling
-def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
-        # Setup
-        knownHeadComments = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
-        knownFootComments = ('#PROT')
-        # Main loop
-        with open(gff3File, 'r') as fileIn:
-                for line in fileIn:
-                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
-                        # Skip filler lines
-                        if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}:    # If this is true, it's a blank line or a comment line with no information in it
-                                continue
-                        sl = line.rstrip('\n').split('\t')
-                        # Handle known header comment lines
-                        if line.startswith(knownHeadComments):
-                                # Extract gene ID
-                                mrnaID = line.split(': ')[1].split(' ')[0].rstrip(',')  # According to known header comments, the mRNA ID will be found inbetween ': ' and ' ' with a possible comma at the end which we can strip off
-                                geneID = gff3IndexDict[mrnaID]['attributes']['ID']      # mrnaID indexes back to the main gene dict object, and from here we can get the geneID from its attributes field
-                                # Add to lines dict
-                                if 'lines' not in gff3IndexDict[geneID]:
-                                        gff3IndexDict[geneID]['lines'] = {0: [line], 1: [], 2: []}
-                                else:
-                                        gff3IndexDict[geneID]['lines'][0].append(line)
-                        # Handle known footer comment lines
-                        elif line.startswith(knownFootComments):
-                                # Extract gene ID
-                                geneID = line.split()[2]                                # According to known footer comments, the gene ID will be the third 1-based value (e.g., ['#PROT', 'evm.model.utg0.34', 'evm.TU.utg0.34', 'MATEDAP....'])
-                                # Add to lines dict
-                                if 'lines' not in gff3IndexDict[geneID]:
-                                        gff3IndexDict[geneID]['lines'] = {0: [], 1: [], 2: [line]}
-                                else:
-                                        gff3IndexDict[geneID]['lines'][2].append(line)
-                        # Handle feature detail lines
-                        elif not line.startswith('#'):
-                                # Extract gene ID
-                                attributesList = sl[8].split(';')
-                                if sl[2] in mainTypes:
-                                        for attribute in attributesList:
-                                                if attribute.startswith('ID='):                         # For main-type lines, the ID= is our gene/feature ID
-                                                        geneID = attribute[3:].strip('\n')              # This trims off the ID= bit and any new lines
-                                else:
-                                        geneORmrnaID = None
-                                        for attribute in attributesList:
-                                                if attribute.startswith('Parent='):                     # For every other type of line, the Parent= field should tell us the geneID or mrnaID
-                                                        geneORmrnaID = attribute[7:].strip('\n')        # This trims off the Parent= bit and any new lines
-                                        if geneORmrnaID == None:                                        # This will handle biological_region (ctrl+f for this reference in gff3_index()) and other values which lack ID= and Parent= fields; we don't index these since they are (currently) of no interest
+        def parse_gff3(self):
+                # Gene object loop
+                with open(self.file_location, 'r') as file_in:
+                        for line in file_in:
+                                line = line.replace('\r', '') # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
+                                # Skip filler and comment lines
+                                if line == '\n' or line.startswith('#'):
+                                        continue
+                                # Get details
+                                sl = line.rstrip('\n').split('\t')
+                                line_type = sl[2]
+                                details = sl[8].split(';')
+                                detail_dict = {}
+                                for i in range(len(details)):
+                                        if details[i] == '':
                                                 continue
-                                        if geneORmrnaID in gff3IndexDict:
-                                                geneID = gff3IndexDict[geneORmrnaID]['attributes']['ID']# This lets us handle the ambiguity of our geneORmrnaID and make sure we're looking at the geneID
-                                        elif ',' in geneORmrnaID:                                       # This is for specific scenarios like in TAIR9 where a feature has multiple parents
-                                                geneID = geneORmrnaID.split(',')
-                                # Add to lines dict
-                                if type(geneID) != list:
-                                        if 'lines' not in gff3IndexDict[geneID]:
-                                                gff3IndexDict[geneID]['lines'] = {0: [], 1: [line], 2: []}
-                                        else:
-                                                gff3IndexDict[geneID]['lines'][1].append(line)
-                                else:                                                                   # This section relates to the immediately above comment when handling multiple parent features
-                                        for parent in geneID:                                           # In this case, geneID is a list of parents
-                                                parentSection = line.split('Parent=')[1]
-                                                parentSection = parentSection.split(';')[0]             # This will extract just the bit of the comment from Parent= to any potential ; after
-                                                newLine = line.replace(parentSection, parent)
-                                                if 'lines' not in gff3IndexDict[parent]:
-                                                        gff3IndexDict[parent]['lines'] = {0: [], 1: [newLine], 2: []}   # We do all of this so we can separate multi-parent features into individual bits
+                                        split_details = details[i].split('=')
+                                        detail_dict[split_details[0]] = split_details[1]
+                                self.contig_values.append(sl[0])
+                                # Build gene group dict objects
+                                if 'Parent' not in detail_dict: # If there is no Parent field in the details, this should BE the parent structure
+                                        if 'ID' not in detail_dict: # Parent structures should also have ID= fields - see the human genome GFF3 biological_region values for why this is necessary
+                                                continue
+                                        if detail_dict['ID'] not in self.gene_dict:
+                                                # Create entry
+                                                self.gene_dict[detail_dict['ID']] = {'attributes': {}}
+                                                # Add attributes
+                                                for k, v in detail_dict.items():
+                                                        self.gene_dict[detail_dict['ID']]['attributes'][k] = v
+                                                # Add all other gene details
+                                                self.gene_dict[detail_dict['ID']]['contig_id'] = sl[0]
+                                                self.gene_dict[detail_dict['ID']]['source'] = sl[1]
+                                                self.gene_dict[detail_dict['ID']]['feature_type'] = sl[2]
+                                                self.gene_dict[detail_dict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
+                                                self.gene_dict[detail_dict['ID']]['score'] = sl[5]
+                                                self.gene_dict[detail_dict['ID']]['orientation'] = sl[6]
+                                                self.gene_dict[detail_dict['ID']]['frame'] = sl[7]
+                                                # Index in self.index_dict & idValues & geneIdValues
+                                                self.index_dict[detail_dict['ID']] = self.gene_dict[detail_dict['ID']]
+                                                if line_type not in self.id_values['main']:
+                                                        self.id_values['main'][line_type] = [detail_dict['ID']]
                                                 else:
-                                                        gff3IndexDict[parent]['lines'][1].append(newLine)               # I think that multi-parent features shouldn't exist in GFF3 since, if they do, it's probably redundant or compressing information too much
-                        # All other lines are ignored
-        return gff3IndexDict
-
-def gff3_index_pasaprots_extract(gff3IndexDict):
-        # Setup
-        pasaProts = {}
-        # Main loop
-        for key in gff3IndexDict['idValues'][0]:
-                footComments = gff3IndexDict[key]['lines'][2]
-                # Parse each foot comment to extract the protein sequence
-                for comment in footComments:
-                        splitComment = comment.rstrip('\r\n').split('\t')
-                        # Extract the mRNA ID
-                        mrnaID = splitComment[0].split(' ')[1]  # Format for PASA comments after ' ' split should be ['#PROT', mrnaID, geneID]
-                        # Extract the sequence
-                        sequence = splitComment[1]
-                        # Add into output dict
-                        assert mrnaID not in pasaProts          # If this assertion fails, GFF3 comment format is flawed - there is a duplicate mRNA ID
-                        pasaProts[mrnaID] = sequence
-        return pasaProts
-
-def gff3_index_denovo_lines(gff3Index):                 # see mtdna_gff2_order.py for an example of this function
-        commentOrder = ['ID', 'Parent', 'Name']         # Hard code some of the ordering for GFF3 comments; any other type might end up being randomised a bit
-        gff3Lines = {}
-        for key in gff3Index['primaryValues']:
-                # Produce lines-type structure
-                gff3Lines[key] = {0: [], 1: [], 2: []}
-                # Produce our main feature line
-                gff3Entry = gff3Index[key]
-                featureLine = [gff3Entry['contig_id'], gff3Entry['source'], gff3Entry['feature_type'], str(gff3Entry['coords'][0]), 
-                               str(gff3Entry['coords'][1]), gff3Entry['score'], gff3Entry['orientation'], gff3Entry['frame']]
-                # Format comment with some degree of ordering
-                comments = ''
-                for k in commentOrder:
-                        if k in gff3Entry['attributes']:
-                                if comments == '':
-                                        comments += k + '=' + gff3Entry['attributes'][k]
+                                                        self.id_values['main'][line_type].append(detail_dict['ID'])
+                                                # Add extra details
+                                                self.gene_dict[detail_dict['ID']]['feature_list'] = [] # This provides us a structure we can iterate over to look at each feature within a gene entry
+                                                continue
+                                        else:
+                                                print('Gene ID is duplicated in your GFF3! "' + detail_dict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                                print('For debugging purposes, the line == ' + line)
+                                                print('Program will exit now.')
+                                                quit()
+                                # Handle subfeatures within genes
+                                if detail_dict['Parent'] in self.gene_dict:
+                                        parents = [detail_dict['Parent']]
                                 else:
-                                        comments += ';' + k + '=' + gff3Entry['attributes'][k]
-                for k, v in gff3Entry['attributes'].items():
-                        if k in commentOrder:
+                                        parents = detail_dict['Parent'].split(',')
+                                for parent in parents:
+                                        # Handle primary subfeatures (e.g., mRNA/tRNA/rRNA/etc.) / handle primary features (e.g., protein) that behave like primary subfeatures
+                                        if parent in self.gene_dict and ('ID' in detail_dict or ('ID' not in detail_dict and parent not in self.gene_dict[parent])): # The last 'and' clause means we only do this once for proceeding into the next block of code
+                                                if 'ID' in detail_dict:
+                                                        id_index = detail_dict['ID']
+                                                else:
+                                                        id_index = parent
+                                                self.gene_dict[parent][id_index] = {'attributes': {}}
+                                                # Add attributes
+                                                for k, v in detail_dict.items():
+                                                        self.gene_dict[parent][id_index]['attributes'][k] = v
+                                                # Add all other gene details
+                                                self.gene_dict[parent][id_index]['contig_id'] = sl[0]
+                                                self.gene_dict[parent][id_index]['source'] = sl[1]
+                                                self.gene_dict[parent][id_index]['feature_type'] = sl[2]
+                                                self.gene_dict[parent][id_index]['coords'] = [int(sl[3]), int(sl[4])]
+                                                self.gene_dict[parent][id_index]['score'] = sl[5]
+                                                self.gene_dict[parent][id_index]['orientation'] = sl[6]
+                                                self.gene_dict[parent][id_index]['frame'] = sl[7]
+                                                # Index in self.index_dict & idValues
+                                                self.index_dict[id_index] = self.gene_dict[parent]
+                                                if line_type not in self.id_values['feature']:
+                                                        self.id_values['feature'][line_type] = [id_index]
+                                                else:
+                                                        self.id_values['feature'][line_type].append(id_index)
+                                                # Add extra details to this feature
+                                                self.gene_dict[parent]['feature_list'].append(id_index)
+                                                if 'ID' in detail_dict:  # We don't need to proceed into the below code block if we're handling a normal primary subfeature; we do want to continue if it's something like a protein that behaves like a primary subfeature despite being a primary feature
+                                                        continue
+                                        # Handle secondary subfeatures (e.g., CDS/exon/etc.)
+                                        if parent not in self.index_dict:
+                                                print(line_type + ' ID not identified already in your GFF3! "' + parent + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                                print('For debugging purposes, the line == ' + line)
+                                                print('Program will exit now.')
+                                                quit()
+                                        elif parent not in self.index_dict[parent]:
+                                                print(line_type + ' ID does not map to a feature in your GFF3! "' + parent + '" occurs within Parent= field without being present as an ID= field with its own Parent= field on another line first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                                print('For debugging purposes, the line == ' + line)
+                                                print('Program will exit now.')
+                                                quit()
+                                        else:
+                                                # Create/append to entry
+                                                if line_type not in self.index_dict[parent][parent]:
+                                                        # Create entry
+                                                        self.index_dict[parent][parent][line_type] =  {'attributes': [{}]}
+                                                        # Add attributes
+                                                        for k, v in detail_dict.items():
+                                                                self.index_dict[parent][parent][line_type]['attributes'][-1][k] = v # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
+                                                        # Add all other line_type-relevant details
+                                                        self.index_dict[parent][parent][line_type]['coords'] = [[int(sl[3]), int(sl[4])]]
+                                                        self.index_dict[parent][parent][line_type]['score'] = [sl[5]]
+                                                        self.index_dict[parent][parent][line_type]['frame'] = [sl[7]]
+                                                        # Add extra details to this feature
+                                                        if 'feature_list' not in self.index_dict[parent][parent]:
+                                                                self.index_dict[parent][parent]['feature_list'] = [line_type]
+                                                        else:
+                                                                self.index_dict[parent][parent]['feature_list'].append(line_type)
+                                                else:
+                                                        # Add attributes
+                                                        self.index_dict[parent][parent][line_type]['attributes'].append({})
+                                                        for k, v in detail_dict.items():
+                                                                self.index_dict[parent][parent][line_type]['attributes'][-1][k] = v # By using a list, we have an ordered set of attributes for each line_type
+                                                        # Add all other line_type-relevant details
+                                                        self.index_dict[parent][parent][line_type]['coords'].append([int(sl[3]), int(sl[4])])
+                                                        self.index_dict[parent][parent][line_type]['score'].append(sl[5])
+                                                        self.index_dict[parent][parent][line_type]['frame'].append(sl[7])
+                # Generate shortcut attributes
+                self.gene_values = self.id_values['main']['gene']
+                self.mrna_values = self.id_values['feature']['mRNA']
+                self.primary_values = [feature for featureList in self.id_values['main'].values() for feature in featureList]
+                self.secondary_values = [feature for featureList in self.id_values['feature'].values() for feature in featureList]
+                # Sort contig_values
+                self.contig_values = list(set(self.contig_values))
+                try:
+                        self.contig_values.sort(key = lambda x: list(map(int, re.findall(r'\d+', x)))) # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
+                except:
+                        self.contig_values.sort() # This is a bit crude, but necessary in cases where contigs lack numeric characters
+        
+        def add_lines(self):
+                # Setup
+                main_types = list(self.id_values['main'].keys())
+                KNOWN_HEAD_COMMENTS = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
+                KNOWN_FOOT_COMMENTS = ('#PROT')
+                assert self.file_location != None
+                # Main loop
+                with open(self.file_location, 'r') as file_in:
+                        for line in file_in:
+                                line = line.replace('\r', '') # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
+                                # Skip filler lines
+                                if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}: # If this is true, it's a blank line or a comment line with no information in it
+                                        continue
+                                sl = line.rstrip('\n').split('\t')
+                                # Handle known header comment lines
+                                if line.startswith(KNOWN_HEAD_COMMENTS):
+                                        # Extract gene ID
+                                        mrna_ID = line.split(': ')[1].split(' ')[0].rstrip(',') # According to known header comments, the mRNA ID will be found inbetween ': ' and ' ' with a possible comma at the end which we can strip off
+                                        gene_ID = self.index_dict[mrna_ID]['attributes']['ID'] # mrna_ID indexes back to the main gene dict object, and from here we can get the geneID from its attributes field
+                                        # Add to lines dict
+                                        if 'lines' not in self.index_dict[gene_ID]:
+                                                self.index_dict[gene_ID]['lines'] = {0: [line], 1: [], 2: []}
+                                        else:
+                                                self.index_dict[gene_ID]['lines'][0].append(line)
+                                # Handle known footer comment lines
+                                elif line.startswith(KNOWN_FOOT_COMMENTS):
+                                        # Extract gene ID
+                                        gene_ID = line.split()[2] # According to known footer comments, the gene ID will be the third 1-based value (e.g., ['#PROT', 'evm.model.utg0.34', 'evm.TU.utg0.34', 'MATEDAP....'])
+                                        # Add to lines dict
+                                        if 'lines' not in self.index_dict[gene_ID]:
+                                                self.index_dict[gene_ID]['lines'] = {0: [], 1: [], 2: [line]}
+                                        else:
+                                                self.index_dict[gene_ID]['lines'][2].append(line)
+                                # Handle feature detail lines
+                                elif not line.startswith('#'):
+                                        # Extract gene ID
+                                        attributes = sl[8].split(';')
+                                        if sl[2] in main_types:
+                                                for attr in attributes:
+                                                        if attr.startswith('ID='): # For main-type lines, the ID= is our gene/feature ID
+                                                                gene_ID = attr[3:].strip('\n') # This trims off the ID= bit and any new lines
+                                        else:
+                                                gene_or_mrna_ID = None
+                                                for attr in attributes:
+                                                        if attr.startswith('Parent='): # For every other type of line, the Parent= field should tell us the geneID or mrnaID
+                                                                gene_or_mrna_ID = attr[7:].strip('\n') # This trims off the Parent= bit and any new lines
+                                                if gene_or_mrna_ID == None: # This will handle biological_region (ctrl+f for this reference in gff3_index()) and other values which lack ID= and Parent= fields; we don't index these since they are (currently) of no interest
+                                                        continue
+                                                if gene_or_mrna_ID in self.index_dict:
+                                                        gene_ID = self.index_dict[gene_or_mrna_ID]['attributes']['ID'] # This lets us handle the ambiguity of our geneORmrnaID and make sure we're looking at the geneID
+                                                elif ',' in gene_or_mrna_ID: # This is for specific scenarios like in TAIR9 where a feature has multiple parents
+                                                        gene_ID = gene_or_mrna_ID.split(',')
+                                        # Add to lines dict
+                                        if type(gene_ID) != list:
+                                                if 'lines' not in self.index_dict[gene_ID]:
+                                                        self.index_dict[gene_ID]['lines'] = {0: [], 1: [line], 2: []}
+                                                else:
+                                                        self.index_dict[gene_ID]['lines'][1].append(line)
+                                        else:                                                   # This section relates to the immediately above comment when handling multiple parent features
+                                                for parent in gene_ID:                          # In this case, gene_ID is a list of parents
+                                                        parent_text = line.split('Parent=')[1]
+                                                        parent_text = parent_text.split(';')[0] # This will extract just the bit of the comment from Parent= to any potential ; after
+                                                        new_line = line.replace(parent_text, parent)
+                                                        if 'lines' not in self.index_dict[parent]:
+                                                                self.index_dict[parent]['lines'] = {0: [], 1: [new_line], 2: []} # We do all of this so we can separate multi-parent features into individual bits
+                                                        else:
+                                                                self.index_dict[parent]['lines'][1].append(new_line) # I think that multi-parent features shouldn't exist in GFF3 since, if they do, it's probably redundant or compressing information too much
+                                # All other lines are ignored
+
+        def pasaprots_extract(self):
+                # Setup
+                pasaProts = {}
+                # Main loop
+                for key in self.gene_values:
+                        if 'lines' not in self.index_dict[key]:
                                 continue
-                        if comments == '':
-                                comments += k + '=' + gff3Entry['attributes'][k]
-                        else:
-                                comments += ';' + k + '=' + gff3Entry['attributes'][k]
-                featureLine.append(comments)
-                gff3Lines[key][1].append(featureLine)
-                # Produce subfeature line
-                for subfeature in gff3Entry['feature_list']:
-                        subGff3Entry = gff3Entry[subfeature]
-                        featureLine = [subGff3Entry['contig_id'], subGff3Entry['source'], subGff3Entry['feature_type'], str(subGff3Entry['coords'][0]), 
-                                       str(subGff3Entry['coords'][1]), subGff3Entry['score'], subGff3Entry['orientation'], subGff3Entry['frame']]
+                        foot_comments = self.index_dict[key]['lines'][2]
+                        # Parse each foot comment to extract the protein sequence
+                        for comment in foot_comments:
+                                split_comment = comment.rstrip('\r\n').split('\t')
+                                # Extract the mRNA ID
+                                mrnaID = split_comment[0].split(' ')[1] # Format for PASA comments after ' ' split should be ['#PROT', mrnaID, geneID]
+                                # Extract the sequence
+                                sequence = split_comment[1]
+                                # Add into output dict
+                                assert mrnaID not in pasaProts # If this assertion fails, GFF3 comment format is flawed - there is a duplicate mRNA ID
+                                pasaProts[mrnaID] = sequence
+                return pasaProts
+
+        def denovo_lines(self): # see mtdna_gff2_order.py for an example of this function
+                COMMENT_ORDER = ['ID', 'Parent', 'Name'] # Hard code some of the ordering for GFF3 comments; any other type might end up being randomised a bit
+                gff3_lines = {}
+                for key in self.primary_values:
+                        # Produce lines-type structure
+                        gff3_lines[key] = {0: [], 1: [], 2: []}
+                        # Produce our main feature line
+                        gff3_entry = self.index_dict[key]
+                        feature_line = [gff3_entry['contig_id'], gff3_entry['source'], gff3_entry['feature_type'], str(gff3_entry['coords'][0]), 
+                                       str(gff3_entry['coords'][1]), gff3_entry['score'], gff3_entry['orientation'], gff3_entry['frame']]
                         # Format comment with some degree of ordering
                         comments = ''
-                        for k in commentOrder:
-                                if k in subGff3Entry['attributes']:
+                        for k in COMMENT_ORDER:
+                                if k in gff3_entry['attributes']:
                                         if comments == '':
-                                                comments += k + '=' + subGff3Entry['attributes'][k]
+                                                comments += k + '=' + gff3_entry['attributes'][k]
                                         else:
-                                                comments += ';' + k + '=' + subGff3Entry['attributes'][k]
-                        for k, v in subGff3Entry['attributes'].items():
-                                if k in commentOrder:
+                                                comments += ';' + k + '=' + gff3_entry['attributes'][k]
+                        for k, v in gff3_entry['attributes'].items():
+                                if k in COMMENT_ORDER:
                                         continue
                                 if comments == '':
-                                        comments += k + '=' + subGff3Entry['attributes'][k]
+                                        comments += k + '=' + gff3_entry['attributes'][k]
                                 else:
-                                        comments += ';' + k + '=' + subGff3Entry['attributes'][k]
-                        featureLine.append(comments)
-                        gff3Lines[key][1].append(featureLine)
-                        # Produce secondary subfeature line(s)
-                        for subfeatType in subGff3Entry['feature_list']:
-                                secondarySubGff3Entry = subGff3Entry[subfeatType]
-                                for i in range(len(secondarySubGff3Entry['coords'])):
-                                        featureLine = [subGff3Entry['contig_id'], subGff3Entry['source'], subfeatType, str(secondarySubGff3Entry['coords'][i][0]),
-                                                       str(secondarySubGff3Entry['coords'][i][1]), secondarySubGff3Entry['score'][i], subGff3Entry['orientation'], secondarySubGff3Entry['frame'][i]]
-                                        # Format comment with some degree of ordering
-                                        comments = ''
-                                        for k in commentOrder:
-                                                if k in secondarySubGff3Entry['attributes'][i]:
-                                                        if comments == '':
-                                                                comments += k + '=' + secondarySubGff3Entry['attributes'][i][k]
-                                                        else:
-                                                                comments += ';' + k + '=' + secondarySubGff3Entry['attributes'][i][k]
-                                        for k, v in secondarySubGff3Entry['attributes'][i].items():
-                                                if k in commentOrder:
-                                                        continue
+                                        comments += ';' + k + '=' + gff3_entry['attributes'][k]
+                        feature_line.append(comments)
+                        gff3_lines[key][1].append(feature_line)
+                        # Produce subfeature line
+                        for subfeature in gff3_entry['feature_list']:
+                                subgff3_entry = gff3_entry[subfeature]
+                                feature_line = [subgff3_entry['contig_id'], subgff3_entry['source'], subgff3_entry['feature_type'], str(subgff3_entry['coords'][0]), 
+                                               str(subgff3_entry['coords'][1]), subgff3_entry['score'], subgff3_entry['orientation'], subgff3_entry['frame']]
+                                # Format comment with some degree of ordering
+                                comments = ''
+                                for k in COMMENT_ORDER:
+                                        if k in subgff3_entry['attributes']:
                                                 if comments == '':
-                                                        comments += k + '=' + secondarySubGff3Entry['attributes'][i][k]
+                                                        comments += k + '=' + subgff3_entry['attributes'][k]
                                                 else:
-                                                        comments += ';' + k + '=' + secondarySubGff3Entry['attributes'][i][k]
-                                        featureLine.append(comments)
-                                        gff3Lines[key][1].append(featureLine)
-                # Reformat lines into strings
-                for x in range(len(gff3Lines[key][1])):
-                        gff3Lines[key][1][x] = '\t'.join(gff3Lines[key][1][x]) + '\n'
-                # Associate lines to gff3Index
-                gff3Index[key]['lines'] = gff3Lines[key]
-        return gff3Index
+                                                        comments += ';' + k + '=' + subgff3_entry['attributes'][k]
+                                for k, v in subgff3_entry['attributes'].items():
+                                        if k in COMMENT_ORDER:
+                                                continue
+                                        if comments == '':
+                                                comments += k + '=' + subgff3_entry['attributes'][k]
+                                        else:
+                                                comments += ';' + k + '=' + subgff3_entry['attributes'][k]
+                                feature_line.append(comments)
+                                gff3_lines[key][1].append(feature_line)
+                                # Produce secondary subfeature line(s)
+                                for subfeature_type in subgff3_entry['feature_list']:
+                                        secondarysubgff3_entry = subgff3_entry[subfeature_type]
+                                        for i in range(len(secondarysubgff3_entry['coords'])):
+                                                feature_line = [subgff3_entry['contig_id'], subgff3_entry['source'], subfeature_type, str(secondarysubgff3_entry['coords'][i][0]),
+                                                               str(secondarysubgff3_entry['coords'][i][1]), secondarysubgff3_entry['score'][i], subgff3_entry['orientation'], secondarysubgff3_entry['frame'][i]]
+                                                # Format comment with some degree of ordering
+                                                comments = ''
+                                                for k in COMMENT_ORDER:
+                                                        if k in secondarysubgff3_entry['attributes'][i]:
+                                                                if comments == '':
+                                                                        comments += k + '=' + secondarysubgff3_entry['attributes'][i][k]
+                                                                else:
+                                                                        comments += ';' + k + '=' + secondarysubgff3_entry['attributes'][i][k]
+                                                for k, v in secondarysubgff3_entry['attributes'][i].items():
+                                                        if k in COMMENT_ORDER:
+                                                                continue
+                                                        if comments == '':
+                                                                comments += k + '=' + secondarysubgff3_entry['attributes'][i][k]
+                                                        else:
+                                                                comments += ';' + k + '=' + secondarysubgff3_entry['attributes'][i][k]
+                                                feature_line.append(comments)
+                                                gff3_lines[key][1].append(feature_line)
+                        # Reformat lines into strings
+                        for x in range(len(gff3_lines[key][1])):
+                                gff3_lines[key][1][x] = '\t'.join(gff3_lines[key][1][x]) + '\n'
+                        # Associate lines to gff3Index
+                        self.index_dict[key]['lines'] = gff3_lines[key]
 
 ## GFF3 - gene ID manipulation
 def gff3_idlist_compare(gff3Dict, idList):
@@ -740,19 +732,19 @@ def gff3_parse_ncls(gff3File, featureTypes):
                         contigStop = int(sl[4])
                         orient = sl[6]
                         details = sl[8].split(';')
-                        detailDict = {}
+                        detail_dict = {}
                         for i in range(len(details)):
                                 if details[i] == '' or details[i] == '\n':
                                         continue
-                                splitDetail = details[i].split('=')
-                                detailDict[splitDetail[0]] = splitDetail[1].rstrip('\r\n')
-                        if 'ID' not in detailDict:      # Don't index things which lack IDs; these might include things like TAIR9's 'protein' features
+                                split_details = details[i].split('=')
+                                detail_dict[split_details[0]] = split_details[1].rstrip('\r\n')
+                        if 'ID' not in detail_dict:      # Don't index things which lack IDs; these might include things like TAIR9's 'protein' features
                                 continue
                         # Add to our NCLS
                         starts.append(contigStart)
                         ends.append(contigStop+1)       # NCLS indexes 0-based like a range (up to but not including end), so +1 to make this more logically compliant with gff3 1-based system.
                         ids.append(ongoingCount)
-                        gff3Loc[ongoingCount] = [contigStart, contigStop, orient, detailDict['ID'], contigID]
+                        gff3Loc[ongoingCount] = [contigStart, contigStop, orient, detail_dict['ID'], contigID]
                         ongoingCount += 1
         # Build the NCLS object
         starts = pd.Series(starts)
@@ -970,7 +962,7 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                 fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
                                 fileOut.write(''.join(mainGff3Lines[key]['lines'][1]))
                                 fileOut.write(''.join(mainGff3Lines[key]['lines'][2]))
-                                excludeList.append(key)         # This helps with preventing redundancy with "note" entries like lineType == "chromosome"
+                                excludeList.append(key)         # This helps with preventing redundancy with "note" entries like line_type == "chromosome"
                 valueList = []
                 for key in newGff3Lines['idValues']['main'].keys():
                         if key != 'gene':
