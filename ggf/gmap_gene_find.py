@@ -2,6 +2,7 @@
 # gmap_gene_find
 # Program to parse a GMAP gene gff3 file (-f 2) and, according to certain criteria,
 # identify ORFs which have paths that are well supported.
+# PRE-REFACTORING
 
 import os, argparse, re, warnings
 from Bio import SeqIO

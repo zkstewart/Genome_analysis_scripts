@@ -6,6 +6,7 @@
 # to be derived from proteomics which would validate their translation and hence
 # we can use less strict criteria for gene annotation (e.g., splice rules
 # and gene length are irrelevant when this product is validated).
+# PRE-REFACTORING
 
 import os, argparse, platform, copy, shutil
 from Bio import SeqIO
