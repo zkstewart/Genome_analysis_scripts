@@ -2,8 +2,8 @@
 
 #PBS -N rep_pipe
 #PBS -l walltime=100:00:00
-#PBS -l mem=60G
-#PBS -l ncpus=18
+#PBS -l mem=40G
+#PBS -l ncpus=12
 
 cd $PBS_O_WORKDIR
 
@@ -28,13 +28,13 @@ NONTEDB=reference_notransposons_curated.fasta
 TEMODELDB=Pfam-CD-transposons.hmm
 
 ## Setup: Manual specification of input files
-GENOMEDIR=/home/n8942188/scaffolded_assembly
-GENOMENAME=PGA_assembly.fasta
+GENOMEDIR=/home/n8942188/scaffolded_act
+GENOMENAME=PGA_assembly_rename.fasta
 
 ## Setup: Manual specification of file prefixes and HPC parameters
 SPECIES=act
 ASSEM=scaff
-CPUS=18
+CPUS=12
 
 ## Setup: Automatic specification of system configurations
 MITEDIR=mite_prediction
@@ -89,29 +89,27 @@ $GTDIR/gt ltrharvest -index ${PREFIX}_ltrindex -minlenltr 100 -maxlenltr 7000 -m
 $LTRFINDDIR/ltr_finder -D 15000 -d 1000 -L 7000 -l 100 -p 20 -C -M 0.9 $GENOMENAME > $PREFIX.ltrfinder.scn
 ## END SEGMENT 4
 
-## START SEGMENT 5
+## START CYCLE 1 TERMINAL
 # Run LTR_retriever
 $LTRRETDIR/LTR_retriever -genome $GENOMENAME -inharvest ${PREFIX}_ltrharv.result -infinder ${PREFIX}.ltrfinder.scn -nonTGCA ${PREFIX}_ltrharv.result_nontgca -threads $CPUS
 # #> Note: sometimes LTR_retriever will create a .mod genome file, so the output will also have this suffix; we can just move both - one will not work but the other will. Expect an error here which doesn't interrupt any processes.
 mv ${GENOMENAME}.LTRlib.fa $PARENTDIR
 mv ${GENOMENAME}.mod.LTRlib.fa $PARENTDIR
 cd $PARENTDIR
-## END SEGMENT 5
 
-## START CYCLE 1 TERMINAL
 # Cluster MITE predictions
-#cat ${PREFIX}.MITE-Hunter.lib ${PREFIX}.mite.fasta > ${PREFIX}.all.MITEs.lib
-#cd-hit-est -i ${PREFIX}.all.MITEs.lib -o ${PREFIX}.all.nrMITEs.lib -c 0.8 -s 0.8 -aL 0.99 -n 5 -T $CPUS -M 5000
+cat ${PREFIX}.MITE-Hunter.lib ${PREFIX}.mite.fasta > ${PREFIX}.all.MITEs.lib
+cd-hit-est -i ${PREFIX}.all.MITEs.lib -o ${PREFIX}.all.nrMITEs.lib -c 0.8 -s 0.8 -aL 0.99 -n 5 -T $CPUS -M 5000
 
 # Mask MITEs and LTRs
-#cat ${PREFIX}.all.nrMITEs.lib ${GENOMENAME}.LTRlib.fa ${GENOMENAME}.mod.LTRlib.fa > ${PREFIX}_miteLTRlib.fasta
+cat ${PREFIX}.all.nrMITEs.lib ${GENOMENAME}.LTRlib.fa ${GENOMENAME}.mod.LTRlib.fa > ${PREFIX}_miteLTRlib.fasta
 # #> Note: as above, one of these files (.mod or without) won't exist, and that's fine
 mkdir -p ${PREFIX}_miteltrmask
-#$REPMASKDIR/RepeatMasker -pa $CPUS -lib ${PREFIX}_miteLTRlib.fasta -dir ${PREFIX}_miteltrmask -e ncbi -nolow -no_is -norna $GENOMEDIR/$GENOMENAME
+$REPMASKDIR/RepeatMasker -pa $CPUS -lib ${PREFIX}_miteLTRlib.fasta -dir ${PREFIX}_miteltrmask -e ncbi -nolow -no_is -norna $GENOMEDIR/$GENOMENAME
 
 # Run RepeatModeler
-#$REPMODDIR/BuildDatabase -name $PREFIX -engine ncbi ${PREFIX}_miteltrmask/${GENOMENAME}.masked
-#$REPMODDIR/RepeatModeler -engine ncbi -pa $CPUS -database $PREFIX > ${PREFIX}_repmod.out
+$REPMODDIR/BuildDatabase -name $PREFIX -engine ncbi ${PREFIX}_miteltrmask/${GENOMENAME}.masked
+$REPMODDIR/RepeatModeler -engine ncbi -pa $CPUS -database $PREFIX > ${PREFIX}_repmod.out
 ## END CYCLE 1 TERMINAL
 ### STOP PROGRAM EXECUTION CYCLE 1
 
@@ -132,7 +130,7 @@ mkdir -p ${PREFIX}_miteltrmask
 
 # Run softmasking
 mkdir -p ${PREFIX}_softmask
-#$REPMASKDIR/RepeatMasker -pa $CPUS -lib ${PREFIX}.finalcurated.repeats.lib -dir ${PREFIX}_softmask -e ncbi -s -nolow -no_is -norna -xsmall $GENOMEDIR/$GENOMENAME
+$REPMASKDIR/RepeatMasker -pa $CPUS -lib ${PREFIX}.finalcurated.repeats.lib -dir ${PREFIX}_softmask -e ncbi -s -nolow -no_is -norna -xsmall $GENOMEDIR/$GENOMENAME
 ### STOP PROGRAM EXECUTION CYCLE 2
 # Program should be complete at this point; major file inputs will be labelled as such:
 ## TBD
