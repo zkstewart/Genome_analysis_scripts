@@ -6,6 +6,8 @@
 #PBS -l mem=20G
 #PBS -W depend=afterok:4892131.pbs
 
+cd $PBS_O_WORKDIR
+
 ## Setup: Load samtools into environment
 module load samtools/1.3.1-foss-2016a
 
