@@ -2,59 +2,157 @@
 # gmap_gene_find
 # Program to parse a GMAP gene gff3 file (-f 2) and, according to certain criteria,
 # identify ORFs which have paths that are well supported.
-# PRE-REFACTORING
 
 import os, argparse, re, warnings
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Alphabet import generic_dna
 
-# Define functions for later use
-def validate_args(args):
-        # Ensure no None arguments exist
-        for key, value in vars(args).items():
-                if value == None:
-                        print(key + ' argument was not specified. Fix this and try again.')
-                        quit()
-        # Validate input file locations
-        for gmapFile in args.gmapFiles:
-                if not os.path.isfile(gmapFile):
-                        print('I am unable to locate the input GMAP gff3 file (' + gmapFile + ')')
-                        print('Make sure you\'ve typed the file name or location correctly and try again.')
-                        quit()
-        for cdsFile in args.cdsFiles:
-                if not os.path.isfile(cdsFile):
-                        print('I am unable to locate the input CDS FASTA file (' + cdsFile + ')')
-                        print('Make sure you\'ve typed the file name or location correctly and try again.')
-                        quit()
-        if len(args.gmapFiles) != len(args.cdsFiles):
-                print('There is a different number of arguments provided for gmapFiles and cdsFiles.')
-                print('Each gmap GFF3 file should be matched with its respective CDS FASTA file. Try again.')
-                quit()
-        if not os.path.isfile(args.genomeFile):
-                print('I am unable to locate the input genome FASTA file (' + args.genomeFile + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
-        if not os.path.isfile(args.annotationFile):
-                print('I am unable to locate the input genome annotation gff3 file (' + args.annotationFile + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
-        # Validate numerical arguments
-        if not 0 <= args.coverageCutoff <= 100.0:
-                print('Coverage cut-off must be any number >= 0.0 and <= 100.0. Try again.')
-                quit()
-        if not 0 <= args.identityCutoff <= 100.0:
-                print('Identity cut-off must be any number >= 0.0 and <= 100.0. Try again.')
-                quit()
-        if not 0 <= args.alignPctCutoff <= 100.0:
-                print('Identity cut-off must be any number >= 0.0 and <= 100.0. Try again.')
-                quit()
-        args.alignPctCutoff = args.alignPctCutoff / 100 # I think it's more intuitive on the commandline to deal with percentages 0-100 rather than ratios 0-1
-        # Handle file overwrites
-        if os.path.isfile(args.outputFileName):
-                print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
-                quit()
-        return args
+# GFF3 handling
+class Gff3:
+        def __init__(self, file_location=None, gene_dict={}, index_dict={}, id_values={'main': {}, 'feature': {}}, contig_values=[]):
+                assert file_location != None or (gene_dict != {} and index_dict != {} and id_values != {'main': {}, 'feature': {}} and contig_values != [])
+                self.file_location = file_location
+                self.gene_dict = gene_dict # Our output structure will have 1 entry per gene which is stored in here
+                self.index_dict = index_dict # The index_dict will wrap the gene_dict and index gene IDs and mRNA ID's to the shared single entry per gene ID
+                self.id_values = id_values # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
+                self.contig_values = contig_values
+                if file_location != None:
+                        self.parse_gff3()
+        ## Parsing
+        def parse_gff3(self):
+                # Gene object loop
+                with open(self.file_location, 'r') as file_in:
+                        for line in file_in:
+                                line = line.replace('\r', '') # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
+                                # Skip filler and comment lines
+                                if line == '\n' or line.startswith('#'):
+                                        continue
+                                # Get details
+                                sl = line.rstrip('\n').split('\t')
+                                line_type = sl[2]
+                                details = sl[8].split(';')
+                                detail_dict = {}
+                                for i in range(len(details)):
+                                        if details[i] == '':
+                                                continue
+                                        split_details = details[i].split('=')
+                                        detail_dict[split_details[0]] = split_details[1]
+                                self.contig_values.append(sl[0])
+                                # Build gene group dict objects
+                                if 'Parent' not in detail_dict: # If there is no Parent field in the details, this should BE the parent structure
+                                        if 'ID' not in detail_dict: # Parent structures should also have ID= fields - see the human genome GFF3 biological_region values for why this is necessary
+                                                continue
+                                        if detail_dict['ID'] not in self.gene_dict:
+                                                # Create entry
+                                                self.gene_dict[detail_dict['ID']] = {'attributes': {}}
+                                                # Add attributes
+                                                for k, v in detail_dict.items():
+                                                        self.gene_dict[detail_dict['ID']]['attributes'][k] = v
+                                                # Add all other gene details
+                                                self.gene_dict[detail_dict['ID']]['contig_id'] = sl[0]
+                                                self.gene_dict[detail_dict['ID']]['source'] = sl[1]
+                                                self.gene_dict[detail_dict['ID']]['feature_type'] = sl[2]
+                                                self.gene_dict[detail_dict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
+                                                self.gene_dict[detail_dict['ID']]['score'] = sl[5]
+                                                self.gene_dict[detail_dict['ID']]['orientation'] = sl[6]
+                                                self.gene_dict[detail_dict['ID']]['frame'] = sl[7]
+                                                # Index in self.index_dict & idValues & geneIdValues
+                                                self.index_dict[detail_dict['ID']] = self.gene_dict[detail_dict['ID']]
+                                                if line_type not in self.id_values['main']:
+                                                        self.id_values['main'][line_type] = [detail_dict['ID']]
+                                                else:
+                                                        self.id_values['main'][line_type].append(detail_dict['ID'])
+                                                # Add extra details
+                                                self.gene_dict[detail_dict['ID']]['feature_list'] = [] # This provides us a structure we can iterate over to look at each feature within a gene entry
+                                                continue
+                                        else:
+                                                print('Gene ID is duplicated in your GFF3! "' + detail_dict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
+                                                print('For debugging purposes, the line == ' + line)
+                                                print('Program will exit now.')
+                                                quit()
+                                # Handle subfeatures within genes
+                                if detail_dict['Parent'] in self.gene_dict:
+                                        parents = [detail_dict['Parent']]
+                                else:
+                                        parents = detail_dict['Parent'].split(',')
+                                for parent in parents:
+                                        # Handle primary subfeatures (e.g., mRNA/tRNA/rRNA/etc.) / handle primary features (e.g., protein) that behave like primary subfeatures
+                                        if parent in self.gene_dict and ('ID' in detail_dict or ('ID' not in detail_dict and parent not in self.gene_dict[parent])): # The last 'and' clause means we only do this once for proceeding into the next block of code
+                                                if 'ID' in detail_dict:
+                                                        id_index = detail_dict['ID']
+                                                else:
+                                                        id_index = parent
+                                                self.gene_dict[parent][id_index] = {'attributes': {}}
+                                                # Add attributes
+                                                for k, v in detail_dict.items():
+                                                        self.gene_dict[parent][id_index]['attributes'][k] = v
+                                                # Add all other gene details
+                                                self.gene_dict[parent][id_index]['contig_id'] = sl[0]
+                                                self.gene_dict[parent][id_index]['source'] = sl[1]
+                                                self.gene_dict[parent][id_index]['feature_type'] = sl[2]
+                                                self.gene_dict[parent][id_index]['coords'] = [int(sl[3]), int(sl[4])]
+                                                self.gene_dict[parent][id_index]['score'] = sl[5]
+                                                self.gene_dict[parent][id_index]['orientation'] = sl[6]
+                                                self.gene_dict[parent][id_index]['frame'] = sl[7]
+                                                # Index in self.index_dict & idValues
+                                                self.index_dict[id_index] = self.gene_dict[parent]
+                                                if line_type not in self.id_values['feature']:
+                                                        self.id_values['feature'][line_type] = [id_index]
+                                                else:
+                                                        self.id_values['feature'][line_type].append(id_index)
+                                                # Add extra details to this feature
+                                                self.gene_dict[parent]['feature_list'].append(id_index)
+                                                if 'ID' in detail_dict:  # We don't need to proceed into the below code block if we're handling a normal primary subfeature; we do want to continue if it's something like a protein that behaves like a primary subfeature despite being a primary feature
+                                                        continue
+                                        # Handle secondary subfeatures (e.g., CDS/exon/etc.)
+                                        if parent not in self.index_dict:
+                                                print(line_type + ' ID not identified already in your GFF3! "' + parent + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                                print('For debugging purposes, the line == ' + line)
+                                                print('Program will exit now.')
+                                                quit()
+                                        elif parent not in self.index_dict[parent]:
+                                                print(line_type + ' ID does not map to a feature in your GFF3! "' + parent + '" occurs within Parent= field without being present as an ID= field with its own Parent= field on another line first. File is incorrectly formatted and can\'t be processed, sorry.')
+                                                print('For debugging purposes, the line == ' + line)
+                                                print('Program will exit now.')
+                                                quit()
+                                        else:
+                                                # Create/append to entry
+                                                if line_type not in self.index_dict[parent][parent]:
+                                                        # Create entry
+                                                        self.index_dict[parent][parent][line_type] =  {'attributes': [{}]}
+                                                        # Add attributes
+                                                        for k, v in detail_dict.items():
+                                                                self.index_dict[parent][parent][line_type]['attributes'][-1][k] = v # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
+                                                        # Add all other line_type-relevant details
+                                                        self.index_dict[parent][parent][line_type]['coords'] = [[int(sl[3]), int(sl[4])]]
+                                                        self.index_dict[parent][parent][line_type]['score'] = [sl[5]]
+                                                        self.index_dict[parent][parent][line_type]['frame'] = [sl[7]]
+                                                        # Add extra details to this feature
+                                                        if 'feature_list' not in self.index_dict[parent][parent]:
+                                                                self.index_dict[parent][parent]['feature_list'] = [line_type]
+                                                        else:
+                                                                self.index_dict[parent][parent]['feature_list'].append(line_type)
+                                                else:
+                                                        # Add attributes
+                                                        self.index_dict[parent][parent][line_type]['attributes'].append({})
+                                                        for k, v in detail_dict.items():
+                                                                self.index_dict[parent][parent][line_type]['attributes'][-1][k] = v # By using a list, we have an ordered set of attributes for each line_type
+                                                        # Add all other line_type-relevant details
+                                                        self.index_dict[parent][parent][line_type]['coords'].append([int(sl[3]), int(sl[4])])
+                                                        self.index_dict[parent][parent][line_type]['score'].append(sl[5])
+                                                        self.index_dict[parent][parent][line_type]['frame'].append(sl[7])
+                # Generate shortcut attributes
+                self.gene_values = self.id_values['main']['gene']
+                self.mrna_values = self.id_values['feature']['mRNA']
+                self.primary_values = [feature for featureList in self.id_values['main'].values() for feature in featureList]
+                self.secondary_values = [feature for featureList in self.id_values['feature'].values() for feature in featureList]
+                # Sort contig_values
+                self.contig_values = list(set(self.contig_values))
+                try:
+                        self.contig_values.sort(key = lambda x: list(map(int, re.findall(r'\d+', x)))) # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
+                except:
+                        self.contig_values.sort() # This is a bit crude, but necessary in cases where contigs lack numeric characters
 
 ## Checking and validation of models
 def check_model(detailDict, covCutoff, idCutoff):
@@ -783,164 +881,6 @@ def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):
                         del nclsEntries[k]
         return nclsEntries
 
-## GFF3 RELATED
-def gff3_index(gff3File):
-        # Setup
-        import re
-        numRegex = re.compile(r'\d+')           # This is used for sorting our contig ID values
-        geneDict = {}                           # Our output structure will have 1 entry per gene which is stored in here
-        indexDict = {}                          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
-        idValues = {'main': {}, 'feature': {}}  # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
-        contigValues = []                       # Also note that we want the idValues dict ordered so we can produce consistently ordered outputs
-        # Gene object loop
-        with open(gff3File, 'r') as fileIn:
-                for line in fileIn:
-                        line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
-                        # Skip filler and comment lines
-                        if line == '\n' or line.startswith('#'):
-                                continue
-                        # Get details
-                        sl = line.rstrip('\n').split('\t')
-                        lineType = sl[2]
-                        details = sl[8].split(';')
-                        detailDict = {}
-                        for i in range(len(details)):
-                                if details[i] == '':
-                                        continue
-                                splitDetail = details[i].split('=')
-                                detailDict[splitDetail[0]] = splitDetail[1]
-                        contigValues.append(sl[0])
-                        # Build gene group dict objects
-                        if 'Parent' not in detailDict:          # If there is no Parent field in the details, this should BE the parent structure
-                                if 'ID' not in detailDict:      # Parent structures should also have ID= fields - see the human genome GFF3 biological_region values for why this is necessary
-                                        continue
-                                if detailDict['ID'] not in geneDict:
-                                        # Create entry
-                                        geneDict[detailDict['ID']] = {'attributes': {}}
-                                        # Add attributes
-                                        for k, v in detailDict.items():
-                                                geneDict[detailDict['ID']]['attributes'][k] = v
-                                        # Add all other gene details
-                                        geneDict[detailDict['ID']]['contig_id'] = sl[0]
-                                        geneDict[detailDict['ID']]['source'] = sl[1]
-                                        geneDict[detailDict['ID']]['feature_type'] = sl[2]
-                                        geneDict[detailDict['ID']]['coords'] = [int(sl[3]), int(sl[4])]
-                                        geneDict[detailDict['ID']]['score'] = sl[5]
-                                        geneDict[detailDict['ID']]['orientation'] = sl[6]
-                                        geneDict[detailDict['ID']]['frame'] = sl[7]
-                                        # Index in indexDict & idValues & geneIdValues
-                                        indexDict[detailDict['ID']] = geneDict[detailDict['ID']]
-                                        if lineType not in idValues['main']:
-                                                idValues['main'][lineType] = [detailDict['ID']]
-                                        else:
-                                                idValues['main'][lineType].append(detailDict['ID'])
-                                        # Add extra details
-                                        geneDict[detailDict['ID']]['feature_list'] = []    # This provides us a structure we can iterate over to look at each feature within a gene entry
-                                        continue
-                                else:
-                                        print('Gene ID is duplicated in your GFF3! "' + detailDict['ID'] + '" occurs twice within ID= field. File is incorrectly formatted and can\'t be processed, sorry.')
-                                        print('For debugging purposes, the line == ' + line)
-                                        print('Program will exit now.')
-                                        quit()
-                        # Handle subfeatures within genes
-                        if detailDict['Parent'] in geneDict:
-                                parents = [detailDict['Parent']]
-                        else:
-                                parents = detailDict['Parent'].split(',')
-                        for parent in parents:
-                                # Handle primary subfeatures (e.g., mRNA/tRNA/rRNA/etc.) / handle primary features (e.g., protein) that behave like primary subfeatures
-                                if parent in geneDict and ('ID' in detailDict or ('ID' not in detailDict and parent not in geneDict[parent])):        # The last 'and' clause means we only do this once for proceeding into the next block of code
-                                        if 'ID' in detailDict:
-                                                idIndex = detailDict['ID']
-                                        else:
-                                                idIndex = parent
-                                        geneDict[parent][idIndex] = {'attributes': {}}
-                                        # Add attributes
-                                        for k, v in detailDict.items():
-                                                geneDict[parent][idIndex]['attributes'][k] = v
-                                        # Add all other gene details
-                                        geneDict[parent][idIndex]['contig_id'] = sl[0]
-                                        geneDict[parent][idIndex]['source'] = sl[1]
-                                        geneDict[parent][idIndex]['feature_type'] = sl[2]
-                                        geneDict[parent][idIndex]['coords'] = [int(sl[3]), int(sl[4])]
-                                        geneDict[parent][idIndex]['score'] = sl[5]
-                                        geneDict[parent][idIndex]['orientation'] = sl[6]
-                                        geneDict[parent][idIndex]['frame'] = sl[7]
-                                        # Index in indexDict & idValues
-                                        indexDict[idIndex] = geneDict[parent]
-                                        if lineType not in idValues['feature']:
-                                                idValues['feature'][lineType] = [idIndex]
-                                        else:
-                                                idValues['feature'][lineType].append(idIndex)
-                                        # Add extra details to this feature
-                                        geneDict[parent]['feature_list'].append(idIndex)
-                                        if 'ID' in detailDict:  # We don't need to proceed into the below code block if we're handling a normal primary subfeature; we do want to continue if it's something like a protein that behaves like a primary subfeature despite being a primary feature
-                                                continue
-                                # Handle secondary subfeatures (e.g., CDS/exon/etc.)
-                                if parent not in indexDict:
-                                        print(lineType + ' ID not identified already in your GFF3! "' + parent + '" occurs within Parent= field without being present within an ID= field first. File is incorrectly formatted and can\'t be processed, sorry.')
-                                        print('For debugging purposes, the line == ' + line)
-                                        print('Program will exit now.')
-                                        quit()
-                                elif parent not in indexDict[parent]:
-                                        print(lineType + ' ID does not map to a feature in your GFF3! "' + parent + '" occurs within Parent= field without being present as an ID= field with its own Parent= field on another line first. File is incorrectly formatted and can\'t be processed, sorry.')
-                                        print('For debugging purposes, the line == ' + line)
-                                        print('Program will exit now.')
-                                        quit()
-                                else:
-                                        # Create/append to entry
-                                        if lineType not in indexDict[parent][parent]:
-                                                # Create entry
-                                                indexDict[parent][parent][lineType] =  {'attributes': [{}]}
-                                                # Add attributes
-                                                for k, v in detailDict.items():
-                                                        indexDict[parent][parent][lineType]['attributes'][-1][k] = v        # We need to do it this way since some GFF3 files have comments on only one CDS line and not all of them
-                                                # Add all other lineType-relevant details
-                                                indexDict[parent][parent][lineType]['coords'] = [[int(sl[3]), int(sl[4])]]
-                                                indexDict[parent][parent][lineType]['score'] = [sl[5]]
-                                                indexDict[parent][parent][lineType]['frame'] = [sl[7]]
-                                                # Add extra details to this feature
-                                                if 'feature_list' not in indexDict[parent][parent]:
-                                                        indexDict[parent][parent]['feature_list'] = [lineType]
-                                                else:
-                                                        indexDict[parent][parent]['feature_list'].append(lineType)
-                                        else:
-                                                # Add attributes
-                                                indexDict[parent][parent][lineType]['attributes'].append({})
-                                                for k, v in detailDict.items():
-                                                        indexDict[parent][parent][lineType]['attributes'][-1][k] = v        # By using a list, we have an ordered set of attributes for each lineType
-                                                # Add all other lineType-relevant details
-                                                indexDict[parent][parent][lineType]['coords'].append([int(sl[3]), int(sl[4])])
-                                                indexDict[parent][parent][lineType]['score'].append(sl[5])
-                                                indexDict[parent][parent][lineType]['frame'].append(sl[7])
-        # Add extra details to dict
-        '''This dictionary has supplementary keys. These include 'idValues' which is a dict
-        containing 'main' and 'feature' keys which related to dicts that contain keys correspond to the types of values
-        encountered in your GFF3 (e.g., 'main' will contain 'gene' whereas 'feature' will contain mRNA or tRNA'). 'geneValues'
-        and 'mrnaValues' are shortcuts to thisDict['idValues']['main']['gene'] and thisDict['idValues']['feature']['mRNA']
-        respectively. 'contigValues' is a sorted list of contig IDs encountered in your GFF3. The remaining keys are your
-        main and feature values.'''
-        
-        geneDict['idValues'] = idValues
-        indexDict['idValues'] = geneDict['idValues']
-        geneDict['geneValues'] = idValues['main']['gene']       # This, primaryValues, and the mrnaValues below act as shortcuts
-        indexDict['geneValues'] = geneDict['geneValues']
-        geneDict['primaryValues'] = [feature for featureList in geneDict['idValues']['main'].values() for feature in featureList]
-        indexDict['primaryValues'] = geneDict['primaryValues']
-        geneDict['mrnaValues'] = idValues['feature']['mRNA']
-        indexDict['mrnaValues'] = geneDict['mrnaValues']
-        geneDict['secondaryValues'] = [feature for featureList in geneDict['idValues']['feature'].values() for feature in featureList]
-        indexDict['secondaryValues'] = geneDict['secondaryValues']
-        contigValues = list(set(contigValues))
-        try:
-                contigValues.sort(key = lambda x: list(map(int, numRegex.findall(x))))     # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
-        except:
-                contigValues.sort()     # This is a bit crude, but necessary in cases where contigs lack numeric characters
-        geneDict['contigValues'] = contigValues
-        indexDict['contigValues'] = geneDict['contigValues']
-        # Return output
-        return indexDict
-
 def output_func(inputDict, outFileName):
         with open(outFileName, 'w') as fileOut:
                 for key, value in inputDict.items():
@@ -1004,134 +944,183 @@ def output_func(inputDict, outFileName):
                         endComment = '#PROT ' + mrnaID + ' ' + pathID + '\t' + protein
                         fileOut.write(endComment + '\n')
 
-#### USER INPUT SECTION
-usage = """%(prog)s reads in 1 or more input GMAP GFF3 files built using -f 2 formatting and will compare
-these against the current annotation, returning a GFF3 file of curated gene models that pass a variety of checks.
-These include intron splicing checks, overlap checks between new models and existing, and checks that the new model
-is similar to the old one. The result should need minimal manual curation, and likely contains many models that are
-either inside introns or are extra copies of other models that weren't assembled due to PASA's default GMAP settings
-resulting in only 1 path.
-"""
-
-# Reqs
-p = argparse.ArgumentParser(description=usage)
-p.add_argument("-gm", "-gmapFiles", dest="gmapFiles", nargs="+",
-                   help="Input GMAP gene gff3 (-f 2) file name(s).")
-p.add_argument("-cd", "-cdsFiles", dest="cdsFiles", nargs="+",
-                   help="Input CDS fasta file name(s) (these file[s] were used for GMAP alignment).")
-p.add_argument("-ge", "-genomeFile", dest="genomeFile",
-                   help="Input genome FASTA file name.")
-p.add_argument("-an", "-annotationFile", dest="annotationFile",
-                   help="Input current genome annotation gff3 file name.")
-p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
-                   help="Coverage cut-off (must have coverage >= provided value; accepted range 0.0->100.0; default == 70.0).", default=70.0)
-p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
-                   help="Identity cut-off (must have identity >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
-p.add_argument("-al", "-alignPctCutoff", dest="alignPctCutoff", type=float,
-                   help="Alignment percent cut-off (new sequence must align against original >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
-p.add_argument("-o", "-outputFile", dest="outputFileName",
-                   help="Output file name.")
-
-args = p.parse_args()
-args = validate_args(args)
-
-# Load in genome fasta file as dict
-genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
-
-# Parse main annotation GFF3 as NCLS and model
-gff3Ncls, gff3Loc = gff3_parse_ncls_mrna(args.annotationFile)
-gff3Dict = gff3_index(args.annotationFile)
-
-# Main loop: find good multipath gene models
-gmapDicts = []          # Hold onto dictionaries from each iteration of gmap files
-ovlCutoff = 0.35        # Arbitrary value; only sharing about 1/3 of its length with known genes seems appropriate
-ovlDict = {}            # Hold onto ovl percentages for bad model checking
-for i in range(len(args.gmapFiles)):
-        # Load in CDS fasta file as dict
-        cdsRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsFiles[i], 'r'), 'fasta'))
-        # Parse GMAP GFF3 for gene models
-        gmapDict = gff3_index(args.gmapFiles[i])
-        # Detect well-suported models
-        coordDict = {}
-        for key in gmapDict['mrnaValues']:
-                value = gmapDict[key][key]
-                # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
-                if len(value['exon']['coords']) == 1:
-                        continue
-                # Skip if the transcript lacks a stop codon and thus is likely to be a fragment
-                transcriptID = key.rsplit('.', maxsplit=1)[0]   # This removes the '.mrna#' suffix which won't be present in the original FASTA file
-                lastCodon = str(cdsRecords[transcriptID].seq)[-3:]
-                if lastCodon.lower() not in ['tag', 'taa', 'tga']:
-                        continue
-                # Cut-off checks
-                decision = check_model(value['attributes'], args.coverageCutoff, args.identityCutoff)
-                if decision == False:
-                        continue
-                result = cds_build(value['exon']['coords'], value['contig_id'], value['orientation'], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff)     # Split off the '.mrna#' suffix
-                if result == False:
-                        continue
-                else:
-                        coords, protein = result
-                        coordDict[key] = [coords, value['contig_id'], value['orientation'], protein]
-        # Remove overlaps of existing genes
-        outputValues = {}
-        for key, value in coordDict.items():
-                # Find overlaps for each exon
-                dictEntries = []
-                for coord in value[0]:
-                        start, stop = coord
-                        # Find overlaps
-                        dictEntries += ncls_finder(gff3Ncls, gff3Loc, start, stop, value[1], 4)         # 4 refers to the index position in the gff3Loc dictionary for the contigID
-                # Convert coordinates to set values for overlap calculation
-                valueSet = set()
-                for coord in value[0]:
-                        start, stop = coord
-                        valueSet = valueSet.union(set(range(start, stop+1)))
-                # Compare overlaps to see if this gene overlaps existing genes
-                checked = []
-                overlapped = set()
-                for entry in dictEntries:
-                        # Handle redundancy
-                        if entry in checked:
+# Main block
+def main():
+        def validate_args(args):
+                # Ensure no None arguments exist
+                for key, value in vars(args).items():
+                        if value == None:
+                                print(key + ' argument was not specified. Fix this and try again.')
+                                quit()
+                # Validate input file locations
+                for gmapFile in args.gmapFiles:
+                        if not os.path.isfile(gmapFile):
+                                print('I am unable to locate the input GMAP gff3 file (' + gmapFile + ')')
+                                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                                quit()
+                for cdsFile in args.cdsFiles:
+                        if not os.path.isfile(cdsFile):
+                                print('I am unable to locate the input CDS FASTA file (' + cdsFile + ')')
+                                print('Make sure you\'ve typed the file name or location correctly and try again.')
+                                quit()
+                if len(args.gmapFiles) != len(args.cdsFiles):
+                        print('There is a different number of arguments provided for gmapFiles and cdsFiles.')
+                        print('Each gmap GFF3 file should be matched with its respective CDS FASTA file. Try again.')
+                        quit()
+                if not os.path.isfile(args.genomeFile):
+                        print('I am unable to locate the input genome FASTA file (' + args.genomeFile + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+                if not os.path.isfile(args.annotationFile):
+                        print('I am unable to locate the input genome annotation gff3 file (' + args.annotationFile + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+                # Validate numerical arguments
+                if not 0 <= args.coverageCutoff <= 100.0:
+                        print('Coverage cut-off must be any number >= 0.0 and <= 100.0. Try again.')
+                        quit()
+                if not 0 <= args.identityCutoff <= 100.0:
+                        print('Identity cut-off must be any number >= 0.0 and <= 100.0. Try again.')
+                        quit()
+                if not 0 <= args.alignPctCutoff <= 100.0:
+                        print('Identity cut-off must be any number >= 0.0 and <= 100.0. Try again.')
+                        quit()
+                args.alignPctCutoff = args.alignPctCutoff / 100 # I think it's more intuitive on the commandline to deal with percentages 0-100 rather than ratios 0-1
+                # Handle file overwrites
+                if os.path.isfile(args.outputFileName):
+                        print(args.outputFileName + ' already exists. Delete/move/rename this file and run the program again.')
+                        quit()
+                return args
+        
+        #### USER INPUT SECTION
+        usage = """%(prog)s reads in 1 or more input GMAP GFF3 files built using -f 2 formatting and will compare
+        these against the current annotation, returning a GFF3 file of curated gene models that pass a variety of checks.
+        These include intron splicing checks, overlap checks between new models and existing, and checks that the new model
+        is similar to the old one. The result should need minimal manual curation, and likely contains many models that are
+        either inside introns or are extra copies of other models that weren't assembled due to PASA's default GMAP settings
+        resulting in only 1 path.
+        """
+        
+        # Reqs
+        p = argparse.ArgumentParser(description=usage)
+        p.add_argument("-gm", "-gmapFiles", dest="gmapFiles", nargs="+",
+                           help="Input GMAP gene gff3 (-f 2) file name(s).")
+        p.add_argument("-cd", "-cdsFiles", dest="cdsFiles", nargs="+",
+                           help="Input CDS fasta file name(s) (these file[s] were used for GMAP alignment).")
+        p.add_argument("-ge", "-genomeFile", dest="genomeFile",
+                           help="Input genome FASTA file name.")
+        p.add_argument("-an", "-annotationFile", dest="annotationFile",
+                           help="Input current genome annotation gff3 file name.")
+        p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
+                           help="Coverage cut-off (must have coverage >= provided value; accepted range 0.0->100.0; default == 70.0).", default=70.0)
+        p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
+                           help="Identity cut-off (must have identity >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
+        p.add_argument("-al", "-alignPctCutoff", dest="alignPctCutoff", type=float,
+                           help="Alignment percent cut-off (new sequence must align against original >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
+        p.add_argument("-o", "-outputFile", dest="outputFileName",
+                           help="Output file name.")
+        
+        args = p.parse_args()
+        args = validate_args(args)
+        
+        # Load in genome fasta file as dict
+        genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
+        
+        # Parse main annotation GFF3 as NCLS and model
+        annotation_ncls, annotation_ncls_loc = gff3_parse_ncls_mrna(args.annotationFile)
+        annotation_gff3 = Gff3(args.annotationFile)
+        
+        # Main loop: find good multipath gene models
+        gmapDicts = [] # Hold onto dictionaries from each iteration of gmap files
+        OVERLAP_CUTOFF = 0.35 # Arbitrary value; only sharing about 1/3 of its length with known genes seems appropriate
+        ovlDict = {} # Hold onto ovl percentages for bad model checking
+        for gmap_file, cds_file in args.gmapFiles, args.cdsFiles:
+                # Load in CDS fasta file as dict
+                cdsRecords = SeqIO.to_dict(SeqIO.parse(open(cds_file, 'r'), 'fasta'))
+                # Parse GMAP GFF3 for gene models
+                gmap_gff3 = Gff3(gmap_file)
+                # Detect well-suported models
+                coordDict = {}
+                for key in gmap_gff3.mrna_values:
+                        value = gmap_gff3.index_dict[key][key]
+                        # Skip if the current path is a 1-exon gene; some 1-exon genes will be real, but there's a much higher chance of it being a pseudogene or transposon-related gene
+                        if len(value['exon']['coords']) == 1:
                                 continue
-                        checked.append(entry)
-                        # Retrieve this mRNA value from the gff3Dict object
-                        mrnaHit = gff3Dict[entry[3]][entry[3]]
-                        # Calculate the overlap of the current value against this mRNA model
-                        mrnaSet = set()
-                        for coord in mrnaHit['CDS']['coords']:
+                        # Skip if the transcript lacks a stop codon and thus is likely to be a fragment
+                        transcriptID = key.rsplit('.', maxsplit=1)[0] # This removes the '.mrna#' suffix which won't be present in the original FASTA file
+                        lastCodon = str(cdsRecords[transcriptID].seq)[-3:]
+                        if lastCodon.lower() not in ['tag', 'taa', 'tga']:
+                                continue
+                        # Cut-off checks
+                        decision = check_model(value['attributes'], args.coverageCutoff, args.identityCutoff)
+                        if decision == False:
+                                continue
+                        result = cds_build(value['exon']['coords'], value['contig_id'], value['orientation'], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff) # Split off the '.mrna#' suffix ## CHECK THIS OUT
+                        if result == False:
+                                continue
+                        else:
+                                coords, protein = result
+                                coordDict[key] = [coords, value['contig_id'], value['orientation'], protein]
+                # Remove overlaps of existing genes
+                outputValues = {}
+                for key, value in coordDict.items():
+                        # Find overlaps for each exon
+                        dictEntries = []
+                        for coord in value[0]:
                                 start, stop = coord
-                                mrnaSet = mrnaSet.union(set(range(start, stop+1)))
-                                # Store how much overlap is present
-                                overlapped = overlapped.union(valueSet & mrnaSet)
-                # Drop any models which overlap existing genes enough to suggest that it's either 1) fragmented, or 2) an isoform
-                ovlPct = (len(valueSet) - (len(valueSet) - len(overlapped))) / len(valueSet)    # Originally I was going to drop anything with overlap, but manual inspection shows there's justification for allowing some overlap (but not much)
-                if ovlPct > ovlCutoff:
-                        continue
-                # Hold onto things which pass this check
-                else:
-                        outputValues[gmapDict[key]['attributes']['ID']] = value
-                        ovlDict[gmapDict[key]['attributes']['ID']] = ovlPct
-        # Hold onto the result
-        gmapDicts.append(outputValues)
+                                # Find overlaps
+                                dictEntries += ncls_finder(annotation_ncls, annotation_ncls_loc, start, stop, value[1], 4) # 4 refers to the index position in the annotation_ncls_loc dictionary for the contigID
+                        # Convert coordinates to set values for overlap calculation
+                        valueSet = set()
+                        for coord in value[0]:
+                                start, stop = coord
+                                valueSet = valueSet.union(set(range(start, stop+1)))
+                        # Compare overlaps to see if this gene overlaps existing genes
+                        checked = []
+                        overlapped = set()
+                        for entry in dictEntries:
+                                # Handle redundancy
+                                if entry in checked:
+                                        continue
+                                checked.append(entry)
+                                # Retrieve this mRNA value from the gff3Dict object
+                                mrnaHit = annotation_gff3.index_dict[entry[3]][entry[3]]
+                                # Calculate the overlap of the current value against this mRNA model
+                                mrnaSet = set()
+                                for coord in mrnaHit['CDS']['coords']:
+                                        start, stop = coord
+                                        mrnaSet = mrnaSet.union(set(range(start, stop+1)))
+                                        # Store how much overlap is present
+                                        overlapped = overlapped.union(valueSet & mrnaSet)
+                        # Drop any models which overlap existing genes enough to suggest that it's either 1) fragmented, or 2) an isoform
+                        ovlPct = (len(valueSet) - (len(valueSet) - len(overlapped))) / len(valueSet) # Originally I was going to drop anything with overlap, but manual inspection shows there's justification for allowing some overlap (but not much)
+                        if ovlPct > OVERLAP_CUTOFF:
+                                continue
+                        # Hold onto things which pass this check
+                        else:
+                                outputValues[gmap_gff3.index_dict[key]['attributes']['ID']] = value
+                                ovlDict[gmap_gff3.index_dict[key]['attributes']['ID']] = ovlPct
+                # Hold onto the result
+                gmapDicts.append(outputValues)
+        
+        # Merge dictionaries together
+        mergedDict = merge_dictionaries(gmapDicts)
+        
+        # Collapse overlapping paths by selecting the 'best' according to canonical splicing and other rules
+        mergedDict = compare_novels(mergedDict, genomeRecords)
+        
+        # Cull models with poor splicing
+        mergedDict = remove_bad_splices(mergedDict, genomeRecords)
+        
+        # Cull weird looking models
+        mergedDict = remove_weird_models(mergedDict, ovlDict)
+        
+        # Output to file
+        output_func(mergedDict, args.outputFileName)
+        
+        # Done!
+        print('Program completed successfully!')
+        print(str(len(mergedDict)) + ' models were discovered.')
 
-# Merge dictionaries together
-mergedDict = merge_dictionaries(gmapDicts)
-
-# Collapse overlapping paths by selecting the 'best' according to canonical splicing and other rules
-mergedDict = compare_novels(mergedDict, genomeRecords)
-
-# Cull models with poor splicing
-mergedDict = remove_bad_splices(mergedDict, genomeRecords)
-
-# Cull weird looking models
-mergedDict = remove_weird_models(mergedDict, ovlDict)
-
-# Output to file
-output_func(mergedDict, args.outputFileName)
-
-# Done!
-print('Program completed successfully!')
-
-# Give some extra info
-print(str(len(mergedDict)) + ' models were discovered.')
+if __name__ == '__main__':
+        main()
