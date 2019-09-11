@@ -4,7 +4,7 @@
 # output by PASA and retrieves the main and/or alternative isoform transcripts 
 # from each locus
 
-import os, argparse, re
+import os, argparse
 from Bio import SeqIO
 
 # Define functions for later use
@@ -283,7 +283,7 @@ def gff3_index_add_comments(gff3IndexDict, gff3File):   # This function is just 
         # Setup
         knownHeadComments = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
         knownFootComments = ('#PROT')
-        # Main loop
+        # Primary loop
         with open(gff3File, 'r') as fileIn:
                 for line in fileIn:
                         line = line.replace('\r', '')   # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
@@ -311,13 +311,13 @@ def gff3_index_add_comments(gff3IndexDict, gff3File):   # This function is just 
                                         gff3IndexDict[geneID]['lines'][2].append(line)
                         # Handle all other lines
                         else:
-                                donothing = 1           # We don't need to store non-comment lines for this function; this line just acts to show function logic
+                                pass # We don't need to store non-comment lines for this function
         return gff3IndexDict
 
 def gff3_index_pasaprots_extract(gff3IndexDict):
         # Setup
         pasaProts = {}
-        # Main loop
+        # Primary loop
         for key in gff3IndexDict['geneValues']:
                 if 'lines' not in gff3IndexDict[key]:
                         continue
