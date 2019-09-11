@@ -1034,7 +1034,7 @@ def main():
         gmapDicts = [] # Hold onto dictionaries from each iteration of gmap files
         OVERLAP_CUTOFF = 0.35 # Arbitrary value; only sharing about 1/3 of its length with known genes seems appropriate
         ovlDict = {} # Hold onto ovl percentages for bad model checking
-        for gmap_file, cds_file in args.gmapFiles, args.cdsFiles:
+        for gmap_file, cds_file in zip(args.gmapFiles, args.cdsFiles):
                 # Load in CDS fasta file as dict
                 cdsRecords = SeqIO.to_dict(SeqIO.parse(open(cds_file, 'r'), 'fasta'))
                 # Parse GMAP GFF3 for gene models
