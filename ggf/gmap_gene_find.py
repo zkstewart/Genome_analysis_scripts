@@ -10,15 +10,14 @@ from Bio.Alphabet import generic_dna
 
 # GFF3 handling
 class Gff3:
-        def __init__(self, file_location=None, gene_dict={}, index_dict={}, id_values={'main': {}, 'feature': {}}, contig_values=[]):
-                assert file_location != None or (gene_dict != {} and index_dict != {} and id_values != {'main': {}, 'feature': {}} and contig_values != [])
+        def __init__(self, file_location):
                 self.file_location = file_location
-                self.gene_dict = gene_dict # Our output structure will have 1 entry per gene which is stored in here
-                self.index_dict = index_dict # The index_dict will wrap the gene_dict and index gene IDs and mRNA ID's to the shared single entry per gene ID
-                self.id_values = id_values # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
-                self.contig_values = contig_values
-                if file_location != None:
-                        self.parse_gff3()
+                self.gene_dict = {} # Our output structure will have 1 entry per gene which is stored in here
+                self.index_dict = {} # The index_dict will wrap the gene_dict and index gene IDs and mRNA ID's to the shared single entry per gene ID
+                self.id_values = {'main': {}, 'feature': {}} # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
+                self.contig_values = []
+                self.parse_gff3()
+        
         ## Parsing
         def parse_gff3(self):
                 # Gene object loop
