@@ -3,7 +3,7 @@
 # Program to parse a GMAP gene gff3 file (-f 2) and, according to certain criteria,
 # identify ORFs which have paths that are well supported.
 
-import os, argparse, re, warnings. copy
+import os, argparse, re, warnings, copy
 import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
