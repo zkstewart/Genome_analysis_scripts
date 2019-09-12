@@ -3,10 +3,13 @@
 # Program to parse a GMAP gene gff3 file (-f 2) and, according to certain criteria,
 # identify ORFs which have paths that are well supported.
 
-import os, argparse, re, warnings
+import os, argparse, re, warnings. copy
+import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Alphabet import generic_dna
+from skbio.alignment import StripedSmithWaterman
+from ncls import NCLS
 
 # GFF3 handling
 class Gff3:
@@ -361,7 +364,6 @@ def coord_excess_cut(coords, startChange, stopChange, orientation):
         return coords, startExonLen, stopExonLen
 
 def cds_extension(coords, contigID, orientation, genomeRecords):
-        from Bio.Seq import Seq
         # Crawl up the genome sequence looking for a way to extend the ORF to 1) an ATG, or 2) the same codon
         stopCodonsPos = ['tag', 'taa', 'tga']
         stopCodonsNeg = ['cta', 'tta', 'tca']
@@ -513,8 +515,6 @@ def longest_orf(record):
         return longest
 
 def ssw(querySeq, targetSeq, proteinOrNucl):
-        # Setup
-        from skbio.alignment import StripedSmithWaterman
         # Ensure that proteinOrNucl value is sensible
         if proteinOrNucl.lower() not in ['protein', 'nucleotide', 'prot', 'nucl', 'p', 'n']:
                 print("ssw: proteinOrNucl value must be in list ['protein', 'nucleotide', 'prot', 'nucl', 'p', 'n']; fix this code and try again.")
@@ -817,8 +817,6 @@ def intron_detail_extract(coords, orientation):
 
 ## NCLS RELATED
 def gff3_parse_ncls_mrna(gff3File):                             # This function will make a NCLS object which can be used to find gene model overlaps; note that this is the whole gene's range, not separate exon ranges
-        import pandas as pd
-        from ncls import NCLS
         gff3Loc = {}
         starts = []
         ends = []
@@ -862,8 +860,6 @@ def gff3_parse_ncls_mrna(gff3File):                             # This function 
         return ncls, gff3Loc
 
 def ncls_finder(ncls, locDict, start, stop, featureID, featureIndex):
-        import copy
-        #from ncls import NCLS
         overlaps = ncls.find_overlap(start, stop+1)             # Although our ncls is 1-based, find_overlap acts as a range and is thus 0-based. We need to +1 to the stop to offset this.
         dictEntries = []
         for result in overlaps:
