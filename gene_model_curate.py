@@ -899,20 +899,22 @@ of poor quality (as determined by close proximity in the genome and poor
 transcriptional support).
 """
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("-gff", "-gff3", dest="gff3File",
+p.add_argument("-gff", dest="gff3File",
                   help="Specify the gene model GFF3 file")
-p.add_argument("-gcd", "-geneCDS", dest="geneCDSFile",
+p.add_argument("-gcd", dest="geneCDSFile",
                   help="Specify the gene model CDS file")
-p.add_argument("-cds", "-cdsTranscripts", dest="cdsTranscripts",
+p.add_argument("-cds", dest="cdsTranscripts",
                   help="Specify CDS-prediction transcriptome file")
-p.add_argument("-dom", "-domtblout", dest="domtbloutFile",
+p.add_argument("-dom", dest="domtbloutFile",
                   help="Specify the HMMER domtblout file (generated using hmmsearch)")
-p.add_argument("-tra", "-transposons", dest="transposonsFile",
+p.add_argument("-tra", dest="transposonsFile",
                   help="Specify a text file listing transposon-associated domains.")
-p.add_argument("-eva", "-evalue", dest="evalueCutoff", type=float,
-                  help="Specify the cutoff to enforce for identifying significant domains (default == 1e-3)", default=1e-3)
-p.add_argument("-out", "-outputFile", dest="outputFileName",
+p.add_argument("-eva", dest="evalueCutoff", type=float, default=1e-3,
+                  help="Specify the cutoff to enforce for identifying significant domains (default == 1e-3)")
+p.add_argument("-out", dest="outputFileName",
                    help="Output file name.")
+p.add_argument("-b", dest="behaviour", choices=['both', 'transposons', 'proximity'], default='both',
+                   help="Specify program behaviour to only remove 'transposons', single exon close 'proximity' genes, or 'both' (default == both)'")
 
 args = p.parse_args()
 validate_args(args)
@@ -933,22 +935,26 @@ dom_dict_check(finalDict, False)        # False means we handle the dictionary a
 gff3Index = gff3_index(args.gff3File)
 gff3Index = gff3_index_add_lines(gff3Index, args.gff3File, list(gff3Index['idValues']['main'].keys()))
 
-# Parse text file for transposon-associated domains
-transposonList = text_file_to_list(args.transposonsFile)
-
 # Detect models that ONLY have transposon-associated domains
-transposonModels = only_transposon_domain_models(finalDict, transposonList)
-transposonModels = gff3_idlist_exclude_altsplice(gff3Index, transposonModels)    # This will rescue putative transposons which have alternate splices
+if args.behaviour == 'both' or args.behaviour == 'transposons': # Parse text file for transposon-associated domains
+        transposonList = text_file_to_list(args.transposonsFile)
+        transposonModels = only_transposon_domain_models(finalDict, transposonList)
+        transposonModels = gff3_idlist_exclude_altsplice(gff3Index, transposonModels) # This will rescue putative transposons which have alternate splices
+else:
+        transposonModels = []
 
 # Identify bad models on account of exon number and proximity
-proximityCutoff = 50    # Arbitrary; probably doesn't need to be accessible to the user
-chainedGenes = gff3_proximity_chain(gff3Index, proximityCutoff)
+if args.behaviour == 'both' or args.behaviour == 'proximity':
+        PROXIMITY_CUTOFF = 50 # Arbitrary; probably doesn't need to be accessible to the user
+        chainedGenes = gff3_proximity_chain(gff3Index, PROXIMITY_CUTOFF)
+        modelRecords = SeqIO.to_dict(SeqIO.parse(open(args.geneCDSFile, 'r'), 'fasta'))
+        transRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsTranscripts, 'r'), 'fasta'))
+        acceptedChains = transcriptome_support_check(chainedGenes, modelRecords, args.cdsTranscripts, transRecords) # Checks potential bad models against transcriptome to see if they have any support
+        droppedChains = set(chainedGenes) - set(acceptedChains)
+else:
+        droppedChains = set()
 
-# Check potential bad models against transcriptome to see if they have any support
-modelRecords = SeqIO.to_dict(SeqIO.parse(open(args.geneCDSFile, 'r'), 'fasta'))
-transRecords = SeqIO.to_dict(SeqIO.parse(open(args.cdsTranscripts, 'r'), 'fasta'))
-acceptedChains = transcriptome_support_check(chainedGenes, modelRecords, args.cdsTranscripts, transRecords)
-droppedChains = set(chainedGenes) - set(acceptedChains)
+# Combine models to be curated into a single list
 dropList = list(set(transposonModels).union(droppedChains))
 
 # Produce output file
