@@ -245,13 +245,13 @@ def main(args):
                 numSeqs += 1
                 genomeSize += length
         # Calculate additional statistics
-        genomeSize = locale.format("%d", genomeSize, grouping=True)
-        numSeqs = locale.format("%d", numSeqs, grouping=True)
-        shortest = locale.format("%d", min(statsList), grouping=True)
-        longest = locale.format("%d", max(statsList), grouping=True)
-        n50 = locale.format("%d", N50(statsList), grouping=True)
-        medianStat = locale.format("%d", median(statsList), grouping=True)
-        meanStat = locale.format("%d", mean(statsList), grouping=True)
+        genomeSize = locale.format_string("%d", genomeSize, grouping=True)
+        numSeqs = locale.format_string("%d", numSeqs, grouping=True)
+        shortest = locale.format_string("%d", min(statsList), grouping=True)
+        longest = locale.format_string("%d", max(statsList), grouping=True)
+        n50 = locale.format_string("%d", N50(statsList), grouping=True)
+        medianStat = locale.format_string("%d", median(statsList), grouping=True)
+        meanStat = locale.format_string("%d", mean(statsList), grouping=True)
         # Print statistics
         print('Genome size: ' + genomeSize)
         print('Number of contigs: ' + numSeqs)
