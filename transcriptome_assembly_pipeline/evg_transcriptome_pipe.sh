@@ -1,0 +1,445 @@
+#!/bin/bash -l
+#PBS -N evGT_pipe
+#PBS -l walltime=00:02:00
+#PBS -l mem=50Mb
+#PBS -l ncpus=1
+
+cd $PBS_O_WORKDIR
+
+## Setup: Program file locations
+TRIMMOMATICDIR=/home/n8942188/various_programs/Trimmomatic-0.36
+TRIMMOMATICJAR=trimmomatic-0.36.jar
+STARDIR=/home/n8942188/various_programs/STAR/source
+SOAPDIR=/home/n8942188/various_programs/SOAPdenovo-Trans-bin-v1.03
+OASESDIR=/home/n8942188/various_programs/oases
+VELVETDIR=/home/n8942188/various_programs/oases/velvet
+SCALDIR=/home/n8942188/various_programs/scallop-0.10.2/src
+SCRIPTDIR=/home/n8942188/scripts/Genome_analysis_scripts
+FASTAHANDLINGDIR=/home/n8942188/scripts/Various_scripts
+EVGDIR=/home/n8942188/various_programs/evigene/scripts
+
+## Setup: Input file locations
+READDIR=/home/n8942188/telmatactis/gene_models/rnaseq_reads
+READ1FILE=L10_1.fq
+READ2FILE=L10_2.fq
+GENDIR=/home/n8942188/telmatactis/pilon
+GENFILE=telmatactis_HGAP.arr4.pil2.fasta
+
+## Setup: Prefixes
+SPECIES=tel
+ASSEM=hgap
+
+###### NOTHING BELOW THIS LINE NEEDS TO BE CHANGED; OPTIONAL STEP SKIPPING OR JOB SUBMISSION RESOURCES ONLY
+
+## Setup: Step skipping behaviour
+### Note: These should all remain as FALSE unless you intend to resume a job at a step after the first BLASR step
+SKIPTRIM=TRUE
+SKIPSTAR=TRUE
+SKIPSORT=FALSE
+SKIPPICARD=TRUE
+SKIPTRINDN=TRUE
+SKIPTRINGG=FALSE
+SKIPSOAPDN=FALSE
+SKIPOASVEL=FALSE
+SKIPSCALLOP=FALSE
+
+## Setup: Automatically generated values and computational resources
+PREFIX=${SPECIES}_${ASSEM}
+HOMEDIR=${PBS_O_WORKDIR}
+
+## Setup: Sub-job qsub values ## Note: Nothing below this line should require modification except for programs like SOAPdenovo-Trans where you might want to increase the below resources
+STARNAME="star_${PREFIX}"
+STARTIME="80:00:00"
+STARMEM="30G"
+STARCPUS=8
+
+SAMTOOLSNAME="samtools_${PREFIX}"
+SAMTOOLSTIME="12:00:00"
+SAMTOOLSMEM="30" ## Note: We leave off the G here since we need a number to use for SAMTOOLSTHREADMEM below
+SAMTOOLSCPUS=8
+SAMTOOLSTHREADMEM=$(echo "$(printf "%.0f\n" $(echo "(${SAMTOOLSMEM}*0.50)/${SAMTOOLSCPUS}"|bc -l))")
+
+TRIMNAME="trim_${PREFIX}"
+TRIMTIME="60:00:00"
+TRIMMEM="40G"
+TRIMCPUS=6
+
+TRINDNNAME="trinDN_${PREFIX}"
+TRINDNTIME="120:00:00"
+TRINDNMEM="120G"
+TRINDNCPUS=10
+
+SOAPDNNAME="soapDN_${PREFIX}"
+SOAPDNTIME="120:00:00"
+SOAPDNMEM="500G"
+SOAPDNCPUS=24
+
+OASVELNAME="oasvel_${PREFIX}"
+OASVELTIME="100:00:00"
+OASVELMEM="500G"
+OASVELCPUS=16
+
+TRINGGNAME="trinGG_${PREFIX}"
+TRINGGTIME="150:00:00"
+TRINGGMEM="120G"
+TRINGGCPUS=10
+MAXINTRON=21000 ## For most eukaryotes this is a very generous upper limit for intron sizes; there will be a small handful of genes this excludes, but realistically probably not more than 10 or so? Pulling that number out of my behind a bit tbh.
+
+SCALLOPNAME="scal_${PREFIX}"
+SCALLOPTIME="80:00:00"
+SCALLOPMEM="50G"
+SCALLOPCPUS=1
+MINTCOV=1
+
+PICARDSUBNAME="picardsub_${PREFIX}"
+PICARDSUBTIME="00:30:00"
+PICARDSUBMEM="5G"
+
+CATNAME="cat_${PREFIX}"
+CATTIME="01:00:00"
+CATMEM="10G"
+CATCPUS=1
+
+EVGNAME="evg_${PREFIX}"
+EVGTIME="60:00:00"
+EVGMEM="100G"
+EVGCPUS=8
+
+## STEP 1: Set up directories
+mkdir -p trimmomatic
+mkdir -p star_map
+mkdir -p rnaseq_details
+mkdir -p transcriptomes
+mkdir -p transcriptomes/scallop
+mkdir -p transcriptomes/soapdenovo-trans
+mkdir -p transcriptomes/trinity-denovo
+mkdir -p transcriptomes/trinity-gg
+mkdir -p transcriptomes/velvet-oases
+mkdir -p transcriptomes/evidentialgene
+mkdir -p transcriptomes/evidentialgene/concatenated
+
+## STEP 2: Generate script files for qsub
+### TRIMMOMATIC
+TRIMMOMATICJOBFILE="${HOMEDIR}/trimmomatic/run_trimmomatic.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${TRIMNAME}
+#PBS -l walltime=${TRIMTIME}
+#PBS -l mem=${TRIMMEM}
+#PBS -l ncpus=${TRIMCPUS}
+
+module load java/1.8.0_92
+cd ${HOMEDIR}/trimmomatic
+COMMAND=\"ILLUMINACLIP:${TRIMMOMATICDIR}/adapters/TruSeq3-PE.fa:2:30:10 SLIDINGWINDOW:4:5 LEADING:5 TRAILING:5 MINLEN:25\"
+java -jar ${TRIMMOMATICDIR}/${TRIMMOMATICJAR} PE -threads ${TRIMCPUS} -trimlog ${PREFIX}.logfile ${READDIR}/${READ1FILE} ${READDIR}/${READ2FILE} -baseout ${PREFIX}.trimmed.fq.gz \${COMMAND}
+gunzip ${PREFIX}.trimmed_1P.fq
+gunzip ${PREFIX}.trimmed_2P.fq
+" > ${TRIMMOMATICJOBFILE}
+sed -i '1d' ${TRIMMOMATICJOBFILE}
+
+### STAR
+STARJOBFILE="${HOMEDIR}/star_map/run_star_trimmed.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${STARNAME}
+#PBS -l walltime=${STARTIME}
+#PBS -l mem=${STARMEM}
+#PBS -l ncpus=${STARCPUS}
+
+cd ${HOMEDIR}/star_map
+# Copy genome here. Need to do this since STAR can only tolerate 1 index per directory...
+cp ${GENDIR}/${GENFILE} .
+# Generate index
+${STARDIR}/STAR --runThreadN ${STARCPUS} --runMode genomeGenerate --genomeDir ${HOMEDIR}/star_map --genomeFastaFiles ${HOMEDIR}/star_map/${GENFILE}
+# Run 2-pass procedure
+${STARDIR}/STAR --runThreadN ${STARCPUS} --genomeDir ${HOMEDIR}/star_map --readFilesIn ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_1P.fq ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_2P.fq --twopassMode Basic
+" > ${STARJOBFILE}
+sed -i '1d' ${STARJOBFILE}
+
+### SAMTOOLS SORT
+SAMTOOLSJOBFILE="${HOMEDIR}/star_map/run_sam2bamsort.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${SAMTOOLSNAME}
+#PBS -l ncpus=${SAMTOOLSCPUS}
+#PBS -l walltime=${SAMTOOLSTIME}
+#PBS -l mem=${SAMTOOLSMEM}G
+#PBS -W depend=afterok:
+
+cd ${HOMEDIR}/star_map
+samtools sort -m ${SAMTOOLSTHREADMEM}G -@ ${SAMTOOLSCPUS} -o Aligned.out.sorted.bam -O bam Aligned.out.sam
+samtools index Aligned.out.sorted.bam
+" > ${SAMTOOLSJOBFILE}
+sed -i '1d' ${SAMTOOLSJOBFILE}
+
+### PICARD (SUBSET)
+PICARDPYTHONHELPER="${HOMEDIR}/rnaseq_details/imetrics_rnaseq_densepeak.py"
+echo "
+#! python3
+from pathlib import Path
+imetrics_file = Path(r\"${HOMEDIR}/rnaseq_details/${PREFIX}.subset100000.imetrics\")
+nums = []
+cols = []
+skip = True
+with open(imetrics_file, 'r') as file_in:
+        for line in file_in:
+                # Skip to relevant section of file
+                if line.startswith('insert_size'):
+                        skip = False
+                        continue
+                if skip == True:
+                        continue
+                if '\t' not in line:
+                        continue
+                # Hold onto data
+                col = line.rstrip('\r\n ').split('\t')
+                cols.append([int(col[0]), int(col[1])])
+                nums.append(int(col[1]))
+maximumest_index = [0, 0]
+for i in range(len(cols)):
+        if i < 5 or i + 6 > len(nums): # Skip edges
+                continue
+        summed_density = 0
+        for x in range(i - 5, i + 6):
+                summed_density += cols[x][1]
+        if summed_density > maximumest_index[1]:
+                maximumest_index = [cols[i][0], summed_density]
+print(maximumest_index[0])
+" > ${PICARDPYTHONHELPER}
+sed -i '1d' ${PICARDPYTHONHELPER}
+
+PICARDJOBFILE="${HOMEDIR}/rnaseq_details/run_picard_subset.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${PICARDSUBNAME}
+#PBS -l ncpus=1
+#PBS -l walltime=${PICARDSUBTIME}
+#PBS -l mem=${PICARDSUBMEM}
+#PBS -W depend=afterok:
+
+cd ${HOMEDIR}/rnaseq_details
+## Load modules for programs
+module load atg/picard/2.2.2
+module load samtools/1.9-foss-2016a
+## Obtain subset of alignments from STAR SAM file
+head -n 100000 ${HOMEDIR}/star_map/Aligned.out.sam > Aligned.out.subset100000.sam
+## Sort into BAM
+samtools sort -m ${PICARDSUBMEM} -@ 1 -o Aligned.out.subset100000.bam -O bam Aligned.out.subset100000.sam
+## Run picard to derive statistics
+picard CollectInsertSizeMetrics H=${PREFIX}.subset100000.histo I=Aligned.out.subset100000.bam O=${PREFIX}.subset100000.imetrics
+## Extract insert size details from imetrics output file
+INSERTSIZE=\$(python ${PICARDPYTHONHELPER})
+## Obtain maximum read length from file
+head -n 10000 ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_1P.fq > ${PREFIX}.trimmed_1P.subset10000.fq
+python ${SCRIPTDIR}/genome_stats.py -i ${PREFIX}.trimmed_1P.subset10000.fq -o ${PREFIX}.trimmed_1P.fq.stats
+rm ${PREFIX}.trimmed_1P.subset10000.fq
+MAXREADLEN=\$(cat ${PREFIX}.trimmed_1P.fq.stats | head -n 4 | tail -n 1 | awk '{print \$3;}')
+## Generate summary file of these two relevant statistics
+echo \"INSERT_SIZE: \${INSERTSIZE} ; MAXREADLEN: \${MAXREADLEN}\" > ${PREFIX}.rnaseq_details.txt
+" > ${PICARDJOBFILE}
+sed -i '1d' ${PICARDJOBFILE}
+
+### TRINITY DE NOVO
+TRINDNJOBFILE="${HOMEDIR}/transcriptomes/trinity-denovo/run_trin_denovo.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${TRINDNNAME}
+#PBS -l walltime=${TRINDNTIME}
+#PBS -l mem=${TRINDNMEM}
+#PBS -l ncpus=${TRINDNCPUS}
+#PBS -W depend=afterok:
+
+module load trinity/2.8.5-foss-2016a
+module load gmap-gsnap/2019-02-15-foss-2018a
+cd ${HOMEDIR}/transcriptomes/trinity-denovo
+Trinity --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --SS_lib_type RF --min_kmer_cov 2 --monitoring --seqType fq --left ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_1P.fq --right ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_2P.fq --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
+" > ${TRINDNJOBFILE}
+sed -i '1d' ${TRINDNJOBFILE}
+
+### SOAPDENOVO-TRANS
+SOAPDNCONFIGFILE="${HOMEDIR}/transcriptomes/soapdenovo-trans/${PREFIX}.config"
+echo "
+#maximal read length
+max_rd_len=
+[LIB]
+#maximal read length in this lib
+rd_len_cutof=
+#average insert size
+avg_ins=
+#if sequence needs to be reversed
+reverse_seq=0
+#in which part(s) the reads are used
+asm_flags=3
+#minimum aligned length to contigs for a reliable read location (at least 32 for short insert size)
+map_len=35
+#fastq file for read 1
+q1=${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_1P.fq
+#fastq file for read 2 always follows fastq file for read 1
+q2=${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_2P.fq
+" > ${SOAPDNCONFIGFILE}
+sed -i '1d' ${SOAPDNCONFIGFILE}
+
+SOAPDNJOBFILE="${HOMEDIR}/transcriptomes/soapdenovo-trans/run_soap_denovo.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${SOAPDNNAME}
+#PBS -l walltime=${SOAPDNTIME}
+#PBS -l mem=${SOAPDNMEM}
+#PBS -l ncpus=${SOAPDNCPUS}
+#PBS -W depend=afterok:
+
+# Edit config file in place here
+INSERT_SIZE=\$(cat ${HOMEDIR}/rnaseq_details/${PREFIX}.rnaseq_details.txt | awk '{print \$2;}')
+MAXREADLEN=\$(cat ${HOMEDIR}/rnaseq_details/${PREFIX}.rnaseq_details.txt | awk '{print \$5;}')
+eval \"sed -i 's,max_rd_len=,max_rd_len=\${MAXREADLEN},' ${SOAPDNCONFIGFILE}\"
+eval \"sed -i 's,rd_len_cutof=,rd_len_cutof=\${MAXREADLEN},' ${SOAPDNCONFIGFILE}\"
+eval \"sed -i 's,avg_ins=,avg_ins=\${INSERT_SIZE},' ${SOAPDNCONFIGFILE}\"
+# Continue with transcriptome building
+cd ${HOMEDIR}/transcriptomes/soapdenovo-trans
+for k in 23 25 31 39 47 55 63 71; do ${SOAPDIR}/SOAPdenovo-Trans-127mer all -s ${PREFIX}.config -o ${PREFIX}.
+" > ${SOAPDNJOBFILE}
+truncate -s-2 ${SOAPDNJOBFILE}
+echo '${k} -K ${k} ' >> ${SOAPDNJOBFILE}
+truncate -s-1 ${SOAPDNJOBFILE}
+echo "-p ${SOAPDNCPUS} -f -F ; done
+" >> ${SOAPDNJOBFILE}
+sed -i '1d' ${SOAPDNJOBFILE}
+
+### VELVET/OASES
+OASVELJOBFILE="${HOMEDIR}/transcriptomes/velvet-oases/run_oasvel.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${OASVELNAME}
+#PBS -l walltime=${OASVELTIME}
+#PBS -l mem=${OASVELMEM}
+#PBS -l ncpus=${OASVELCPUS}
+#PBS -W depend=afterok:
+
+cd ${HOMEDIR}/transcriptomes/velvet-oases
+export OMP_NUM_THREADS=${OASVELCPUS}
+INSERT_SIZE=\$(cat ${HOMEDIR}/rnaseq_details/${PREFIX}.rnaseq_details.txt | awk '{print \$2;}')
+for k in 23 25 31 39 47 55 63; do ${VELVETDIR}/velveth ${PREFIX}.
+" > ${OASVELJOBFILE}
+truncate -s-2 ${OASVELJOBFILE}
+echo '${k} ${k} ' >> ${OASVELJOBFILE}
+truncate -s-1 ${OASVELJOBFILE}
+echo "-strand_specific -shortPaired -fastq -separate ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_1P.fq ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_2P.fq ; done
+echo 'Velveth done'
+for k in 23 25 31 39 47 55 63; do ${VELVETDIR}/velvetg ${PREFIX}.
+" >> ${OASVELJOBFILE}
+truncate -s-2 ${OASVELJOBFILE}
+echo '${k} ' >> ${OASVELJOBFILE}
+truncate -s-1 ${OASVELJOBFILE}
+echo "-read_trkg yes -cov_cutoff 10 -ins_length \${INSERT_SIZE}; done
+echo 'Velvetg done'
+for k in 23 25 31 39 47 55 63; do ${OASESDIR}/oases ${PREFIX}.
+" >> ${OASVELJOBFILE}
+truncate -s-2 ${OASVELJOBFILE}
+echo '${k} ' >> ${OASVELJOBFILE}
+truncate -s-1 ${OASVELJOBFILE}
+echo "-cov_cutoff 10 -min_pair_count 5 -min_trans_lgth 350 -ins_length \${INSERT_SIZE}; done
+echo 'Oases done'
+" >> ${OASVELJOBFILE}
+sed -i '1d' ${OASVELJOBFILE}
+
+### TRINITY GENOME GUIDED
+TRINGGJOBFILE="${HOMEDIR}/transcriptomes/trinity-gg/run_trin_gg.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${TRINGGNAME}
+#PBS -l walltime=${TRINGGTIME}
+#PBS -l mem=${TRINGGMEM}
+#PBS -l ncpus=${TRINGGCPUS}
+#PBS -W depend=afterok:
+
+module load trinity/2.8.5-foss-2016a
+module load gmap-gsnap/2019-02-15-foss-2018a
+cd ${HOMEDIR}/transcriptomes/trinity-gg
+Trinity --genome_guided_bam ${HOMEDIR}/star_map/Aligned.out.sorted.bam --genome_guided_max_intron ${MAXINTRON} --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --min_kmer_cov 2 --SS_lib_type FR --monitoring --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
+ln -s 
+" > ${TRINGGJOBFILE}
+sed -i '1d' ${TRINGGJOBFILE}
+
+### SCALLOP
+SCALLOPJOBFILE="${HOMEDIR}/transcriptomes/scallop/run_scallop.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${SCALLOPNAME}
+#PBS -l walltime=${SCALLOPTIME}
+#PBS -l mem=${SCALLOPMEM}
+#PBS -l ncpus=${SCALLOPCPUS}
+#PBS -W depend=afterok:
+
+cd ${HOMEDIR}/transcriptomes/scallop
+module load tophat/2.1.1-foss-2016a
+${SCALDIR}/scallop -i ${HOMEDIR}/star_map/Aligned.out.sorted.bam --library_type first -o ${PREFIX}.gtf --min_transcript_coverage ${MINTCOV}
+gtf_to_fasta ${PREFIX}.gtf ${GENDIR}/${GENFILE} ${PREFIX}_scallop.fasta
+" > ${SCALLOPJOBFILE}
+sed -i '1d' ${SCALLOPJOBFILE}
+
+### MASTER TRANSCRIPTOME BUILD
+MASTERCATFILE="${HOMEDIR}/transcriptomes/cat_transcriptomes.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${CATNAME}
+#PBS -l walltime=${CATTIME}
+#PBS -l mem=${CATMEM}
+#PBS -l ncpus=${CATCPUS}
+#PBS -W depend=afterok:
+
+cat soapdenovo-trans/${PREFIX}.*.scafSeq trinity-denovo/trinity_out_dir.Trinity.fasta velvet-oases/finished/transcripts.*.fa > ${PREFIX}_denovo_transcriptome.fasta
+python ${FASTAHANDLINGDIR}/fasta_handling_master_code.py -i ${PREFIX}_denovo_transcriptome.fasta -f cullbelow -n 350 -o ${PREFIX}_denovo_transcriptome_cull.fasta
+cat ${PREFIX}_denovo_transcriptome_cull.fasta scallop/${PREFIX}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${PREFIX}_master_transcriptome.fasta
+" > ${MASTERCATFILE}
+sed -i '1d' ${MASTERCATFILE}
+
+### EVIDENTIALGENE
+EVGJOBFILE="${HOMEDIR}/transcriptomes/evidentialgene/run_evidentialgene.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${EVGNAME}
+#PBS -l walltime=${EVGTIME}
+#PBS -l mem=${EVGMEM}
+#PBS -l ncpus=${EVGCPUS}
+#PBS -W depend=afterok:
+
+cd ${HOMEDIR}/transcriptomes/evidentialgene
+module load exonerate/2.4.0-foss-2016a
+module load cd-hit/4.6.4-foss-2016a-2015-0603
+mkdir -p ${PREFIX}_evgrun
+cd ${PREFIX}_evgrun
+python ${FASTAHANDLINGDIR}/fasta_handling_master_code.py -f rename -i ${HOMEDIR}/transcriptomes/${PREFIX}_master_transcriptome.fasta -s ${PREFIX}_ -o ${PREFIX}_master_transcriptome.fasta
+${EVGDIR}/prot/tr2aacds.pl -debug -NCPU ${EVGCPUS} -MAXMEM 150000 -log -mrnaseq ${HOMEDIR}/${PREFIX}_evgrun/${PREFIX}_master_transcriptome.fasta
+" > ${EVGJOBFILE}
+sed -i '1d' ${EVGJOBFILE}
+
+## STEP 3: Submit jobs in order
+### TRIMMOMATIC
+if [ "$SKIPTRIM" == "FALSE" ]; then TRIMJOBID=$(qsub ${TRIMMOMATICJOBFILE}); else TRIMJOBID=""; fi
+### TRINITY DE NOVO ASSEMBLY [contingent on Trimmomatic]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${TRIMJOBID},' ${TRINDNJOBFILE}"
+if [ "$SKIPTRINDN" == "FALSE" ]; then TRINDNJOBID=$(qsub ${TRINDNJOBFILE}); else TRINDNJOBID=""; fi
+### STAR RNA-SEQ READ ALIGNMENT [contingent on Trimmomatic]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${TRIMJOBID},' ${STARJOBFILE}"
+if [ "$SKIPSTAR" == "FALSE" ]; then STARJOBID=$(qsub ${STARJOBFILE}); else STARJOBID=""; fi
+### PICARD & STATISTICS FOR RNA-SEQ READS [contingent on STAR]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${STARJOBID},' ${PICARDJOBFILE}"
+if [ "$SKIPPICARD" == "FALSE" ]; then PICARDJOBID=$(qsub ${PICARDJOBFILE}); else PICARDJOBID=""; fi
+### OASES-VELVET DE NOVO ASSEMBLY [contingent on Picard]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${PICARDJOBID},' ${OASVELJOBFILE}"
+if [ "$SKIPOASVEL" == "FALSE" ]; then OASVELJOBID=$(qsub ${OASVELJOBFILE}); else OASVELJOBID=""; fi
+### SOAPDENOVO-TRANS ASSEMBLY [contingent on Picard]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${PICARDJOBID},' ${SOAPDNJOBFILE}"
+if [ "$SKIPSOAPDN" == "FALSE" ]; then SOAPDNJOBID=$(qsub ${SOAPDNJOBFILE}); else SOAPDNJOBID=""; fi
+### SAMTOOLS SORT [contingent on STAR]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${STARJOBID},' ${SAMTOOLSJOBFILE}"
+if [ "$SKIPSORT" == "FALSE" ]; then SAMTOOLSJOBID=$(qsub ${SAMTOOLSJOBFILE}); else SAMTOOLSJOBID=""; fi
+### TRINITY GG ASSEMBLY [contingent on samtools sort]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMTOOLSJOBID},' ${TRINGGJOBFILE}"
+if [ "$SKIPTRINGG" == "FALSE" ]; then TRINGGJOBID=$(qsub ${TRINGGJOBFILE}); else TRINGGJOBID=""; fi
+### SCALLOP GG ASSEMBLY [contingent on samtools sort]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMTOOLSJOBID},' ${SCALLOPJOBFILE}"
+if [ "$SKIPSCALLOP" == "FALSE" ]; then SCALLOPJOBID=$(qsub ${SCALLOPJOBFILE}); else SCALLOPJOBID=""; fi
+### EVIDENTIALGENE [contingent on assemblers]
+
+
