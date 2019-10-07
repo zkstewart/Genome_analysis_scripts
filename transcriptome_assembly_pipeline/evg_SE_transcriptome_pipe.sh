@@ -17,6 +17,8 @@ SCALDIR=/home/n8942188/various_programs/scallop-0.10.2/src
 SCRIPTDIR=/home/n8942188/scripts/Genome_analysis_scripts
 FASTAHANDLINGDIR=/home/n8942188/scripts/Various_scripts
 EVGDIR=/home/n8942188/various_programs/evigene/scripts
+BUSCOCONFIG=/home/n8942188/various_programs/busco/config/config.ini
+BUSCOLINEAGE=/home/n8942188/various_programs/busco/lineage/metazoa_odb9
 
 ## Setup: Input file locations
 READDIR=/home/n8942188/heterodactyla/gene_models/rnaseq_reads
@@ -32,7 +34,7 @@ ASSEM=hgap
 
 ## Setup: Step skipping behaviour
 ### Note: These should all remain as FALSE unless you intend to resume a job at a step after the first BLASR step
-SKIPTRIM=TRUE
+SKIPTRIM=FALSE
 SKIPSTAR=FALSE
 SKIPSORT=FALSE
 SKIPREADSIZE=FALSE
@@ -41,6 +43,10 @@ SKIPTRINGG=FALSE
 SKIPSOAPDN=FALSE
 SKIPOASVEL=FALSE
 SKIPSCALLOP=FALSE
+SKIPMASTERCAT=FALSE
+SKIPEVG=FALSE
+SKIPOKCAT=FALSE
+SKIPBUSCO=FALSE
 
 ## Setup: Automatically generated values and computational resources
 PREFIX=${SPECIES}_${ASSEM}
@@ -70,12 +76,12 @@ TRINDNCPUS=10
 
 SOAPDNNAME="soapDN_${PREFIX}"
 SOAPDNTIME="120:00:00"
-SOAPDNMEM="500G"
+SOAPDNMEM="200G"
 SOAPDNCPUS=24
 
 OASVELNAME="oasvel_${PREFIX}"
 OASVELTIME="100:00:00"
-OASVELMEM="500G"
+OASVELMEM="200G"
 OASVELCPUS=16
 
 TRINGGNAME="trinGG_${PREFIX}"
@@ -94,15 +100,23 @@ READSIZESUBNAME="readsize_${PREFIX}"
 READSIZESUBTIME="00:30:00"
 READSIZESUBMEM="5G"
 
-CATNAME="cat_${PREFIX}"
-CATTIME="01:00:00"
-CATMEM="10G"
-CATCPUS=1
+MASTERCATNAME="cat_${PREFIX}"
+MASTERCATTIME="00:30:00"
+MASTERCATMEM="10G"
 
 EVGNAME="evg_${PREFIX}"
 EVGTIME="60:00:00"
 EVGMEM="100G"
 EVGCPUS=8
+
+OKCATNAME="okcat_${PREFIX}"
+OKCATTIME="00:30:00"
+OKCATMEM="10G"
+
+BUSCONAME="busco_${PREFIX}"
+BUSCOTIME="03:00:00"
+BUSCOMEM="35G"
+BUSCOCPUS=8
 
 ## STEP 1: Set up directories
 mkdir -p trimmomatic
@@ -301,7 +315,7 @@ module load trinity/2.8.5-foss-2016a
 module load gmap-gsnap/2019-02-15-foss-2018a
 cd ${HOMEDIR}/transcriptomes/trinity-gg
 Trinity --genome_guided_bam ${HOMEDIR}/star_map/Aligned.out.sorted.bam --genome_guided_max_intron ${MAXINTRON} --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --min_kmer_cov 2 --SS_lib_type F --monitoring --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
-ln -s 
+ln -s trinity_out_dir/Trinity-GG.fasta .
 " > ${TRINGGJOBFILE}
 sed -i '1d' ${TRINGGJOBFILE}
 
@@ -323,20 +337,21 @@ gtf_to_fasta ${PREFIX}.gtf ${GENDIR}/${GENFILE} ${PREFIX}_scallop.fasta
 sed -i '1d' ${SCALLOPJOBFILE}
 
 ### MASTER TRANSCRIPTOME BUILD
-MASTERCATFILE="${HOMEDIR}/transcriptomes/cat_transcriptomes.sh"
+MASTERCATJOBFILE="${HOMEDIR}/transcriptomes/cat_transcriptomes.sh"
 echo "
 #!/bin/bash -l
-#PBS -N ${CATNAME}
-#PBS -l walltime=${CATTIME}
-#PBS -l mem=${CATMEM}
-#PBS -l ncpus=${CATCPUS}
-#PBS -W depend=afterok:
+#PBS -N ${MASTERCATNAME}
+#PBS -l walltime=${MASTERCATTIME}
+#PBS -l mem=${MASTERCATMEM}
+#PBS -l ncpus=1
+#PBS -W depend=afterok
 
-cat soapdenovo-trans/${PREFIX}.*.scafSeq trinity-denovo/trinity_out_dir.Trinity.fasta velvet-oases/finished/transcripts.*.fa > ${PREFIX}_denovo_transcriptome.fasta
+cd ${HOMEDIR}/transcriptomes
+cat soapdenovo-trans/${PREFIX}.*.scafSeq trinity-denovo/trinity_out_dir.Trinity.fasta velvet-oases/${PREFIX}.*/transcripts.fa > ${PREFIX}_denovo_transcriptome.fasta
 python ${FASTAHANDLINGDIR}/fasta_handling_master_code.py -i ${PREFIX}_denovo_transcriptome.fasta -f cullbelow -n 350 -o ${PREFIX}_denovo_transcriptome_cull.fasta
 cat ${PREFIX}_denovo_transcriptome_cull.fasta scallop/${PREFIX}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${PREFIX}_master_transcriptome.fasta
-" > ${MASTERCATFILE}
-sed -i '1d' ${MASTERCATFILE}
+" > ${MASTERCATJOBFILE}
+sed -i '1d' ${MASTERCATJOBFILE}
 
 ### EVIDENTIALGENE
 EVGJOBFILE="${HOMEDIR}/transcriptomes/evidentialgene/run_evidentialgene.sh"
@@ -354,11 +369,49 @@ module load cd-hit/4.6.4-foss-2016a-2015-0603
 mkdir -p ${PREFIX}_evgrun
 cd ${PREFIX}_evgrun
 python ${FASTAHANDLINGDIR}/fasta_handling_master_code.py -f rename -i ${HOMEDIR}/transcriptomes/${PREFIX}_master_transcriptome.fasta -s ${PREFIX}_ -o ${PREFIX}_master_transcriptome.fasta
-${EVGDIR}/prot/tr2aacds.pl -debug -NCPU ${EVGCPUS} -MAXMEM 150000 -log -mrnaseq ${HOMEDIR}/${PREFIX}_evgrun/${PREFIX}_master_transcriptome.fasta
+${EVGDIR}/prot/tr2aacds.pl -debug -NCPU ${EVGCPUS} -MAXMEM 150000 -log -mrnaseq ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/${PREFIX}_master_transcriptome.fasta
 " > ${EVGJOBFILE}
 sed -i '1d' ${EVGJOBFILE}
 
-## STEP 3: Submit jobs in order
+### POST-EVIDENTIALGENE OKAY-OKALT CONCATENATION
+OKCATJOBFILE="${HOMEDIR}/transcriptomes/evidentialgene/concatenated/okay_okalt_concat.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${OKCATNAME}
+#PBS -l walltime=${OKCATTIME}
+#PBS -l mem=${OKCATMEM}
+#PBS -l ncpus=1
+#PBS -W depend=afterok:
+
+cd ${HOMEDIR}/transcriptomes/evidentialgene/concatenated
+cat ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/okayset/*.okay.aa ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/okayset/*.okalt.aa > ${PREFIX}_okay-okalt.aa
+cat ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/okayset/*.okay.fasta ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/okayset/*.okalt.fasta > ${PREFIX}_okay-okalt.fasta
+cat ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/okayset/*.okay.cds ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/okayset/*.okalt.cds > ${PREFIX}_okay-okalt.cds
+" > ${OKCATJOBFILE}
+sed -i '1d' ${OKCATJOBFILE}
+
+### TRANSCRIPTOME BUSCO VALIDATION
+BUSCOJOBFILE="${HOMEDIR}/transcriptomes/evidentialgene/concatenated/run_busco.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${BUSCONAME}
+#PBS -l walltime=${BUSCOTIME}
+#PBS -l mem=${BUSCOMEM}
+#PBS -l ncpus=${BUSCOCPUS}
+#PBS -W depend=afterok:
+
+cd ${HOMEDIR}/transcriptomes/evidentialgene/concatenated
+module load blast+/2.3.0-foss-2016a-python-2.7.11
+export BUSCO_CONFIG_FILE=${BUSCOCONFIG}
+mkdir -p busco_results
+cd busco_results
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}.aa -o ${PREFIX}_busco.aa -l ${BUSCOLINEAGE} -m prot -c ${BUSCOCPUS}
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}.cds -o ${PREFIX}_busco.cds -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}.fasta -o ${PREFIX}_busco.fasta -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
+" > ${BUSCOJOBFILE}
+sed -i '1d' ${BUSCOJOBFILE}
+
+## STEP 3: Submit jobs in order to perform individual assemblies
 ### TRIMMOMATIC
 if [ "$SKIPTRIM" == "FALSE" ]; then TRIMJOBID=$(qsub ${TRIMMOMATICJOBFILE}); else TRIMJOBID=""; fi
 ### TRINITY DE NOVO ASSEMBLY [contingent on Trimmomatic]
@@ -384,6 +437,25 @@ if [ "$SKIPREADSIZE" == "FALSE" ]; then READSIZEJOBID=$(qsub ${READSIZEJOBFILE})
 ### SOAPDENOVO-TRANS ASSEMBLY [contingent on statistics]
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${READSIZEJOBID},' ${SOAPDNJOBFILE}"
 if [ "$SKIPSOAPDN" == "FALSE" ]; then SOAPDNJOBID=$(qsub ${SOAPDNJOBFILE}); else SOAPDNJOBID=""; fi
-### EVIDENTIALGENE [contingent on assemblers]
 
+## STEP 4: Prepare for and run EvidentialGene pipeline
+### MASTER TRANSCRIPTOME CONCATENATION [contingent on assemblers]
+if [ "$TRINDNJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${TRINDNJOBID}"} 1' ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}; fi
+if [ "$OASVELJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${OASVELJOBID}"} 1' ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}; fi
+if [ "$TRINGGJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${TRINGGJOBID}"} 1' ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}; fi
+if [ "$SCALLOPJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${SCALLOPJOBID}"} 1' ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}; fi
+if [ "$SOAPDNJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${SOAPDNJOBID}"} 1' ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}; fi
+TRINDNJOBID=$TRINDNJOBID OASVELJOBID=$OASVELJOBID TRINGGJOBID=$TRINGGJOBID SCALLOPJOBID=$SCALLOPJOBID SOAPDNJOBID=$SOAPDNJOBID envsubst < ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}
+if [ "$SKIPMASTERCAT" == "FALSE" ]; then MASTERCATJOBID=$(qsub ${MASTERCATJOBFILE}); else MASTERCATJOBID=""; fi
+### EVIDENTIALGENE [contingent on concatenation]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${MASTERCATJOBID},' ${EVGJOBFILE}"
+if [ "$SKIPEVG" == "FALSE" ]; then EVGJOBID=$(qsub ${EVGJOBFILE}); else EVGJOBID=""; fi
+### OKAY-OKALT CONCATENATION
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${EVGJOBID},' ${OKCATJOBFILE}"
+if [ "$SKIPOKCAT" == "FALSE" ]; then OKCATJOBID=$(qsub ${OKCATJOBFILE}); else OKCATJOBID=""; fi
+
+## STEP 5: Run BUSCO to validate assembly quality
+### BUSCO
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${OKCATJOBID},' ${BUSCOJOBFILE}"
+if [ "$SKIPBUSCO" == "FALSE" ]; then BUSCOJOBID=$(qsub ${BUSCOJOBFILE}); else BUSCOJOBID=""; fi
 
