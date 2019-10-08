@@ -17,6 +17,8 @@ SCALDIR=/home/n8942188/various_programs/scallop-0.10.2/src
 SCRIPTDIR=/home/n8942188/scripts/Genome_analysis_scripts
 FASTAHANDLINGDIR=/home/n8942188/scripts/Various_scripts
 EVGDIR=/home/n8942188/various_programs/evigene/scripts
+BUSCOCONFIG=/home/n8942188/various_programs/busco/config/config.ini
+BUSCOLINEAGE=/home/n8942188/various_programs/busco/lineage/metazoa_odb9
 
 ## Setup: Input file locations
 READDIR=/home/n8942188/telmatactis/gene_models/rnaseq_reads
