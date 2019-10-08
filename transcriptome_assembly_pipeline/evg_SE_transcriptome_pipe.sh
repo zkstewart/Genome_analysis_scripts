@@ -157,6 +157,7 @@ echo "
 #PBS -l walltime=${STARTIME}
 #PBS -l mem=${STARMEM}
 #PBS -l ncpus=${STARCPUS}
+#PBS -W depend=afterok:
 
 cd ${HOMEDIR}/star_map
 # Copy genome here. Need to do this since STAR can only tolerate 1 index per directory...
