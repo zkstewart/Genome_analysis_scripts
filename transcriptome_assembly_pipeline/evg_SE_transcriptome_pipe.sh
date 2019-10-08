@@ -432,7 +432,8 @@ if [ "$SKIPTRINGG" == "FALSE" ]; then TRINGGJOBID=$(qsub ${TRINGGJOBFILE}); else
 ### SCALLOP GG ASSEMBLY [contingent on samtools sort]
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMTOOLSJOBID},' ${SCALLOPJOBFILE}"
 if [ "$SKIPSCALLOP" == "FALSE" ]; then SCALLOPJOBID=$(qsub ${SCALLOPJOBFILE}); else SCALLOPJOBID=""; fi
-### STATISTICS FOR RNA-SEQ READS
+### STATISTICS FOR RNA-SEQ READS [contingent on Trimmomatic]
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${TRIMJOBID},' ${READSIZEJOBFILE}"
 if [ "$SKIPREADSIZE" == "FALSE" ]; then READSIZEJOBID=$(qsub ${READSIZEJOBFILE}); else READSIZEJOBID=""; fi
 ### SOAPDENOVO-TRANS ASSEMBLY [contingent on statistics]
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${READSIZEJOBID},' ${SOAPDNJOBFILE}"
