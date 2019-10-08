@@ -405,9 +405,9 @@ module load blast+/2.3.0-foss-2016a-python-2.7.11
 export BUSCO_CONFIG_FILE=${BUSCOCONFIG}
 mkdir -p busco_results
 cd busco_results
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}.aa -o ${PREFIX}_busco.aa -l ${BUSCOLINEAGE} -m prot -c ${BUSCOCPUS}
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}.cds -o ${PREFIX}_busco.cds -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}.fasta -o ${PREFIX}_busco.fasta -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.aa -o ${PREFIX}_okay-okalt_busco.aa -l ${BUSCOLINEAGE} -m prot -c ${BUSCOCPUS}
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.cds -o ${PREFIX}_okay-okalt_busco.cds -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
+python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.fasta -o ${PREFIX}_okay-okalt_busco.fasta -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
 " > ${BUSCOJOBFILE}
 sed -i '1d' ${BUSCOJOBFILE}
 
