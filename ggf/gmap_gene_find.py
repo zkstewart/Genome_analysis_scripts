@@ -3,12 +3,11 @@
 # Program to parse a GMAP gene gff3 file (-f 2) and, according to certain criteria,
 # identify ORFs which have paths that are well supported.
 
-import os, argparse, re, warnings, copy
+import os, argparse, re, warnings, copy, parasail
 import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Alphabet import generic_dna
-from skbio.alignment import StripedSmithWaterman
 from ncls import NCLS
 
 # GFF3 handling
@@ -307,7 +306,7 @@ def validate_translated_cds(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
                 return cdsProt
         # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
         try:
-                newAlign, origAlign = ssw(cdsProt, origProt, 'protein') # We tell SSW to align these as proteins
+                newAlign, origAlign = ssw_simple(cdsProt, origProt, 'protein') # We tell SSW to align these as proteins
         except:
                 return False                                            # SSW dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
         alignPct = len(newAlign) / len(cdsProt)
@@ -514,38 +513,12 @@ def longest_orf(record):
                         longest = tmpLongest
         return longest
 
-def ssw(querySeq, targetSeq, proteinOrNucl):
-        # Ensure that proteinOrNucl value is sensible
-        if proteinOrNucl.lower() not in ['protein', 'nucleotide', 'prot', 'nucl', 'p', 'n']:
-                print("ssw: proteinOrNucl value must be in list ['protein', 'nucleotide', 'prot', 'nucl', 'p', 'n']; fix this code and try again.")
-                quit()
-        # Generate a 2D blosum62 dict if relevant
-        if proteinOrNucl.lower().startswith('p'):
-                # Import Biopython's blosum matrix
-                from Bio.SubsMat.MatrixInfo import blosum62
-                # Reshape Biopython's paired tuple dict to a 2D dict
-                skbioBlosum62 = {}
-                for key, value in blosum62.items():
-                        if key[0] not in skbioBlosum62:
-                                skbioBlosum62[key[0]] = {key[1]: value}
-                        elif key[1] not in skbioBlosum62[key[0]]:
-                                skbioBlosum62[key[0]][key[1]] = value
-                        if key[1] not in skbioBlosum62:
-                                skbioBlosum62[key[1]] = {key[0]: value}
-                        elif key[0] not in skbioBlosum62[key[1]]:
-                                skbioBlosum62[key[1]][key[0]] = value
-                skbioBlosum62['*'] = {'*': 1}
-                for character in 'ARNDCQEGHILKMFPSTWYVBZX':
-                        skbioBlosum62['*'][character] = -4
-                        skbioBlosum62[character]['*'] = -4
-        # Perform SSW with scikit.bio implementation
-        if proteinOrNucl.lower().startswith('p'):
-                query = StripedSmithWaterman(querySeq, protein=True, substitution_matrix=skbioBlosum62)
-        else:
-                query = StripedSmithWaterman(querySeq)
-        alignment = query(targetSeq)
-        queryAlign = alignment.aligned_query_sequence
-        targetAlign = alignment.aligned_target_sequence
+def ssw_simple(querySeq, targetSeq):
+        # Perform SSW with parasail implementation
+        profile = parasail.profile_create_sat(querySeq, parasail.blosum62)
+        alignment = parasail.sw_trace_striped_profile_sat(profile, targetSeq, 10, 1)
+        queryAlign = alignment.traceback.query
+        targetAlign = alignment.traceback.ref
         return [queryAlign, targetAlign]
 
 def reverse_comp(seq):
