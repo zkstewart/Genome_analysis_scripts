@@ -17,7 +17,7 @@ class Gff3:
                 self.contig_values = contig_values
                 if file_location != None:
                         self.parse_gff3()
-        
+        ## Parsing
         def parse_gff3(self):
                 # Gene object loop
                 with open(self.file_location, 'r') as file_in:
@@ -34,7 +34,7 @@ class Gff3:
                                 for i in range(len(details)):
                                         if details[i] == '':
                                                 continue
-                                        split_details = details[i].split('=')
+                                        split_details = details[i].split('=', maxsplit=1)
                                         detail_dict[split_details[0]] = split_details[1]
                                 self.contig_values.append(sl[0])
                                 # Build gene group dict objects
@@ -151,7 +151,7 @@ class Gff3:
                         self.contig_values.sort(key = lambda x: list(map(int, re.findall(r'\d+', x)))) # This should let us sort things like "contig1a2" and "contig1a1" and have the latter come first
                 except:
                         self.contig_values.sort() # This is a bit crude, but necessary in cases where contigs lack numeric characters
-        
+        ## Lines
         def add_lines(self):
                 # Setup
                 main_types = list(self.id_values['main'].keys())
@@ -220,26 +220,6 @@ class Gff3:
                                                         else:
                                                                 self.index_dict[parent]['lines'][1].append(new_line) # I think that multi-parent features shouldn't exist in GFF3 since, if they do, it's probably redundant or compressing information too much
                                 # All other lines are ignored
-
-        def pasaprots_extract(self):
-                # Setup
-                pasaProts = {}
-                # Main loop
-                for key in self.gene_values:
-                        if 'lines' not in self.index_dict[key]:
-                                continue
-                        foot_comments = self.index_dict[key]['lines'][2]
-                        # Parse each foot comment to extract the protein sequence
-                        for comment in foot_comments:
-                                split_comment = comment.rstrip('\r\n').split('\t')
-                                # Extract the mRNA ID
-                                mrnaID = split_comment[0].split(' ')[1] # Format for PASA comments after ' ' split should be ['#PROT', mrnaID, geneID]
-                                # Extract the sequence
-                                sequence = split_comment[1]
-                                # Add into output dict
-                                assert mrnaID not in pasaProts # If this assertion fails, GFF3 comment format is flawed - there is a duplicate mRNA ID
-                                pasaProts[mrnaID] = sequence
-                return pasaProts
 
         def denovo_lines(self): # see mtdna_gff2_order.py for an example of this function
                 COMMENT_ORDER = ['ID', 'Parent', 'Name'] # Hard code some of the ordering for GFF3 comments; any other type might end up being randomised a bit
@@ -318,6 +298,27 @@ class Gff3:
                                 gff3_lines[key][1][x] = '\t'.join(gff3_lines[key][1][x]) + '\n'
                         # Associate lines to gff3Index
                         self.index_dict[key]['lines'] = gff3_lines[key]
+        
+        # Extraction of details
+        def pasaprots_extract(self):
+                # Setup
+                pasaProts = {}
+                # Main loop
+                for key in self.gene_values:
+                        if 'lines' not in self.index_dict[key]:
+                                continue
+                        foot_comments = self.index_dict[key]['lines'][2]
+                        # Parse each foot comment to extract the protein sequence
+                        for comment in foot_comments:
+                                split_comment = comment.rstrip('\r\n').split('\t')
+                                # Extract the mRNA ID
+                                mrnaID = split_comment[0].split(' ')[1] # Format for PASA comments after ' ' split should be ['#PROT', mrnaID, geneID]
+                                # Extract the sequence
+                                sequence = split_comment[1]
+                                # Add into output dict
+                                assert mrnaID not in pasaProts # If this assertion fails, GFF3 comment format is flawed - there is a duplicate mRNA ID
+                                pasaProts[mrnaID] = sequence
+                return pasaProts
 
 ## GFF3 - gene ID manipulation
 def gff3_idlist_compare(gff3Dict, idList):
