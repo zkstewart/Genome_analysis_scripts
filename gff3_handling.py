@@ -352,7 +352,7 @@ def gff3_idlist_compare(gff3Dict, idList):
         return outList
 
 ## GFF3 - filtering and curation
-def gff3_index_cutoff_candidates(gff3Index, attributeList, cutoffList, directionList, behaviour):       # In this function, we can provide three paired lists of attributes, cutoffs, and the direction of comparison so it is generalisable to different uses
+def gff3_index_cutoff_candidates(gff3Object, attributeList, cutoffList, directionList, behaviour):       # In this function, we can provide three paired lists of attributes, cutoffs, and the direction of comparison so it is generalisable to different uses
         # Setup
         outputList = []
         # Ensure that behaviour is sensible                                                             # directionList should be a list like ['<', '>', '<=', '>=', '=='] to indicate how the attribute's value should be held up against the cutoff
@@ -376,12 +376,12 @@ def gff3_index_cutoff_candidates(gff3Index, attributeList, cutoffList, direction
                         print('gff3_index_candidates: ' + str(cutoff) + ' is provided as a cutoff, but is not capable of conversion to float. This should not happen; fix the code for this section.')
                         quit()
         # Loop through all indexed features and return viable candidates which 1: have all the attributes mentioned in our list and 2: their values pass our cutoff
-        for featureType in gff3Index['idValues']['feature']:
-                for feature in gff3Index['idValues']['feature'][featureType]:
+        for featureType in gff3Object.id_values['feature']:
+                for feature in gff3Object.id_values['feature'][featureType]:
                         # Set up this gene object's attribute:cutoff check values
                         cutoffCheck = [0]*len(attributeList)  # If we don't find any attributes or none of them pass cutoff, the sum of this will be 0; if we find them all and they all pass cutoff, the sum will == len(attributesList)
                         # Check gene object for attributes
-                        geneObj = gff3Index[feature]
+                        geneObj = gff3Object.index_dict[feature]
                         for key, value in geneObj['attributes'].items():
                                 if key in attributeList:
                                         # Ensure that this attribute works
@@ -420,17 +420,17 @@ def gff3_index_cutoff_candidates(gff3Index, attributeList, cutoffList, direction
                                         outputList.append(feature)
         return outputList
 
-def gff3_index_intron_sizedict(gff3Index, behaviour):
+def gff3_index_intron_sizedict(gff3Object, behaviour):
         # Setup
         intronSize = {}
         # Ensure that behaviour is sensible                                                             # directionList should be a list like ['<', '>', '<=', '>=', '=='] to indicate how the attribute's value should be held up against the cutoff
         if behaviour.lower() not in ['main', 'feature']:
                 print('gff3_index_intron_sizedict: behaviour must be specified as "main" or "feature"; fix the code for this section.')
-                quit()        
+                quit()
         # Main function
-        for mainType in gff3Index['idValues']['main'].keys():
-                for geneID in gff3Index['idValues']['main'][mainType]:
-                        geneObj = gff3Index[geneID]
+        for mainType in gff3Object.id_values['main'].keys():
+                for geneID in gff3Object.id_values['main'][mainType]:
+                        geneObj = gff3Object.index_dict[geneID]
                         # Validate that all features contain exon values and hence may contain introns
                         skip = False
                         for feature in geneObj['feature_list']:
@@ -454,7 +454,7 @@ def gff3_index_intron_sizedict(gff3Index, behaviour):
                                 intronList.append(intronLens)
                         # Add values to our intronSize dict depending on behaviour
                         if behaviour.lower() == 'main':
-                                intronSize[featureList[0]] = intronList[0]
+                                intronSize[geneID] = intronList[0]
                         elif behaviour.lower() == 'feature':
                                 for i in range(len(featureList)):
                                         intronSize[featureList[i]] = intronList[i]
