@@ -6,10 +6,15 @@
 # to be derived from proteomics which would validate their translation and hence
 # we can use less strict criteria for gene annotation (e.g., splice rules
 # and gene length are irrelevant when this product is validated).
-# PRE-REFACTORING
 
-import os, argparse, platform, copy, shutil
+import os, argparse, platform, copy, shutil, subprocess, re, warnings, threading, hashlib, time
+import pandas as pd
+from ncls import NCLS
 from Bio import SeqIO
+from Bio.Data import CodonTable
+from Bio.Seq import Seq
+from Bio.Alphabet import generic_dna
+from pathlib import Path
 
 # Define functions for later use
 ## Validate arguments
@@ -59,7 +64,7 @@ def validate_args(args):
                         quit()
                 if platform.system() == 'Windows':
                         program_execution_check(os.path.join(args.cygwindir, 'bash.exe --version'))
-                        cygwin_program_execution_check(args.outputLocation, args.cygwindir, args.signalpdir, 'signalp -h')
+                        cygwin_program_execution_check(os.path.dirname(args.outputFileName), args.cygwindir, args.signalpdir, 'signalp -h')
                 else:
                         program_execution_check(os.path.join(args.signalpdir, 'signalp -h'))
         # Handle numerical arguments
@@ -87,7 +92,6 @@ def validate_args(args):
                 quit()
 
 def program_execution_check(cmd):
-        import subprocess
         run_cmd = subprocess.Popen(cmd, stdout = subprocess.PIPE, stderr = subprocess.PIPE, shell = True)
         cmdout, cmderr = run_cmd.communicate()
         if cmderr.decode("utf-8") != '' and not cmderr.decode("utf-8").startswith('Usage'):
@@ -99,9 +103,8 @@ def program_execution_check(cmd):
                 quit()
 
 def cygwin_program_execution_check(outDir, cygwinDir, exeDir, exeFile):
-        import subprocess, os
         # Format script for cygwin execution
-        scriptText = os.path.join(exeDir, exeFile)
+        scriptText = Path(exeDir, exeFile).as_posix()
         scriptFile = tmp_file_name_gen('tmpscript', '.sh', scriptText)
         with open(os.path.join(outDir, scriptFile), 'w') as fileOut:
                 fileOut.write(scriptText)
@@ -124,7 +127,6 @@ def cygwin_program_execution_check(outDir, cygwinDir, exeDir, exeFile):
 # GFF3-related
 def gff3_index(gff3File):
         # Setup
-        import re
         numRegex = re.compile(r'\d+')           # This is used for sorting our contig ID values
         geneDict = {}                           # Our output structure will have 1 entry per gene which is stored in here
         indexDict = {}                          # The indexDict will wrap the geneDict and index gene IDs and mRNA ID's to the shared single entry per gene ID
@@ -421,10 +423,10 @@ def exonerate_geneid_produce(contigID, sequenceID, idDict):
         idDict[geneID] += 1
         return outGeneID, idDict
 
-def exonerate_gff_tmpfile(exonerateFile):
+def exonerate_gff_tmpfile(exonerateFile, tmpDir):
         # Setup        
         geneIDDict = {}
-        tmpFileName = tmp_file_name_gen('exonerate', '.parse', exonerateFile)
+        tmpFileName = tmp_file_name_gen(os.path.join(tmpDir, 'exonerate'), '.parse', exonerateFile)
         # Main function
         with open(exonerateFile, 'r') as fileIn, open(tmpFileName, 'w') as fileOut:
                 for line in fileIn:
@@ -526,9 +528,6 @@ def overlapping_gff3_models(nclsHits, gff3Dict, modelCoords):
         return ovlPctDict
 
 def determine_accepted_start_stop_codons(geneticCode, currentStart):
-        # Setup
-        import copy
-        from Bio.Data import CodonTable
         # Ensure that currentStartCodon value is sensible
         if currentStart != None:
                 if type(currentStart) != str:
@@ -565,10 +564,6 @@ def determine_accepted_start_stop_codons(geneticCode, currentStart):
         return startCodonsPos, startCodonsNeg, stopCodonsPos, stopCodonsNeg
 
 def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticCode):   # This code is repurposed from gmap_gene_find.py
-        # Setup
-        import warnings
-        from Bio.Seq import Seq
-        from Bio.Alphabet import generic_dna
         # Determine what our accepted start and stop codons are depending on geneticCode and alignment start
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         currentStart = cds[0:3].lower()
@@ -786,10 +781,6 @@ def check_model(detailDict, covCutoff, idCutoff):
         return True
 
 def find_longest_orf_nostopallowed(seq, firstCodon):
-        # Setup
-        import warnings, re
-        from Bio.Seq import Seq
-        from Bio.Alphabet import generic_dna
         # Translate into ORFs and grab the longest bits inbetween stop codons
         longest = ['', '']
         for frame in range(3):
@@ -887,7 +878,6 @@ def consecutive_character_coords(inputString, character, base, outType):
         return charCoords
 
 def seg_thread(segdir, fastaFile, resultNames):
-        import os, subprocess
         # Get the full fasta file location & derive our output file name
         fastaFile = os.path.abspath(fastaFile)
         segResultFile = os.path.join(os.getcwd(), tmp_file_name_gen('tmp_segResults_' + os.path.basename(fastaFile), '.seg', fastaFile))
@@ -902,8 +892,6 @@ def seg_thread(segdir, fastaFile, resultNames):
         resultNames.append(segResultFile)
 
 def run_seg(segdir, fileNames):
-        import threading
-        from Bio import SeqIO
         # Run seg on each of the input files
         processing_threads = []
         resultNames = []        # Use a mutable list here so we can retrieve the file names in the absence of being able to return these through the threaded function
@@ -949,8 +937,6 @@ def segprediction_fastalens_proportions(segPredictions, fastaLens, cutoffProport
 
 ## NCLS related
 def gff3_parse_ncls_mrna(gff3File):                             # This function will make a NCLS object which can be used to find gene model overlaps; note that this is the whole gene's range, not separate exon ranges
-        import pandas as pd
-        from ncls import NCLS
         gff3Loc = {}
         starts = []
         ends = []
@@ -994,8 +980,6 @@ def gff3_parse_ncls_mrna(gff3File):                             # This function 
         return ncls, gff3Loc
 
 def ncls_finder(ncls, locDict, start, stop, featureID, featureIndex):
-        import copy
-        #from ncls import NCLS
         overlaps = ncls.find_overlap(start, stop+1)             # Although our ncls is 1-based, find_overlap acts as a range and is thus 0-based. We need to +1 to the stop to offset this.
         dictEntries = []
         for result in overlaps:
@@ -1015,7 +999,6 @@ def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):
 ## Overlap collapsing
 def compare_novels_store_rejects(inputDict, genomeRecords):   # This section of code was borrowed from gmap_gene_find.py; important changes there should be updated here as well, but this function does behave differently
         # Setup
-        import copy
         spliceLenCorrection = 9 # This value will allow our length comparison check to have some flexibility to pick the best model based on splice rules except where the length differs quite a bit
         # Find our contig IDs from the genome
         contigIDs = list(genomeRecords.keys())
@@ -1166,10 +1149,6 @@ def compare_novels_store_rejects(inputDict, genomeRecords):   # This section of 
 
 ## gff3_to_fasta-related functions
 def cds_to_prot(seq, phase, seqid, geneticCode):
-        # Setup
-        import warnings
-        from Bio.Seq import Seq
-        from Bio.Alphabet import generic_dna
         # Modify the seq depending on phase information
         if phase != '.':        # If phase isn't provided in the GFF3, we assume it is phased as 0
                 try:
@@ -1272,7 +1251,6 @@ def output_func(inputDict, exonerateIndex, gmapIndex, outFileName):
 
 ## signalP-related
 def signalp_unthreaded(signalpdir, cygwindir, organism, tmpDir, fastaFile, sigpResultFile):
-        import os, subprocess, platform
         # Get the full fasta file location
         fastaFile = os.path.abspath(fastaFile)
         # Format signalP script text
@@ -1357,8 +1335,6 @@ def run_signalp_sequence(signalpdir, cygwindir, organism, tmpDir, seqID, protStr
         return sigPredictions
 
 def signalp_copy4temp(args, signalPdir):        # Note that the values within args are irrelevant, it's just to produce a hash string which should be unique across program runs
-        import os
-        from pathlib import Path
         # Derive our directory name and create it
         sigpTmpDir = Path(os.getcwd(), tmp_file_name_gen('', '', ''.join(map(str, vars(args).items()))))
         os.mkdir(sigpTmpDir)
@@ -1382,8 +1358,6 @@ def signalp_copy4temp(args, signalPdir):        # Note that the values within ar
 
 ## General purpose funtions
 def tmp_file_name_gen(prefix, suffix, hashString):
-        # Setup
-        import hashlib, time
         # Main function
         tmpHash = hashlib.md5(bytes(str(hashString) + str(time.time()), 'utf-8') ).hexdigest()       # This should always give us something unique even if the string for hashString is the same across different runs
         while True:
@@ -1394,7 +1368,6 @@ def tmp_file_name_gen(prefix, suffix, hashString):
 
 def fasta_file_length_dict(fastaFile):
         # Setup
-        from Bio import SeqIO
         lengthDict = {}
         # Main function
         records = SeqIO.parse(open(fastaFile, 'r'), 'fasta')
@@ -1434,11 +1407,16 @@ def auto_stopcodon_fix(origCandidateCDS, coords, orientation):
         return coords
 
 # Set arbitrary values for later use
-segLCRCutoff = 60
+SEG_LCR_CUTOFF = 60
 '''60 acts as a way of saying that we want our short peptides to not be entirely LCR
 without excluding things which are still majority LCR. This is necessary since some toxins in ToxProt
 are very short low-complexity peptides which will pop up in genomic LCR by chance frequently; some of
 these might be real, but it would require more intensive effort to validate these as genes.'''
+GMAP_COV_CUTOFF=70.00
+GMAP_ID_CUTOFF=90.00
+'''These two cutoffs are from GGF's default values for identifying good paths. I could open
+this up to tweaking from the user, but there's enough complexity in running this program that I'd
+rather just hardcode these values in since I know they work well.'''
 
 ##### USER INPUT SECTION
 usage = """%(prog)s is an extension of gmap_gene_find.py which aims to allow for
@@ -1467,6 +1445,8 @@ p.add_argument("-gm", "-gmapFile", dest="gmapFile", type=str,
                help="Input GMAP GFF3 (-f 2) file from transcriptome alignment.")
 p.add_argument("-cd", "-cdsFile", dest="cdsFile", type=str,
                help="Input CDS fasta file (this file was used for GMAP alignment).")
+p.add_argument("-o", "-outputFile", dest="outputFileName", type=str,
+               help="Output file name")
 p.add_argument("-seg", "-segdir", dest="segdir", type=str,
                help="Specify the directory where seg executables are located.")
 p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
@@ -1479,8 +1459,6 @@ p.add_argument("-in", "-intron", dest="intronCutoff", type=float,
                help="Specify the maximum intron length allowed for exonerate hits (default==50000).", default=50000)     # This value is a bit arbitrary, but exonerate can go "fishing" for matches and this can help to constrain this behaviour
 p.add_argument("-t", "-translation", dest="translationTable", type=int, default=1,
                help="Optionally specify the NCBI numeric genetic code to utilise for CDS translation; this should be an integer from 1 to 31 (default == 1 i.e., Standard Code).")
-p.add_argument("-o", "-outputFile", dest="outputFileName", type=str,
-               help="Output file name")
 # SignalP opts
 p.add_argument("-sigp", dest="signalp", action='store_true', default=False,
                help="""Optionally use signalP evidence for determining the optimal start site
@@ -1490,7 +1468,7 @@ p.add_argument("-sigpdir", "-signalpdir", dest="signalpdir", type=str,
 p.add_argument("-sigporg", dest="signalporg", type = str, choices = ['euk', 'gram-', 'gram+'], default='euk',
                help="""If -sigp is provided, specify the type of organism for SignalP from the available
                options. Refer to the SignalP manual if unsure what these mean (default == 'euk').""")
-p.add_argument("-c", "-cygwindir", dest="cygwindir", type=str,
+p.add_argument("-c", "-cygwindir", dest="cygwindir", type=str, default="",
                help="""If -sigp is provided, Cygwin is required since you are running this program on a Windows computer.
                Specify the location of the bin directory here or, if this is already in your PATH, you can leave this blank."""
                if platform.system() == 'Windows' else argparse.SUPPRESS)
@@ -1512,7 +1490,7 @@ genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.genomeFile, 'r'), 'fasta'))
 exonerateRecords = SeqIO.to_dict(SeqIO.parse(open(args.fastaFile, 'r'), 'fasta'))
 
 # Parse exonerate file and extract GFF3 lines
-tmpExonerateFile = exonerate_gff_tmpfile(args.exonerateFile)
+tmpExonerateFile = exonerate_gff_tmpfile(args.exonerateFile, os.path.dirname(args.outputFileName))
 
 # Index exonerate GFF3 & cleanup temp file
 exonerateIndex = gff3_index(tmpExonerateFile)
@@ -1524,7 +1502,7 @@ exonerateCandidates = gff3_index_cutoff_candidates(exonerateIndex, ['identity', 
 # Assess the exonerate query sequences for low-complexity regions using seg
 segPredictions = run_seg(args.segdir, [args.fastaFile]) # run_seg expects a list of file names, cbf changing this behaviour to work internally like it does with gff3_index_cutoff_candidates
 fastaLens = fasta_file_length_dict(args.fastaFile)
-segCandidates = segprediction_fastalens_proportions(segPredictions, fastaLens, segLCRCutoff)
+segCandidates = segprediction_fastalens_proportions(segPredictions, fastaLens, SEG_LCR_CUTOFF)
 
 # Find good candidates from intersection of above two candidate lists
 segIDBits = {}
@@ -1565,8 +1543,6 @@ if args.signalp:
         args.signalpdir = signalp_copy4temp(args, args.signalpdir)
 
 # Assess predictions
-gmapCovCutoff=70.00     # This and the below cutoff are from GGF's default values for identifying good paths. I could open this up to tweaking from the user,
-gmapIdCutoff=90.00      # but there's enough complexity in running this program that I'd rather just hardcode these values in since I know they work well
 candidateModelDict = {}
 nogmapDrops = {}
 covDrops = {}
@@ -1656,7 +1632,7 @@ for candidateID in goodIntronCandidates:
         if bestPctList != []:
                 bestPctList = bestPctList[0]    # Note below that we need to copy.deepcopy the value since we do make changes to it and future alignments might also refer to the same object; this was causing errors before which I wasn't able to definitively track down, but doing this copy fixes things
                 candidateMrnaObj = copy.deepcopy(gmapIndex[bestPctList[2]][gmapIndex[bestPctList[2]]['feature_list'][0]])   # If we have multiple equivalent CDS bits (probably from duplicated genes with less conserved UTRs) then it shouldn't matter which one we choose
-                decision = check_model(candidateMrnaObj['attributes'], gmapCovCutoff, gmapIdCutoff)
+                decision = check_model(candidateMrnaObj['attributes'], GMAP_COV_CUTOFF, GMAP_ID_CUTOFF)
                 if 'CDS' not in candidateMrnaObj or decision == False:          # If the GMAP prediction lacks CDS then there's something wrong with it e.g., internal stop codons. Also, if decision is False then the GMAP alignment has poor coverage and/or identity score
                         if args.allownogmap == False:                           # If this is our behaviour then we need to skip since we're not going to treat flawed GMAP matches as legitimate ones
                                 continue
