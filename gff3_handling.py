@@ -737,7 +737,7 @@ def gff3_parse_ncls(gff3File, featureTypes):
                         for i in range(len(details)):
                                 if details[i] == '' or details[i] == '\n':
                                         continue
-                                split_details = details[i].split('=')
+                                split_details = details[i].split('=', maxsplit=1)
                                 detail_dict[split_details[0]] = split_details[1].rstrip('\r\n')
                         if 'ID' not in detail_dict:      # Don't index things which lack IDs; these might include things like TAIR9's 'protein' features
                                 continue

@@ -152,7 +152,7 @@ class Gff3:
                                 for i in range(len(details)):
                                         if details[i] == '':
                                                 continue
-                                        split_details = details[i].split('=')
+                                        split_details = details[i].split('=', maxsplit=1)
                                         detail_dict[split_details[0]] = split_details[1]
                                 self.contig_values.append(sl[0])
                                 # Build gene group dict objects
@@ -955,7 +955,7 @@ def gff3_parse_ncls_mrna(gff3File):                             # This function 
                         for i in range(len(details)):
                                 if details[i] == '':
                                         continue
-                                splitDetail = details[i].split('=')
+                                splitDetail = details[i].split('=', maxsplit=1)
                                 detailDict[splitDetail[0]] = splitDetail[1]
                         # Add to our NCLS
                         starts.append(contigStart)
