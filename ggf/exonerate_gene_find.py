@@ -989,8 +989,21 @@ def ncls_feature_narrowing(nclsEntries, featureID, featureIndex):
 
 ## Overlap collapsing
 def compare_novels_store_rejects(inputDict, genomeRecords):   # This section of code was borrowed from gmap_gene_find.py; important changes there should be updated here as well, but this function does behave differently
+        def readd_removed_models(modelID, rejectedByDict, modelSets):
+                if modelID in rejectedByDict:
+                        for model in rejectedByDict[modelID]:
+                                modelSets.append(model)
+                        del rejectedByDict[modelID] # This just helps to lower memory usage slightly
+                return rejectedByDict, modelSets
+        def add_to_rejectedByDict(removedModel, rejectedByID, rejectedByDict):
+                if rejectedByID not in rejectedByDict:
+                        rejectedByDict[rejectedByID] = [removedModel]
+                else:
+                        rejectedByDict[rejectedByID].append(removedModel)
+                return rejectedByDict
         # Setup
         spliceLenCorrection = 9 # This value will allow our length comparison check to have some flexibility to pick the best model based on splice rules except where the length differs quite a bit
+        rejectedByDict = {} # This value will allow us to re-add models that were rejected by models that themselves were later rejected
         # Find our contig IDs from the genome
         contigIDs = list(genomeRecords.keys())
         # Loop through our contigs and compare gene models
@@ -1061,20 +1074,28 @@ def compare_novels_store_rejects(inputDict, genomeRecords):   # This section of 
                                         if shortestExon1 > shortestExon2:
                                                 if shortestExon2 < microLen:
                                                         del modelSets[x]
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                         loopEnd = False
                                                         break
                                         elif shortestExon2 > shortestExon1:
                                                 if shortestExon1 < microLen:
                                                         del modelSets[i]
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                         loopEnd = False
                                                         break
                                         # Filter 2: Length
                                         if len(set1) > len(set2) + spliceLenCorrection:         # Exonerate-specific addition
                                                 del modelSets[x]
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                 loopEnd = False
                                                 break
                                         elif len(set2) > len(set1) + spliceLenCorrection:       # Exonerate-specific addition
                                                 del modelSets[i]
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                 loopEnd = False
                                                 break
                                         # Filter 3: Splice rules
@@ -1088,38 +1109,54 @@ def compare_novels_store_rejects(inputDict, genomeRecords):   # This section of 
                                                 if canonPct1 != canonPct2:
                                                         if canonPct1 > canonPct2:
                                                                 del modelSets[x]
+                                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                                 loopEnd = False
                                                                 break
                                                         else:
                                                                 del modelSets[i]
+                                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                                 loopEnd = False
                                                                 break
                                                 elif noncanonPct1 != noncanonPct2:
                                                         if noncanonPct1 > noncanonPct2:
                                                                 del modelSets[x]
+                                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                                 loopEnd = False
                                                                 break
                                                         else:
                                                                 del modelSets[i]
+                                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                                 loopEnd = False
                                                                 break
                                         # If we pass all of these filters, we need to make a decision somehow
                                         ## Final decision 1: Shortest exon length 
                                         if shortestExon1 > shortestExon2:
                                                 del modelSets[x]
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                 loopEnd = False
                                                 break
                                         elif shortestExon2 > shortestExon1:
                                                 del modelSets[i]
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                 loopEnd = False
                                                 break
                                         ## Final decision 2: Longest exon length [Exonerate-specific addition: this outcome is more likely due to the spliceLenCorrection value; if splice rules are identical but length isn't, we'll end up picking the longer one here probably]
                                         if longestExon1 > longestExon2:
                                                 del modelSets[x]
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                 loopEnd = False
                                                 break
                                         elif longestExon2 > longestExon1:
                                                 del modelSets[i]
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                 loopEnd = False
                                                 break
                                         ## Final decision 3: How!?!? Just kill x
