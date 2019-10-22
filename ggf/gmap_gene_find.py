@@ -532,6 +532,20 @@ def reverse_comp(seq):
 
 ## Overlap collapsing
 def compare_novels(inputDict, genomeRecords):
+        def readd_removed_models(modelID, rejectedByDict, modelSets):
+                if modelID in rejectedByDict:
+                        for model in rejectedByDict[modelID]:
+                                modelSets.append(model)
+                        del rejectedByDict[modelID] # This just helps to lower memory usage slightly
+                return rejectedByDict, modelSets
+        def add_to_rejectedByDict(removedModel, rejectedByID, rejectedByDict):
+                if rejectedByID not in rejectedByDict:
+                        rejectedByDict[rejectedByID] = [removedModel]
+                else:
+                        rejectedByDict[rejectedByID].append(removedModel)
+                return rejectedByDict
+        # Setup
+        rejectedByDict = {} # This value will allow us to re-add models that were rejected by models that themselves were later rejected
         # Find our contig IDs from the genome
         contigIDs = list(genomeRecords.keys())
         # Loop through our contigs and compare gene models
@@ -586,20 +600,28 @@ def compare_novels(inputDict, genomeRecords):
                                                         shortestExon2 = exonLen
                                         if shortestExon1 > shortestExon2:
                                                 if shortestExon2 < microLen:
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                         del modelSets[x]
                                                         loopEnd = False
                                                         break
                                         elif shortestExon2 > shortestExon1:
                                                 if shortestExon1 < microLen:
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                         del modelSets[i]
                                                         loopEnd = False
                                                         break
                                         # Filter 2: Length
                                         if len(set1) > len(set2):
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                 del modelSets[x]
                                                 loopEnd = False
                                                 break
                                         elif len(set2) > len(set1):
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                 del modelSets[i]
                                                 loopEnd = False
                                                 break
@@ -612,29 +634,41 @@ def compare_novels(inputDict, genomeRecords):
                                         noncanonPct2 = sum(spliceTypes2[1:3]) / sum(spliceTypes2)
                                         if canonPct1 != canonPct2:
                                                 if canonPct1 > canonPct2:
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                         del modelSets[x]
                                                         loopEnd = False
                                                         break
                                                 else:
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                         del modelSets[i]
                                                         loopEnd = False
                                                         break
                                         elif noncanonPct1 != noncanonPct2:
                                                 if noncanonPct1 > noncanonPct2:
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                         del modelSets[x]
                                                         loopEnd = False
                                                         break
                                                 else:
+                                                        rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                        rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                         del modelSets[i]
                                                         loopEnd = False
                                                         break
                                         # If we pass all of these filters, we need to make a decision somehow
                                         ## Final decision 1: Shortest exon length
                                         if shortestExon1 > shortestExon2:
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                 del modelSets[x]
                                                 loopEnd = False
                                                 break
                                         elif shortestExon2 > shortestExon1:
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                 del modelSets[i]
                                                 loopEnd = False
                                                 break
@@ -642,10 +676,14 @@ def compare_novels(inputDict, genomeRecords):
                                         pathNum1 = int(modelSets[i][0].rsplit('.path', maxsplit=1)[1])
                                         pathNum2 = int(modelSets[x][0].rsplit('.path', maxsplit=1)[1])
                                         if pathNum1 < pathNum2:
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[x], modelSets[i][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[x][0], rejectedByDict, modelSets)
                                                 del modelSets[x]
                                                 loopEnd = False
                                                 break
                                         elif pathNum2 < pathNum1:
+                                                rejectedByDict = add_to_rejectedByDict(modelSets[i], modelSets[x][0], rejectedByDict)
+                                                rejectedByDict, modelSets = readd_removed_models(modelSets[i][0], rejectedByDict, modelSets)
                                                 del modelSets[i]
                                                 loopEnd = False
                                                 break
