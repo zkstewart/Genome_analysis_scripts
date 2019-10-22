@@ -220,6 +220,41 @@ class Gff3:
                                                         else:
                                                                 self.index_dict[parent]['lines'][1].append(new_line) # I think that multi-parent features shouldn't exist in GFF3 since, if they do, it's probably redundant or compressing information too much
                                 # All other lines are ignored
+        
+        def add_comments(self): # This function is just add_lines but with the gene lines section gutted
+                # Setup
+                KNOWN_HEAD_COMMENTS = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
+                KNOWN_FOOT_COMMENTS = ('#PROT')
+                assert self.file_location != None
+                # Main loop
+                with open(self.file_location, 'r') as file_in:
+                        for line in file_in:
+                                line = line.replace('\r', '') # Get rid of return carriages immediately so we can handle lines like they are Linux-formatted
+                                # Skip filler lines
+                                if line == '\n' or set(line.rstrip('\n')) == {'#'} or set(line.rstrip('\n')) == {'#', '\t'}: # If this is true, it's a blank line or a comment line with no information in it
+                                        continue
+                                # Handle known header comment lines
+                                if line.startswith(KNOWN_HEAD_COMMENTS):
+                                        # Extract gene ID
+                                        mrna_ID = line.split(': ')[1].split(' ')[0].rstrip(',') # According to known header comments, the mRNA ID will be found inbetween ': ' and ' ' with a possible comma at the end which we can strip off
+                                        gene_ID = self.index_dict[mrna_ID]['attributes']['ID'] # mrna_ID indexes back to the main gene dict object, and from here we can get the geneID from its attributes field
+                                        # Add to lines dict
+                                        if 'lines' not in self.index_dict[gene_ID]:
+                                                self.index_dict[gene_ID]['lines'] = {0: [line], 1: [], 2: []}
+                                        else:
+                                                self.index_dict[gene_ID]['lines'][0].append(line)
+                                # Handle known footer comment lines
+                                elif line.startswith(KNOWN_FOOT_COMMENTS):
+                                        # Extract gene ID
+                                        gene_ID = line.split()[2] # According to known footer comments, the gene ID will be the third 1-based value (e.g., ['#PROT', 'evm.model.utg0.34', 'evm.TU.utg0.34', 'MATEDAP....'])
+                                        # Add to lines dict
+                                        if 'lines' not in self.index_dict[gene_ID]:
+                                                self.index_dict[gene_ID]['lines'] = {0: [], 1: [], 2: [line]}
+                                        else:
+                                                self.index_dict[gene_ID]['lines'][2].append(line)
+                                # Handle all other lines
+                                else:
+                                        pass
 
         def denovo_lines(self): # see mtdna_gff2_order.py for an example of this function
                 COMMENT_ORDER = ['ID', 'Parent', 'Name'] # Hard code some of the ordering for GFF3 comments; any other type might end up being randomised a bit
@@ -302,7 +337,7 @@ class Gff3:
         # Extraction of details
         def pasaprots_extract(self):
                 # Setup
-                pasaProts = {}
+                self.pasa_prots = {}
                 # Main loop
                 for key in self.gene_values:
                         if 'lines' not in self.index_dict[key]:
@@ -316,9 +351,8 @@ class Gff3:
                                 # Extract the sequence
                                 sequence = split_comment[1]
                                 # Add into output dict
-                                assert mrnaID not in pasaProts # If this assertion fails, GFF3 comment format is flawed - there is a duplicate mRNA ID
-                                pasaProts[mrnaID] = sequence
-                return pasaProts
+                                assert mrnaID not in self.pasa_prots # If this assertion fails, GFF3 comment format is flawed - there is a duplicate mRNA ID
+                                self.pasa_prots[mrnaID] = sequence
 
 ## GFF3 - gene ID manipulation
 def gff3_idlist_compare(gff3Dict, idList):
@@ -995,25 +1029,16 @@ def edit_parent(gff3Line, parentID):
         return gff3Line
 
 ## GFF3 sequence extraction & handling
-def gff3_index_sequence_extract(gff3Index, mrna, genomeRecords, seqType):       # gff3Index should be produced by gff3_index() function; mrna is a string which should correspond to a subfeature key in the index; genomeRecords should be a Biopython SeqIO.parse() object of the genome's contigs
+def gff3_object_sequence_extract(gff3Object, mrna, genomeRecords, seqType): # gff3Object should be produced by the Gff3 class; mrna is a string which should correspond to a subfeature key in the Gff3.index_dict; genomeRecords should be a Biopython SeqIO.parse() object of the genome's contigs
         # Setup
         cdsWarning = False
-        # Define function integral to this one
-        def reverse_comp(seq):
-                reversedSeq = seq[::-1].lower()
-                # Decode characters
-                reversedSeq = reversedSeq.replace('a', 'T')
-                reversedSeq = reversedSeq.replace('t', 'A')
-                reversedSeq = reversedSeq.replace('c', 'G')
-                reversedSeq = reversedSeq.replace('g', 'C')
-                return reversedSeq
         # Ensure that seqType is sensible
         seqType = seqType.lower()
         if seqType not in ['transcript', 'cds', 'both']:
                 print('gff3_index_sequence_extract: seqType value is not sensible; you need to fix the inputs to this function.')
                 quit()
         # Obtain the indexed gene object
-        value = gff3Index[mrna]
+        value = gff3Object.index_dict[mrna]
         # Retrieve genomic sequence
         try:
                 genomeSeq = str(genomeRecords[value['contig_id']].seq)
@@ -1028,7 +1053,7 @@ def gff3_index_sequence_extract(gff3Index, mrna, genomeRecords, seqType):       
         elif value[mrna]['orientation'] == '-':
                 value[mrna]['exon']['coords'].sort(key = lambda x: (-int(x[0]), -int(x[1])))
         ## CDS coords
-        if 'CDS' in value[mrna]:        # This check here (and below) is a way of ensuring that we only produce CDS outputs for features that are annotated as coding in the GFF3 file
+        if 'CDS' in value[mrna]: # This check here (and below) is a way of ensuring that we only produce CDS outputs for features that are annotated as coding in the GFF3 file
                 cdsSort = list(zip(value[mrna]['CDS']['coords'], value[mrna]['CDS']['frame']))
                 if value[mrna]['orientation'] == '+':
                         cdsSort.sort(key = lambda x: (int(x[0][0]), int(x[0][1])))
@@ -1052,7 +1077,7 @@ def gff3_index_sequence_extract(gff3Index, mrna, genomeRecords, seqType):       
         if seqType == 'transcript' or seqType == 'both':
                 transcript = ''
                 for coord in value[mrna]['exon']['coords']:
-                        segment = genomeSeq[int(coord[0])-1:int(coord[1])]            # Make it 1-based by -1 to the first coordinate
+                        segment = genomeSeq[int(coord[0])-1:int(coord[1])] # Make it 1-based by -1 to the first coordinate
                         transcript += segment
                 # Reverse comp if necessary
                 if value['orientation'] == '-':
@@ -1062,7 +1087,7 @@ def gff3_index_sequence_extract(gff3Index, mrna, genomeRecords, seqType):       
                 if 'CDS' in value[mrna]:
                         cds = ''
                         for coord in value[mrna]['CDS']['coords']:
-                                segment = genomeSeq[int(coord[0])-1:int(coord[1])]            # Make it 1-based by -1 to the first coordinate
+                                segment = genomeSeq[int(coord[0])-1:int(coord[1])] # Make it 1-based by -1 to the first coordinate
                                 cds += segment
                         # Reverse comp if necessary
                         if value['orientation'] == '-':
