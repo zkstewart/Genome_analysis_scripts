@@ -4,19 +4,21 @@
 # classes and functions rather than having multiple versions spread across multiple files.
 
 # Modules imported for these functions
-import re
+import re, copy
+import pandas as pd
+from ncls import NCLS
+from Bio import SeqIO
 
 # Gff3 class definition
 class Gff3:
-        def __init__(self, file_location=None, gene_dict={}, index_dict={}, id_values={'main': {}, 'feature': {}}, contig_values=[]):
-                assert file_location != None or (gene_dict != {} and index_dict != {} and id_values != {'main': {}, 'feature': {}} and contig_values != [])
+        def __init__(self, file_location):
                 self.file_location = file_location
-                self.gene_dict = gene_dict # Our output structure will have 1 entry per gene which is stored in here
-                self.index_dict = index_dict # The index_dict will wrap the gene_dict and index gene IDs and mRNA ID's to the shared single entry per gene ID
-                self.id_values = id_values # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
-                self.contig_values = contig_values
-                if file_location != None:
-                        self.parse_gff3()
+                self.gene_dict = {} # Our output structure will have 1 entry per gene which is stored in here
+                self.index_dict = {} # The index_dict will wrap the gene_dict and index gene IDs and mRNA ID's to the shared single entry per gene ID
+                self.id_values = {'main': {}, 'feature': {}} # This will contain as many key:value pairs as there are main types (e.g., gene/pseudogene/ncRNA_gene) and feature types (e.g., mRNA/tRNA/rRNA)
+                self.contig_values = []
+                self.parse_gff3()
+        
         ## Parsing
         def parse_gff3(self):
                 # Gene object loop
@@ -661,8 +663,6 @@ def gff3_retrieve_remove_tolist(gff3File, idList, identifiers, behaviour):
 
 ## GFF3
 def gff3_index_contig_reorder(gff3Index, fastaFile, locationStart):     # see mtdna_gff2_order.py for an example of this function
-        # Setup
-        from Bio import SeqIO
         # Define functions integral to this one
         def coord_overflow_invert(start, end, contigLen):
                 if start < 1:
@@ -743,8 +743,6 @@ def gff3_index_contig_reorder(gff3Index, fastaFile, locationStart):     # see mt
 
 ## NCLS-related functions
 def gff3_parse_ncls(gff3File, featureTypes):
-        import pandas as pd
-        from ncls import NCLS
         gff3Loc = {}
         starts = []
         ends = []
@@ -789,7 +787,6 @@ def gff3_parse_ncls(gff3File, featureTypes):
         return ncls, gff3Loc
 
 def ncls_finder(ncls, locDict, start, stop):
-        import copy
         overlaps = ncls.find_overlap(start, stop+1)             # Although our ncls is 1-based, find_overlap acts as a range and is thus 0-based. We need to +1 to the stop to offset this.
         dictEntries = []
         for result in overlaps:
