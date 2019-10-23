@@ -356,29 +356,29 @@ def overlapping_gff3_models(nclsHits, gff3Object, modelCoords):
         return ovlPctDict
 
 ## Output function
-def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeList, outFileName, mode):
+def gff3_merge_and_isoclust(mainGff3Object, newGff3Object, isoformDict, excludeList, outFileName, mode):
         # Set up
         excludeList = copy.deepcopy(excludeList)        # We need to make a copy of this since we add values to this to handle redundancy below, but we still want to present this at the end of the program
         processedPaths = []
         # Main function
         with open(outFileName, 'w') as fileOut:
-                for key in mainGff3Lines['geneValues']:
+                for key in mainGff3Object.gene_values:
                         # Merging isoform clusters
                         if key in isoformDict:
                                 # Write opening comments for main gene
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][0]))
                                 # Loop into associated isoforms and write header comments (if relevant) & hold onto coordinates
                                 mrnaCoords = []
                                 for mrna in isoformDict[key]:
                                         # Get this mRNA's header line specifically (if it has one)
                                         mrnaHead = None
-                                        for line in newGff3Lines[mrna]['lines'][0]:
-                                                if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
+                                        for line in newGff3Object.index_dict[mrna]['lines'][0]:
+                                                if mrna in line or newGff3Object.index_dict[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
                                                         mrnaHead = line
                                         if mrnaHead != None:
                                                 fileOut.write(mrnaHead)
                                         # Get the mRNA coordinates
-                                        mrnaCoords.append(newGff3Lines[mrna][mrna]['coords'])
+                                        mrnaCoords.append(newGff3Object.index_dict[mrna][mrna]['coords'])
                                         processedPaths.append(mrna)
                                 # Get minimum/maximum coordinates for the mRNAs being clustered into this gene as isoforms
                                 minMrna = None
@@ -391,17 +391,17 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                         if coord[1] > maxMrna:
                                                 maxMrna = coord[1]
                                 # Update our gene start/stop coordinates if relevant
-                                mainGff3Lines[key]['coords'] = [min(mainGff3Lines[key]['coords'][0], minMrna), max(mainGff3Lines[key]['coords'][1], maxMrna)]
-                                newGeneLine = mainGff3Lines[key]['lines'][1][0].split('\t')
-                                newGeneLine[3], newGeneLine[4] = list(map(str, mainGff3Lines[key]['coords']))
-                                mainGff3Lines[key]['lines'][1][0] = '\t'.join(newGeneLine)
+                                mainGff3Object.index_dict[key]['coords'] = [min(mainGff3Object.index_dict[key]['coords'][0], minMrna), max(mainGff3Object.index_dict[key]['coords'][1], maxMrna)]
+                                newGeneLine = mainGff3Object.index_dict[key]['lines'][1][0].split('\t')
+                                newGeneLine[3], newGeneLine[4] = list(map(str, mainGff3Object.index_dict[key]['coords']))
+                                mainGff3Object.index_dict[key]['lines'][1][0] = '\t'.join(newGeneLine)
                                 # Write main gene and mRNA lines
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][1]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][1]))
                                 # Loop into associated isoforms and write their mRNA lines
                                 for mrna in isoformDict[key]:
                                         # Retrieve the lines specifically mapping to this mRNA
                                         mrnaLines = []
-                                        for line in newGff3Lines[mrna]['lines'][1][1:]:                 # Skip the first gene line
+                                        for line in newGff3Object.index_dict[mrna]['lines'][1][1:]:                 # Skip the first gene line
                                                 if 'ID=' + mrna in line or 'Parent=' + mrna in line:    # This is a simple way to check if we have the correct value in our attributes fields when parsing the line as a string directly
                                                         mrnaLines.append(line)
                                         # Write lines to file after editing their attributes field appropriately
@@ -419,13 +419,13 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                                 line = '\t'.join(sl)
                                                 fileOut.write(line + '\n')
                                 # Write closing comments for main gene
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][2]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][2]))
                                 # Loop into associated isoforms and write their closing comments
                                 for mrna in isoformDict[key]:
                                         # Get this mRNA's footer line specifically (if it has one)
                                         mrnaFoot = None
-                                        for line in newGff3Lines[mrna]['lines'][2]:
-                                                if mrna in line or newGff3Lines[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
+                                        for line in newGff3Object.index_dict[mrna]['lines'][2]:
+                                                if mrna in line or newGff3Object.index_dict[mrna]['attributes']['ID'] in line:              # i.e., if the mRNA or gene ID is in the line
                                                         splitFoot = line.split()
                                                         splitFoot[2] = key
                                                         mrnaFoot = ' '.join(splitFoot[0:3]) + '\t' + splitFoot[3] + '\n'        # We need to replace the original gene ID with the new gene ID
@@ -436,34 +436,34 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                 continue
                         # Write genes without clustered isoforms to file directly
                         else:
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][1]))
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][2]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][0]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][1]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][2]))
                 # Drop any new values not clustered as isoforms into the file
-                for geneID in newGff3Lines['geneValues']:
+                for geneID in newGff3Object.gene_values:
                         # Figure out which of this gene's mRNAs were not already clustered as isoforms
                         nonisoMrnas = []
-                        for mrnaID in newGff3Lines[geneID]['feature_list']:
+                        for mrnaID in newGff3Object.index_dict[geneID]['feature_list']:
                                 if mrnaID not in processedPaths and mrnaID not in excludeList:
                                         nonisoMrnas.append(mrnaID)
                         if nonisoMrnas == []:
                                 continue
                         # If no changes are required for this gene, write it to file like normal [If these sets are equivalent we didn't grab anything from this gene for isoform clustering/exclude any mRNAs and don't need to bother with more elaborate handling]
-                        if set(nonisoMrnas) == set(newGff3Lines[geneID]['feature_list']):
-                                fileOut.write(''.join(newGff3Lines[geneID]['lines'][0]))
-                                fileOut.write(''.join(newGff3Lines[geneID]['lines'][1]))
-                                fileOut.write(''.join(newGff3Lines[geneID]['lines'][2]))
+                        if set(nonisoMrnas) == set(newGff3Object.index_dict[geneID]['feature_list']):
+                                fileOut.write(''.join(newGff3Object.index_dict[geneID]['lines'][0]))
+                                fileOut.write(''.join(newGff3Object.index_dict[geneID]['lines'][1]))
+                                fileOut.write(''.join(newGff3Object.index_dict[geneID]['lines'][2]))
                         else:
                                 # Write header lines for this gene's mRNAs
                                 mrnaHeads = []
                                 for mrnaID in nonisoMrnas:
                                         mrnaHead = None
-                                        for line in newGff3Lines[geneID]['lines'][0]:
+                                        for line in newGff3Object.index_dict[geneID]['lines'][0]:
                                                 if mrnaID in line or geneID in line:
                                                         mrnaHead = line
                                         if mrnaHead != None:
                                                 # Handle gene ID duplication
-                                                if geneID in mainGff3Lines['idValues'][0]:
+                                                if geneID in mainGff3Object.id_values[0]:
                                                         if geneID in mrnaHead:
                                                                 mrnaHead = mrnaHead.replace(geneID, geneID + '_gff3_merge_separated')
                                                         if mrnaID in mrnaHead:
@@ -475,7 +475,7 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                 minMrna = None
                                 maxMrna = None
                                 for mrnaID in nonisoMrnas:
-                                        coord = newGff3Lines[geneID][mrnaID]['coords']
+                                        coord = newGff3Object.index_dict[geneID][mrnaID]['coords']
                                         if minMrna == None:
                                                 minMrna, maxMrna = coord[0], coord[1]
                                         if coord[0] < minMrna:
@@ -483,20 +483,20 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                         if coord[1] > maxMrna:
                                                 maxMrna = coord[1]
                                 # Update our gene start/stop coordinates if relevant
-                                newGff3Lines[geneID]['coords'] = [minMrna, maxMrna]
-                                newGeneLine = newGff3Lines[geneID]['lines'][1][0].split('\t')
-                                newGeneLine[3], newGeneLine[4] = list(map(str, newGff3Lines[geneID]['coords']))
-                                if geneID in mainGff3Lines['idValues'][0]:
+                                newGff3Object.index_dict[geneID]['coords'] = [minMrna, maxMrna]
+                                newGeneLine = newGff3Object.index_dict[geneID]['lines'][1][0].split('\t')
+                                newGeneLine[3], newGeneLine[4] = list(map(str, newGff3Object.index_dict[geneID]['coords']))
+                                if geneID in mainGff3Object.id_values[0]:
                                         # Handle gene ID duplication
                                         newGeneLine[8] = newGeneLine[8].replace('ID=' + geneID, 'ID=' + geneID + '_gff3_merge_separated')
-                                newGff3Lines[geneID]['lines'][1][0] = '\t'.join(newGeneLine)
+                                newGff3Object.index_dict[geneID]['lines'][1][0] = '\t'.join(newGeneLine)
                                 # Write main gene and mRNA lines
-                                fileOut.write(''.join(newGff3Lines[geneID]['lines'][1][0]))
+                                fileOut.write(''.join(newGff3Object.index_dict[geneID]['lines'][1][0]))
                                 for mrnaID in nonisoMrnas:
-                                        for line in newGff3Lines[geneID]['lines'][1][1:]:                       # Skip the first gene line
+                                        for line in newGff3Object.index_dict[geneID]['lines'][1][1:]:                       # Skip the first gene line
                                                 if 'ID=' + mrnaID in line or 'Parent=' + mrnaID in line:        # This is a simple way to check if we have the correct value in our attributes fields when parsing the line as a string directly
                                                         # Handle gene ID duplication
-                                                        if geneID in mainGff3Lines['idValues'][0] and 'ID=' + mrnaID in line:   # We only need to change the parent ID for mRNA lines and only when we're dealing with duplicate gene ID
+                                                        if geneID in mainGff3Object.id_values[0] and 'ID=' + mrnaID in line:   # We only need to change the parent ID for mRNA lines and only when we're dealing with duplicate gene ID
                                                                 line = line.replace('Parent=' + geneID, 'Parent=' + geneID + '_gff3_merge_separated')
                                                         fileOut.write(line)
                                 # Write footer lines for this gene's mRNAs
@@ -504,12 +504,12 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                 for mrnaID in nonisoMrnas:
                                         # Get this mRNA's footer line specifically (if it has one)
                                         mrnaFoot = None
-                                        for line in newGff3Lines[geneID]['lines'][2]:
+                                        for line in newGff3Object.index_dict[geneID]['lines'][2]:
                                                 if mrnaID in line or geneID in line:
                                                         mrnaFoot = line
                                         if mrnaFoot != None:
                                                 # Handle gene ID duplication
-                                                if geneID in mainGff3Lines['idValues'][0]:
+                                                if geneID in mainGff3Object.id_values[0]:
                                                         if geneID in mrnaFoot:
                                                                 mrnaFoot = mrnaFoot.replace(geneID, geneID + '_gff3_merge_separated')
                                                         if mrnaID in mrnaFoot:
@@ -519,30 +519,30 @@ def gff3_merge_and_isoclust(mainGff3Lines, newGff3Lines, isoformDict, excludeLis
                                 fileOut.write(''.join(mrnaFoots))
                 # Write non-gene lines to file if relevant
                 valueList = []
-                for key in mainGff3Lines['idValues']['main'].keys():
+                for key in mainGff3Object.id_values['main'].keys():
                         if key != 'gene':
-                                valueList.append(mainGff3Lines['idValues']['main'][key])
+                                valueList.append(mainGff3Object.id_values['main'][key])
                 for value in valueList:
                         for key in value:
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][0]))
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][1]))
-                                fileOut.write(''.join(mainGff3Lines[key]['lines'][2]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][0]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][1]))
+                                fileOut.write(''.join(mainGff3Object.index_dict[key]['lines'][2]))
                                 excludeList.append(key)         # This helps with preventing redundancy with "note" entries like lineType == "chromosome"
                 if mode == 'all':                               # If we specified mode as 'gene', we just want to write the original non-gene lines to file and ignore anything in the new file
                         valueList = []
-                        for key in newGff3Lines['idValues']['main'].keys():
+                        for key in newGff3Object.id_values['main'].keys():
                                 if key != 'gene':
-                                        valueList.append(newGff3Lines['idValues']['main'][key])
+                                        valueList.append(newGff3Object.id_values['main'][key])
                         for value in valueList:
                                 for key in value:
                                         found = False
-                                        for feature in newGff3Lines[key]['feature_list']:
+                                        for feature in newGff3Object.index_dict[key]['feature_list']:
                                                 if feature in excludeList:
                                                         found = True
                                         if found == False and key not in excludeList:
-                                                fileOut.write(''.join(newGff3Lines[key]['lines'][0]))
-                                                fileOut.write(''.join(newGff3Lines[key]['lines'][1]))
-                                                fileOut.write(''.join(newGff3Lines[key]['lines'][2]))
+                                                fileOut.write(''.join(newGff3Object.index_dict[key]['lines'][0]))
+                                                fileOut.write(''.join(newGff3Object.index_dict[key]['lines'][1]))
+                                                fileOut.write(''.join(newGff3Object.index_dict[key]['lines'][2]))
 
 ##### USER INPUT SECTION
 usage = """%(prog)s will merge two GFF3 files together, one acting as the 'main' and the other as the 'new'.
@@ -572,13 +572,6 @@ p.add_argument("-out", "-outputFile", dest="outputFileName",
                help="Output file name.")
 
 args = p.parse_args()
-## HARD-CODED TESTING ##
-args.originalGff3 = r'F:\genome\small_peptide_annot\egf_results\act_scaff_raw_all_exonerate_gene_find.gff3'
-args.newGff3 = r'F:\genome\small_peptide_annot\egf_results\act_scaff_sigptrim_all_exonerate_gene_find.gff3'
-args.outputFileName = r'F:\genome\small_peptide_annot\test_merge.gff3'
-args.mode = 'all'
-args.behaviour = 'reject'
-##
 args = validate_args(args)
 
 # Parse GFF3 files as models
@@ -590,7 +583,7 @@ origGff3.add_lines()
 newGff3.add_lines()
 
 # Parse GFF3 files as NCLS
-origNcls, origLoc = gff3_parse_ncls(args.originalGff3, list(origGff3['idValues']['feature'].keys()))
+origNcls, origLoc = gff3_parse_ncls(args.originalGff3, list(origGff3.id_values['feature'].keys()))
 
 # Main loop: Compare new models to original to find isoforms and incompatible overlaps
 '''Note that we're using CDS for detecting overlap, not exons. I think that programs
