@@ -15,6 +15,10 @@ MCLDIR=/home/n8942188/various_programs/mcl/bin
 FASTTREEDIR=/home/n8942188/various_programs/FastTree
 PYTHON2DIR=/home/n8942188/anaconda2/bin
 PYTHON3DIR=/home/n8942188/anaconda3/bin # Python3 is what is used for everything other than OrthoFinder
+### EXONERATE-RELATED
+SEGDIR=/home/n8942188/various_programs/seg
+SIGPDIR=/home/n8942188/various_programs/signalp-4.1
+EXONDIR=/pkg/suse12/software/exonerate/2.4.0-foss-2016a/bin
 ### PYTHON SCRIPT-RELATED
 GENSCRIPTDIR=/home/n8942188/scripts/Genome_analysis_scripts
 VARSCRIPTDIR=/home/n8942188/scripts/Various_scripts
@@ -25,6 +29,13 @@ SPECIESFASTAS="/home/n8942188/main_genome_analysis/orthofinder/inputs_to_toxprot
 SPECIESPEPTIDES="/home/n8942188/main_genome_analysis/proteomics/raw_venom_data/Ate_Prot_nr_SignalPY.fasta /home/n8942188/main_genome_analysis/proteomics/raw_venom_data/telmatactis_secretome.fasta"
 DATABASEPEPTIDES=/home/n8942188/main_genome_analysis/proteomics/raw_venom_data/toxprot_all_venom_proteins_13-10-19.fasta
 ### EXONERATE-RELATED
+### Note: The CDSFILE should be what was used to generate the GMAPFILE alignment
+GENDIR=/home/n8942188/scaffolded_act
+GENFILE=PGA_assembly.fasta
+GMAPDIR=/home/n8942188/scaffolded_act/gene_models/annotation/gmap_alignment
+GMAPFILE=act_scaff_okay-okalt.cds_n12_gmap.gff3
+CDSDIR=/home/n8942188/scaffolded_act/gene_models/transcriptomes/evidentialgene/concatenated
+CDSFILE=act_scaff_okay-okalt.cds
 
 ## Setup: Manual specification of output directory
 OUTPUTDIR=/home/n8942188/main_genome_analysis/egf_pipeline
@@ -36,9 +47,14 @@ CPUS=8
 
 ## Setup: Automatic operations; specification of system configurations, module loads, value definition
 module load mafft/7.305-foss-2016a-with-extensions
+module load exonerate/2.4.0-foss-2016a
 export PATH=$PATH:${FASTMEDIR}:${MCLDIR}:${ORTHODIR}:${FASTTREEDIR}
 PREFIX=${SPECIES}_${ASSEM}
 CONCATENATEDPEPTIDEPREFIX=spdbpeptides_concatenated
+BEHAVIOUR=reject # Shouldn't be any need to modify this and below for gff3_merge.py
+MODE=all
+
+# PART 1: ORTHOFINDER
 
 ## STEP 1: Setup directories
 mkdir -p ${OUTPUTDIR}
@@ -47,6 +63,8 @@ mkdir -p ${OUTPUTDIR}/orthofinder_msas
 mkdir -p ${OUTPUTDIR}/orthofinder_sigptrim_msas
 mkdir -p ${OUTPUTDIR}/concatenated_msas
 mkdir -p ${OUTPUTDIR}/missing_seqs
+mkdir -p ${OUTPUTDIR}/egf_runs
+mkdir -p ${OUTPUTDIR}/egf_results
 
 ## STEP 2: Concatenate peptide files
 python ${VARSCRIPTDIR}/safe_file_concat.py -i ${SPECIESPEPTIDES} ${DATABASEPEPTIDES} -o ${OUTPUTDIR}/inputs_to_ortho/${CONCATENATEDPEPTIDEPREFIX}.fasta
@@ -95,4 +113,24 @@ cat ${OUTPUTDIR}/concatenated_msas/${CONCATENATEDPEPTIDEPREFIX}_raw_seqs.fasta $
 #--SIGP--#
 cat ${OUTPUTDIR}/concatenated_msas/${CONCATENATEDPEPTIDEPREFIX}_raw_seqs.fasta ${OUTPUTDIR}/missing_seqs/${CONCATENATEDPEPTIDEPREFIX}_sigptrim_seqs.missing.fasta > ${OUTPUTDIR}/concatenated_msas/${CONCATENATEDPEPTIDEPREFIX}_sigptrim_seqs.plusmissing.fasta
 
-### CONTINUE ONTO EXONERATE RUNNING ###
+# PART 2: EXONERATE GENE FIND (EGF)
+
+## STEP 1: Run exonerate alignment
+${EXONDIR}/exonerate --model protein2genome --showtargetgff yes ${OUTPUTDIR}/concatenated_msas/${CONCATENATEDPEPTIDEPREFIX}_raw_seqs.plusmissing.fasta ${GENDIR}/${GENFILE} > ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_raw_exonerate.gff3
+#--SIGP--#
+${EXONDIR}/exonerate --model protein2genome --showtargetgff yes ${OUTPUTDIR}/concatenated_msas/${CONCATENATEDPEPTIDEPREFIX}_sigptrim_seqs.plusmissing.fasta ${GENDIR}/${GENFILE} > ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate.gff3
+
+## STEP 2: Run EGF
+python ${GENSCRIPTDIR}/ggf/exonerate_gene_find.py -ge ${GENDIR}/${GENFILE} -e ${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_raw_exonerate.gff3 -f ${PROTDIR}/${PROTFILE} -gm ${GMAPDIR}/${GMAPFILE} -cd ${CDSDIR}/${CDSFILE} -o ${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_raw_exonerate_gene_find.gff3 -seg ${SEGDIR} -sigp -sigpdir ${SIGPDIR} -nosigpskip
+#--SIGP--#
+python ${GENSCRIPTDIR}/ggf/exonerate_gene_find.py -ge ${GENDIR}/${GENFILE} -e ${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate.gff3 -f ${PROTDIR}/${PROTFILE} -gm ${GMAPDIR}/${GMAPFILE} -cd ${CDSDIR}/${CDSFILE} -o ${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate_gene_find.gff3 -seg ${SEGDIR} -sigp -sigpdir ${SIGPDIR} -nosigpskip
+
+# PART 3: MERGE EGF RESULTS
+## STEP 1: merge
+python ${GENSCRIPTDIR}/gff3_merge.py -og ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate_gene_find.gff3 -ng ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_raw_exonerate_gene_find.gff3 -out ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3.tmp -b ${BEHAVIOUR} -m ${MODE}
+
+## STEP 2: gff3_order
+python ${GENSCRIPTDIR}/gff3_order.py -g ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3.tmp -o ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3
+rm ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3.tmp
+
+## DONE ##
