@@ -13,6 +13,11 @@ from ncls import NCLS
 # Define functions for later use
 ## Validate arguments
 def validate_args(args):
+        # Ensure no None arguments exist
+        for key, value in vars(args).items():
+                if value == None:
+                        print(key + ' argument was not specified. Fix this and try again.')
+                        quit()
         # Validate input file locations
         if not os.path.isfile(args.originalGff3):
                 print('I am unable to locate the original GFF3 file (' + args.originalGff3 + ')')
@@ -564,10 +569,10 @@ p.add_argument("-m", "-mode", dest="mode", choices=['gene', 'all'],
                help="Specify program mode to only merge genes or to merge all features.")
 p.add_argument("-b", "-behaviour", dest="behaviour", choices=['reject', 'replace'],
                help="Specify program behaviour to either 'reject' new entries that overlap originals, or 'replace' originals with new entries.")
-p.add_argument("-ip", "-isoPercent", dest="isoPercent", type=float,
-               help="Specify the percentage overlap of two models before they are clustered as isoforms. Default == 30", default=30)
-p.add_argument("-dp", "-duplicatePercent", dest="duplicatePercent", type=float,
-               help="Specify the percentage overlap of two models before they are considered duplicates (and rejected). Default == 60", default=60)
+p.add_argument("-ip", "-isoPercent", dest="isoPercent", type=float, default=30,
+               help="Specify the percentage overlap of two models before they are clustered as isoforms. Default == 30")
+p.add_argument("-dp", "-duplicatePercent", dest="duplicatePercent", type=float, default=60,
+               help="Specify the percentage overlap of two models before they are considered duplicates (and rejected). Default == 60")
 p.add_argument("-out", "-outputFile", dest="outputFileName",
                help="Output file name.")
 
