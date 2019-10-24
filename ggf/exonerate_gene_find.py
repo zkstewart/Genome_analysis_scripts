@@ -555,6 +555,7 @@ def determine_accepted_start_stop_codons(geneticCode, currentStart):
         return startCodonsPos, startCodonsNeg, stopCodonsPos, stopCodonsNeg
 
 def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticCode):   # This code is repurposed from gmap_gene_find.py
+        STOP_CODON_CRAWL_MAX_EXTENSION = 30 # Arbitrary; if we extend longer than 10 codons looking for a stop, it's probably not a valid alignment ## TESTING
         # Determine what our accepted start and stop codons are depending on geneticCode and alignment start
         cds = make_cds(coords, genomeRecords, contigID, orientation)
         currentStart = cds[0:3].lower()
@@ -609,7 +610,7 @@ def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticC
                 warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three
                 cdsProt = str(cdsRecord.translate(table=geneticCode))
         if not cdsProt.count('*') < 2:                                  # Make sure the CDS is correct - it should be!
-                return False, False, startCodonsPos                     # EXONERATE-SPECIFIC: this function needs to return two values prior to the startCodonsPos value
+                return coords, False, startCodonsPos                     # EXONERATE-SPECIFIC: this function needs to return two values prior to the startCodonsPos value
         if cdsProt.count('*') == 1:
                 assert cdsProt[-1] == '*'                               # If we have a stop codon, it should be at the end
                 return coords, cds, startCodonsPos                      # No need for a backwards crawl
@@ -624,6 +625,8 @@ def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticC
                         codon = str(genomeSeq[i:i+3].seq)
                         if codon.lower() in stopCodonsPos:
                                 break
+                if i > STOP_CODON_CRAWL_MAX_EXTENSION: ## TESTING
+                        return coords, False, startCodonsPos
                 i = endCoord + i + 2 + 1                                # +2 to go to the end of the stop codon; +1 to make it 1-based
                 coords[-1] = [coords[-1][0], i]
         else:
@@ -636,6 +639,8 @@ def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticC
                         codon = str(genomeSeq[i-2:i+1].seq)
                         if codon.lower() in stopCodonsNeg:
                                 break
+                if endCoord - i > STOP_CODON_CRAWL_MAX_EXTENSION: ## TESTING
+                        return coords, False, startCodonsPos
                 i = i - 2 + 1                                           # -2 to go to the start of the codon; +1 to make it 1-based
                 coords[-1] = [i, coords[-1][1]]
         # Make the final CDS and return
@@ -1578,6 +1583,7 @@ nogmapDrops = {}
 covDrops = {}
 stopcodonDrops = {}
 sigpDrops = {}
+extensionDrops = {} ## TESTING ##
 
 for candidateID in goodIntronCandidates:
         ## Curation phase: remove exonerate alignments that do not meet quality cutoffs
@@ -1688,6 +1694,9 @@ for candidateID in goodIntronCandidates:
                         continue
         # Obtain the maximally bounded CDS region with an accepted start codon
         candidateMrnaObj['CDS']['coords'], candidateCDS, acceptedStartCodons = cds_extension_maximal(candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords, args.translationTable)
+        if candidateCDS == False: ## TESTING
+                extensionDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
+                continue
         # Figure out the original CDS start location in our maximally extended region
         origStartIndex = candidateCDS.find(origCandidateCDS)
         # Figure out how much we're going to allow this sequence to be shortened
@@ -1763,6 +1772,7 @@ output_func(nogmapDrops, exonerateIndex, gmapIndex, args.outputFileName + '_nogm
 output_func(covDrops, exonerateIndex, gmapIndex, args.outputFileName + '_covDrops')
 output_func(stopcodonDrops, exonerateIndex, gmapIndex, args.outputFileName + '_stopcodonDrops')
 output_func(sigpDrops, exonerateIndex, gmapIndex, args.outputFileName + '_sigpDrops')
+output_func(extensionDrops, exonerateIndex, gmapIndex, args.outputFileName + '_extensionDrops') ## TESTING
 
 # Clean up temporary directory if relevant
 if args.signalp:
@@ -1778,3 +1788,4 @@ print(str(len(nogmapDrops)) + ' models were dropped due to lacking GMAP alignmen
 print(str(len(covDrops)) + ' models were dropped due to coverage cutoff.')
 print(str(len(stopcodonDrops)) + ' models were dropped due to lack of stop codon in alignment region.')
 print(str(len(sigpDrops)) + ' models were dropped due to lacking signal peptide.')
+print(str(len(extensionDrops)) + ' models were dropped due to requiring excess extension to reach a stop codon.') ## TESTING
