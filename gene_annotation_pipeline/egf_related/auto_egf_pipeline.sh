@@ -29,30 +29,32 @@ SPECIESFASTAS="/home/n8942188/main_genome_analysis/orthofinder/inputs_to_toxprot
 SPECIESPEPTIDES="/home/n8942188/main_genome_analysis/proteomics/raw_venom_data/Ate_Prot_nr_SignalPY.fasta /home/n8942188/main_genome_analysis/proteomics/raw_venom_data/telmatactis_secretome.fasta"
 DATABASEPEPTIDES=/home/n8942188/main_genome_analysis/proteomics/raw_venom_data/toxprot_all_venom_proteins_13-10-19.fasta
 ### EXONERATE-RELATED
-### Note: The CDSFILE should be what was used to generate the GMAPFILE alignment
+#### Note: The CDSFILE should be what was used to generate the GMAPFILE alignment
 GENDIR=/home/n8942188/scaffolded_act
 GENFILE=PGA_assembly.fasta
 GMAPDIR=/home/n8942188/scaffolded_act/gene_models/annotation/gmap_alignment
 GMAPFILE=act_scaff_okay-okalt.cds_n12_gmap.gff3
 CDSDIR=/home/n8942188/scaffolded_act/gene_models/transcriptomes/evidentialgene/concatenated
 CDSFILE=act_scaff_okay-okalt.cds
+### FINAL ANNOTATION-RELATED
+ANNOTGFF3DIR=/home/n8942188/scaffolded_act/gene_models/most_recent_versions
+ANNOTGFF3FILE=act_scaff.rnam-trna.merged.ggf.curated.remredun.gff3
 
 ## Setup: Manual specification of output directory
 OUTPUTDIR=/home/n8942188/main_genome_analysis/egf_pipeline
 
-## Setup: Manual specification of file prefixes and HPC parameters
+## Setup: Manual specification of file prefixes/suffixes and HPC parameters
+CPUS=8
 SPECIES=act
 ASSEM=scaff
-CPUS=8
+SUFFIX=rnam-trna.merged.ggf.curated.remredun.egf # This suffix will be used to produce the final ANNOTGFF3FILE + EGF merged annotation with pattern ${PREFIX}.${SUFFIX}.gff3
 
 ## Setup: Automatic operations; specification of system configurations, module loads, value definition
+PREFIX=${SPECIES}_${ASSEM}
+CONCATENATEDPEPTIDEPREFIX=spdbpeptides_concatenated
 module load mafft/7.305-foss-2016a-with-extensions
 module load exonerate/2.4.0-foss-2016a
 export PATH=$PATH:${FASTMEDIR}:${MCLDIR}:${ORTHODIR}:${FASTTREEDIR}
-PREFIX=${SPECIES}_${ASSEM}
-CONCATENATEDPEPTIDEPREFIX=spdbpeptides_concatenated
-BEHAVIOUR=reject # Shouldn't be any need to modify this and below for gff3_merge.py
-MODE=all
 
 # PART 1: ORTHOFINDER
 
@@ -65,6 +67,7 @@ mkdir -p ${OUTPUTDIR}/concatenated_msas
 mkdir -p ${OUTPUTDIR}/missing_seqs
 mkdir -p ${OUTPUTDIR}/egf_runs
 mkdir -p ${OUTPUTDIR}/egf_results
+mkdir -p ${OUTPUTDIR}/final_annotation
 
 ## STEP 2: Concatenate peptide files
 python ${VARSCRIPTDIR}/safe_file_concat.py -i ${SPECIESPEPTIDES} ${DATABASEPEPTIDES} -o ${OUTPUTDIR}/inputs_to_ortho/${CONCATENATEDPEPTIDEPREFIX}.fasta
@@ -125,12 +128,20 @@ python ${GENSCRIPTDIR}/ggf/exonerate_gene_find.py -ge ${GENDIR}/${GENFILE} -e ${
 #--SIGP--#
 python ${GENSCRIPTDIR}/ggf/exonerate_gene_find.py -ge ${GENDIR}/${GENFILE} -e ${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate.gff3 -f ${PROTDIR}/${PROTFILE} -gm ${GMAPDIR}/${GMAPFILE} -cd ${CDSDIR}/${CDSFILE} -o ${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate_gene_find.gff3 -seg ${SEGDIR} -sigp -sigpdir ${SIGPDIR} -nosigpskip
 
-# PART 3: MERGE EGF RESULTS
-## STEP 1: merge
-python ${GENSCRIPTDIR}/gff3_merge.py -og ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate_gene_find.gff3 -ng ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_raw_exonerate_gene_find.gff3 -out ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3.tmp -b ${BEHAVIOUR} -m ${MODE}
+# PART 3: MERGE RAW AND SIGPTRIM EGF RESULTS
+## STEP 1: Merge raw and sigptrim files
+python ${GENSCRIPTDIR}/gff3_merge.py -og ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_sigptrim_exonerate_gene_find.gff3 -ng ${OUTPUTDIR}/egf_runs/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_raw_exonerate_gene_find.gff3 -out ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3.tmp -b reject -m all
 
-## STEP 2: gff3_order
+## STEP 2: Order gff3
 python ${GENSCRIPTDIR}/gff3_order.py -g ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3.tmp -o ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3
 rm ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3.tmp
+
+# PART 4: MERGE EGF RESULTS INTO MAIN ANNOTATION
+## STEP 1: Merge annotation and EGF files
+python ${GENSCRIPTDIR}/gff3_merge.py -og ${ANNOTGFF3DIR}/${ANNOTGFF3FILE} -ng ${OUTPUTDIR}/egf_results/${PREFIX}_${CONCATENATEDPEPTIDEPREFIX}_exonerate_gene_find.gff3 -out ${OUTPUTDIR}/final_annotation/${PREFIX}.${SUFFIX}.gff3.tmp -b replace -m all
+
+## STEP 2: Order gff3
+python ${SCRIPTDIR}/gff3_order.py -g ${OUTPUTDIR}/final_annotation/${PREFIX}.${SUFFIX}.gff3.tmp -o ${OUTPUTDIR}/final_annotation/${PREFIX}.${SUFFIX}.gff3
+rm ${OUTPUTDIR}/final_annotation/${PREFIX}.${SUFFIX}.gff3.tmp
 
 ## DONE ##
