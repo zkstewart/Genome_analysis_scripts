@@ -824,6 +824,9 @@ def find_longest_orf_nostopallowed(seq, firstCodon):
         return longest
 
 def validate_prot(cdsNucl, cdsRecords, cdsID, alignPctCutoff): ## TESTING
+        # Modify alignPctCutoff if relevant
+        if alignPctCutoff > 1:
+                alignPctCutoff = alignPctCutoff / 100 # This will handle situations where the input value is on a 1->100 scale, not a ratio of 0->1.0
         # Get the original sequence's details
         origCDS = str(cdsRecords[cdsID].seq)
         origProt = longest_orf(cdsRecords[cdsID])
@@ -833,13 +836,13 @@ def validate_prot(cdsNucl, cdsRecords, cdsID, alignPctCutoff): ## TESTING
         with warnings.catch_warnings():
                 warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                 cdsProt = str(record.translate(table=1))
-        assert cdsProt[-1] == '*' and cdsProt.count('*') == 1   # Make sure things are all good
+        assert cdsProt.count('*') <= 1 ##TESTING: Make sure things are all good
         # If the ORFs are identical, they automatically pass validation
         if cdsProt == origProt:
                 return cdsProt
         # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
         try:
-                newAlign, origAlign = ssw_simple(cdsProt, origProt, 'protein') # We tell SSW to align these as proteins
+                newAlign, origAlign = ssw_simple(cdsProt, origProt)
         except:
                 return False                                            # SSW dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
         alignPct = len(newAlign) / len(cdsProt)
@@ -1516,7 +1519,10 @@ GMAP_ID_CUTOFF=90.00
 this up to tweaking from the user, but there's enough complexity in running this program that I'd
 rather just hardcode these values in since I know they work well.'''
 BORDER_DIFFERENCE = 24
-''' This value is mostly arbitrary; it lets us handle minor differences in the borders of alignments below'''
+'''This value is mostly arbitrary; it lets us handle minor differences in the borders of alignments below.'''
+SEG_GOOD_MATCH_CUTOFF = 0.85
+'''This value is mostly arbitrary; it helps to prevent overzealous seg filtration of candidates that
+have good transcript matches.'''
 
 ##### USER INPUT SECTION
 usage = """%(prog)s is an extension of gmap_gene_find.py which aims to allow for
@@ -1580,19 +1586,6 @@ p.add_argument("-nosigpskip", dest="nosigpskip", action='store_true', default=Fa
                (recommended for the prediction of genes which should have a signal peptide).""")
 
 args = p.parse_args()
-## HARD-CODED TESTING
-args.genomeFile = r'F:\genome\Calliactis\CORE_RESULTS\individual_assemblies\cal_smrtden.ar4.pil2.deGRIT2.noredun.fasta'
-args.exonerateFile = r'F:\genome\small_peptide_annot\exonerate\cal_smart_exonerate_toxprot_aten_telma_sigptrim_all.gff3'
-args.fastaFile = r'F:\genome\small_peptide_annot\proteins_for_exonerate_alignment\sigptrim_allgroups_seqs.rename.plusmissing.fasta'
-args.gmapFile = r'F:\genome\Calliactis\CORE_RESULTS\gene_annotation\annotation\cds_alignment\f2\cal_smart_okay-okalt_cds_gmap.gff3'
-args.cdsFile = r'F:\genome\Calliactis\CORE_RESULTS\gene_annotation\transcriptomes\cal_smart_okay-okalt.cds'
-args.outputFileName = r'F:\genome\small_peptide_annot\egf_fixing\cal_egf_test.gff3'
-args.segdir = r'D:\Bioinformatics\Protein_analysis\seg'
-args.signalpdir = r'D:\Bioinformatics\Protein_analysis\signalp-4.1f.CYGWIN\signalp-4.1'
-#
-args.signalp = True
-args.nosigpskip = True
-##
 validate_args(args)
 
 # Load the genome fasta file and parse its contents
@@ -1673,14 +1666,6 @@ for candidateID in goodIntronCandidates:
         mrnaID = exonerateIndex.index_dict[candidateID]['feature_list'][0]
         candidateMrnaObj = exonerateIndex.index_dict[candidateID][mrnaID]
         origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
-        # Seg filter candidate sequence ## Our original query sequence was filtered previously, so adding the filter here will catch alignments that only match the LCR region of our pre-filtered query sequence
-        tmpFasta = make_temp_fasta(origCandidateCDS)
-        segPrediction = run_seg(args.segdir, [tmpFasta])
-        fastaLen = fasta_file_length_dict(tmpFasta)
-        os.unlink(tmpFasta)
-        segCandidate = segprediction_fastalens_proportions(segPrediction, fastaLen, SEG_LCR_CUTOFF)
-        if segCandidate == []:
-                segDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], origCandidateCDS, mrnaID] # At this level we will return the CDS in our assistant output file since it might have internal stop codons
         # Fix internal stop codons
         candidateMrnaObj['CDS']['coords'] = auto_stopcodon_fix(origCandidateCDS, candidateMrnaObj['CDS']['coords'], candidateMrnaObj['orientation'])
         if candidateMrnaObj['CDS']['coords'] == False:  # This means the ORF is riddled with stop codons
@@ -1733,6 +1718,19 @@ for candidateID in goodIntronCandidates:
                 candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
                 nogmapDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID]
                 continue
+        # Seg filter candidate sequence if our GMAP match isn't quite good
+        '''Our original query sequence was filtered previously, so adding the filter here will catch alignments
+        that only match the LCR region of our pre-filtered query sequence. Also, this filter step used to be 
+        above, but seg seems to have some false positives which require the additional comparison to GMAP'''
+        if bestPctList[0][0] < SEG_GOOD_MATCH_CUTOFF or bestPctList[0][1] < SEG_GOOD_MATCH_CUTOFF:
+                tmpFasta = make_temp_fasta(origCandidateCDS)
+                segPrediction = run_seg(args.segdir, [tmpFasta])
+                fastaLen = fasta_file_length_dict(tmpFasta)
+                os.unlink(tmpFasta)
+                segCandidate = segprediction_fastalens_proportions(segPrediction, fastaLen, SEG_LCR_CUTOFF)
+                if segCandidate == []:
+                        segDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], origCandidateCDS, mrnaID] # At this level we will return the CDS in our assistant output file since it might have internal stop codons
+                        continue
         ## Validation phase: assess the GMAP alignment for quality before continued processing
         # If coverageCutoff isn't met for exonerate, drop the sequence now
         '''This check used to be above, but putting it here lets us perform a "start rescue" condition
@@ -1779,11 +1777,12 @@ for candidateID in goodIntronCandidates:
                 stopcodonDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
                 continue
         # Compare genomic sequence against the underlying transcript to assess alignment percentage
-        transcriptID = bestPctList[0][2].rsplit('.', maxsplit=1)[0] # This removes the '.path#' suffix which won't be present in the original FASTA file
+        transcriptID = bestPctList[2].rsplit('.', maxsplit=1)[0] # This removes the '.path#' suffix which won't be present in the original FASTA file
         validatedProt = validate_prot(origCandidateCDS, cdsRecords, transcriptID, args.alignPctCutoff) ## TESTING
         if validatedProt == False:
                 candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
                 validationDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
+                continue
         ## Modification phase: alter the sequence start site to obtain its best location
         # Obtain the maximally bounded CDS region with an accepted start codon
         candidateMrnaObj['CDS']['coords'], candidateCDS, acceptedStartCodons = cds_extension_maximal(candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], genomeRecords, args.translationTable)
@@ -1868,7 +1867,7 @@ output_func(stopcodonDrops, exonerateIndex, gmapIndex, args.outputFileName + '_s
 output_func(sigpDrops, exonerateIndex, gmapIndex, args.outputFileName + '_sigpDrops')
 output_func(extensionDrops, exonerateIndex, gmapIndex, args.outputFileName + '_extensionDrops')
 output_func(segDrops, exonerateIndex, gmapIndex, args.outputFileName + '_segDrops') ## TESTING ##
-output_func(validationDrops, exonerateIndex, gmapIndex, args.outputFileName + '_extensionDrops') ## TESTING ##
+output_func(validationDrops, exonerateIndex, gmapIndex, args.outputFileName + '_validationDrops') ## TESTING ##
 
 # Clean up temporary directory if relevant
 if args.signalp:
@@ -1885,3 +1884,5 @@ print(str(len(covDrops)) + ' models were dropped due to coverage cutoff.')
 print(str(len(stopcodonDrops)) + ' models were dropped due to lack of stop codon in alignment region.')
 print(str(len(sigpDrops)) + ' models were dropped due to lacking signal peptide.')
 print(str(len(extensionDrops)) + ' models were dropped due to requiring excess extension to reach a stop codon.')
+print(str(len(segDrops)) + ' models were dropped due to being mostly low-complexity according to seg.')
+print(str(len(validationDrops)) + ' models were dropped due to failure to validate via alignment to original transcript.')
