@@ -1560,7 +1560,7 @@ p.add_argument("-id", "-identity", dest="identityCutoff", type=float,
 p.add_argument("-si", "-similarity", dest="similarityCutoff", type=float,
                help="Specify the similarity cutoff for retrieving exonerate hits (default==80.00).", default=80.00)
 p.add_argument("-co", "-coverage", dest="coverageCutoff", type=float,
-               help="Specify the coverage cut-off for retrieving GMAP hits (default==70.00).", default=70.00)
+               help="Specify the coverage cut-off for retrieving GMAP and exonerate hits (default==70.00).", default=70.00)
 p.add_argument("-al", "-align", dest="alignPctCutoff", type=float,
                help="Alignment percent cut-off (new sequence must align against CDS >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
 p.add_argument("-in", "-intron", dest="intronCutoff", type=float,
@@ -1659,6 +1659,7 @@ sigpDrops = {}
 extensionDrops = {}
 segDrops = {} ## TESTING ##
 validationDrops = {} ## TESTING ##
+covDrops2 = {} ## TESTING ##
 
 for candidateID in goodIntronCandidates:
         ## Curation phase: remove exonerate alignments that do not meet quality cutoffs
@@ -1722,7 +1723,7 @@ for candidateID in goodIntronCandidates:
         '''Our original query sequence was filtered previously, so adding the filter here will catch alignments
         that only match the LCR region of our pre-filtered query sequence. Also, this filter step used to be 
         above, but seg seems to have some false positives which require the additional comparison to GMAP'''
-        if bestPctList[0][0] < SEG_GOOD_MATCH_CUTOFF or bestPctList[0][1] < SEG_GOOD_MATCH_CUTOFF:
+        if bestPctList[0][0] < SEG_GOOD_MATCH_CUTOFF and bestPctList[0][1] < SEG_GOOD_MATCH_CUTOFF:
                 tmpFasta = make_temp_fasta(origCandidateCDS)
                 segPrediction = run_seg(args.segdir, [tmpFasta])
                 fastaLen = fasta_file_length_dict(tmpFasta)
@@ -1850,8 +1851,13 @@ for candidateID in goodIntronCandidates:
         candidateMrnaObj['CDS']['coords'] = coord_cds_region_update(candidateMrnaObj['CDS']['coords'], bestCandidate[0], 0, candidateMrnaObj['orientation'])
         candidateCDS = candidateCDS[bestCandidate[0]:]
         candidateProt = cds_to_prot(candidateCDS, '.', candidateID, args.translationTable)
+        # Optional filtration of sequences that lack signal peptide starts
         if args.nosigpskip and bestCandidate[1] == 0:
                 sigpDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
+                continue
+        # Final filtration step: is this sequence sufficiently similar to the original exonerate query?
+        if len(candidateProt) < len(exonerateSeq)*(args.coverageCutoff/100) or len(candidateProt) > len(exonerateSeq)*(1.0 + (1.0-args.coverageCutoff/100)):
+                covDrops2[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
                 continue
         candidateModelDict[mrnaID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
 
@@ -1868,6 +1874,7 @@ output_func(sigpDrops, exonerateIndex, gmapIndex, args.outputFileName + '_sigpDr
 output_func(extensionDrops, exonerateIndex, gmapIndex, args.outputFileName + '_extensionDrops')
 output_func(segDrops, exonerateIndex, gmapIndex, args.outputFileName + '_segDrops') ## TESTING ##
 output_func(validationDrops, exonerateIndex, gmapIndex, args.outputFileName + '_validationDrops') ## TESTING ##
+output_func(covDrops2, exonerateIndex, gmapIndex, args.outputFileName + '_covDrops2') ## TESTING ##
 
 # Clean up temporary directory if relevant
 if args.signalp:
@@ -1880,9 +1887,10 @@ print('Program completed successfully!')
 print(str(len(novelDict)) + ' models were discovered.')
 print(str(len(rejectDict)) + ' models were removed due to overlap with discovered models.')
 print(str(len(nogmapDrops)) + ' models were dropped due to lacking GMAP alignment support.')
-print(str(len(covDrops)) + ' models were dropped due to coverage cutoff.')
+print(str(len(covDrops)) + ' models were dropped due to preliminary coverage cutoff.')
 print(str(len(stopcodonDrops)) + ' models were dropped due to lack of stop codon in alignment region.')
 print(str(len(sigpDrops)) + ' models were dropped due to lacking signal peptide.')
 print(str(len(extensionDrops)) + ' models were dropped due to requiring excess extension to reach a stop codon.')
-print(str(len(segDrops)) + ' models were dropped due to being mostly low-complexity according to seg.')
-print(str(len(validationDrops)) + ' models were dropped due to failure to validate via alignment to original transcript.')
+print(str(len(segDrops)) + ' models were dropped due to being mostly low-complexity according to seg.') ## TESTING ##
+print(str(len(validationDrops)) + ' models were dropped due to failure to validate via alignment to original transcript.') ## TESTING ##
+print(str(len(covDrops2)) + ' models were dropped due to final coverage cutoff.') ## TESTING ##
