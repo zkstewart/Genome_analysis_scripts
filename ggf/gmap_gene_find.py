@@ -306,7 +306,7 @@ def validate_translated_cds(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
                 return cdsProt
         # Check that the two sequences are roughly the same - our extensions could have resulted in the longest ORF being within an extension
         try:
-                newAlign, origAlign = ssw_simple(cdsProt, origProt, 'protein') # We tell SSW to align these as proteins
+                newAlign, origAlign = ssw_simple(cdsProt, origProt)
         except:
                 return False                                            # SSW dies sometimes. This seems to happen with repetitive sequences. While annoying, these errors can serve as a way of identifying bad sequences - bright side!
         alignPct = len(newAlign) / len(cdsProt)

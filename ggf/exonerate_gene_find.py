@@ -1667,6 +1667,14 @@ for candidateID in goodIntronCandidates:
         mrnaID = exonerateIndex.index_dict[candidateID]['feature_list'][0]
         candidateMrnaObj = exonerateIndex.index_dict[candidateID][mrnaID]
         origCandidateCDS = make_cds(candidateMrnaObj['CDS']['coords'], genomeRecords, candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'])
+        # Seg filter candidate sequence ## Our original query sequence was filtered previously, so adding the filter here will catch alignments that only match the LCR region of our pre-filtered query sequence
+        tmpFasta = make_temp_fasta(origCandidateCDS)
+        segPrediction = run_seg(args.segdir, [tmpFasta])
+        fastaLen = fasta_file_length_dict(tmpFasta)
+        os.unlink(tmpFasta)
+        segCandidate = segprediction_fastalens_proportions(segPrediction, fastaLen, SEG_LCR_CUTOFF)
+        if segCandidate == []:
+                segDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], origCandidateCDS, mrnaID] # At this level we will return the CDS in our assistant output file since it might have internal stop codons
         # Fix internal stop codons
         candidateMrnaObj['CDS']['coords'] = auto_stopcodon_fix(origCandidateCDS, candidateMrnaObj['CDS']['coords'], candidateMrnaObj['orientation'])
         if candidateMrnaObj['CDS']['coords'] == False:  # This means the ORF is riddled with stop codons
