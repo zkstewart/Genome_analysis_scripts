@@ -1586,19 +1586,6 @@ p.add_argument("-nosigpskip", dest="nosigpskip", action='store_true', default=Fa
                (recommended for the prediction of genes which should have a signal peptide).""")
 
 args = p.parse_args()
-## HARD-CODED TESTING
-args.genomeFile = r'F:\genome\Calliactis\CORE_RESULTS\individual_assemblies\cal_smrtden.ar4.pil2.deGRIT2.noredun.fasta'
-args.exonerateFile = r'F:\genome\small_peptide_annot\exonerate\cal_smart_exonerate_toxprot_aten_telma_sigptrim_all.gff3'
-args.fastaFile = r'F:\genome\small_peptide_annot\proteins_for_exonerate_alignment\sigptrim_allgroups_seqs.rename.plusmissing.fasta'
-args.gmapFile = r'F:\genome\Calliactis\CORE_RESULTS\gene_annotation\annotation\cds_alignment\f2\cal_smart_okay-okalt_cds_gmap.gff3'
-args.cdsFile = r'F:\genome\Calliactis\CORE_RESULTS\gene_annotation\transcriptomes\cal_smart_okay-okalt.cds'
-args.outputFileName = r'F:\genome\small_peptide_annot\egf_fixing\cal_egf_test.gff3'
-args.segdir = r'D:\Bioinformatics\Protein_analysis\seg'
-args.signalpdir = r'D:\Bioinformatics\Protein_analysis\signalp-4.1f.CYGWIN\signalp-4.1'
-#
-args.signalp = True
-args.nosigpskip = True
-##
 validate_args(args)
 
 # Load the genome fasta file and parse its contents
