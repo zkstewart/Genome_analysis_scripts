@@ -7,6 +7,8 @@ This directory contains scripts used for setting up a working environment and fo
   - This script will produce a clean working environment to house all downstream aspects of assembly, polishing, and annotation. It will file and organise pacbio reads and produce a converted FASTA file from said reads.
 - 2. canu_assembly.sh
   - This script will perform a genome assembly using the Canu assembler. The Canu program needs to be previously installed and parameters should be configured for each specific species or genome.
+- 3. wtdbg2_assembly.sh
+  - This script will perform a genome assembly using the WTDBG2 assembler. The WTDBG2 program needs to be previously installed and parameters should be configured for each specific species or genome. Note that there are many additional parameters that can be configured for this program but the preset "-x sq" should work in 90% of cases; if your assembly is poor, consider changing parameters including -k, -p, and -S.
 
 ## polishing_pipeline_scripts
 This directory contains scripts used for polishing pacbio genome assemblies. This includes:
