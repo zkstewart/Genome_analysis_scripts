@@ -115,7 +115,7 @@ $REPMODDIR/RepeatModeler -engine ncbi -pa $CPUS -database $PREFIX > ${PREFIX}_re
 
 ### START PROGRAM EXECUTION CYCLE 2
 # #> Note: you need to manually move the consensi.fa.classified file to the parent directory since it is hard to figure out which directory contains the output as these are generated randomly
-#cat ${PREFIX}_miteLTRlib.fasta consensi.fa.classified > ${PREFIX}.complete.repeats.lib
+cat ${PREFIX}_miteLTRlib.fasta consensi.fa.classified > ${PREFIX}.complete.repeats.lib
 
 # Curate repeat library
 # #> Note: make sure you have run makeblastdb on the non-TE DB file and run hmmpress on the TE models files prior to this step ###

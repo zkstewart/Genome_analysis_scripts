@@ -11,7 +11,7 @@ cd $PBS_O_WORKDIR
 ## Program locations
 CANU_BIN_DIR=/home/n8942188/various_programs/canu/canu-1.9/Linux-amd64/bin
 ## Reads FASTA location
-FASTA_DIR=/home/n8942188/tubastrea/pacbio_fasta_reads
+FASTA_DIR=/home/n8942188/coral_assembly/tubastrea/pacbio_fasta_reads
 FASTA_NAME=tubastrea_subreads.fasta
 ## Prefixes
 SPECIES=tubastrea
