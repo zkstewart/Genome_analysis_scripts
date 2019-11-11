@@ -5,6 +5,8 @@
 #PBS -l walltime=12:00:00
 #PBS -l mem=5G
 
+cd $PBS_O_WORKDIR
+
 # Manual setup
 ## Module loads
 module load bamtools/2.4.0-foss-2016a
@@ -28,6 +30,7 @@ SPECIES=tubastea
 # Automatic setup
 HOME_DIR="$PWD"
 FASTA_FILE_NAME=${SPECIES}.subreads.fasta
+SUBREADS_LOC_NAME=subreads_loc.txt
 
 # STEP 1: Setup working directory
 mkdir $HOME_DIR/tubastrea
@@ -35,13 +38,14 @@ cd $HOME_DIR/tubastrea
 mkdir pacbio_bam_reads
 mkdir pacbio_fasta_reads
 
-# STEP 2: Copy or link to BAM files
+# STEP 2: Copy or link to BAM files & produce subreads_loc.txt file
 cd $HOME_DIR/pacbio_bam_reads
 ## Note: Add or remove $READ# values according to how many values were declared in "Manual setup" above
 ### v Optional v: Use symbolic links to save HPC space OR copy the entire files to backup files [Comment out one of thse options with #]
 for r in $READ1 $READ2 $READ3 $READ4 $READ5 $READ6 $READ7 $READ8 $READ9 $READ10 $READ11 $READ12; do ln -s $r .; done # SYMBOLIC LINK OPTION
 #for r in $READ1 $READ2 $READ3 $READ4 $READ5 $READ6 $READ7 $READ8 $READ9 $READ10 $READ11 $READ12; do cp $r .; done # COPY FILE OPTION
 ### ^ Optional ^
+for r in $READ1 $READ2 $READ3 $READ4 $READ5 $READ6 $READ7 $READ8 $READ9 $READ10 $READ11 $READ12; do echo $r >> $SUBREADS_LOC_NAME; done
 
 # STEP 3: Convert BAM to FASTA
 cd $HOME_DIR/pacbio_fasta_reads
