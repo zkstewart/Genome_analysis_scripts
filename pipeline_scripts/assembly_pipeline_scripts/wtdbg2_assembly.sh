@@ -20,7 +20,6 @@ CPUS=18 # Make equal to HPC resource
 GENOME_SIZE=1g # Best guess as to species' genome size; better to overestimate than underestimate
 
 # Automatic setup
-HOME_DIR="$PWD"
 PREFIX=${SPECIES}_gs${GENOME_SIZE}_wtdbg2
 mkdir -p wtdbg2
 cd wtdbg2
