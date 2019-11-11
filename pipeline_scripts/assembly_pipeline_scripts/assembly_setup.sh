@@ -6,6 +6,9 @@
 #PBS -l mem=5G
 
 # Manual setup
+## Module loads
+module load bamtools/2.4.0-foss-2016a
+
 ## Reads files
 READ1=/work/ePGL/pacbio_genome_reads/tubastrea/C1/m54105_180707_015436.subreads.bam
 READ2=/work/ePGL/pacbio_genome_reads/tubastrea/C2/m54105_180707_120628.subreads.bam
