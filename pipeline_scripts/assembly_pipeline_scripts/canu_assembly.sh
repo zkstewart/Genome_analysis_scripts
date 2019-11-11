@@ -8,6 +8,8 @@
 cd $PBS_O_WORKDIR
 
 # Manual setup
+## Module loads
+module load java/1.8.0_92
 ## Program locations
 CANU_BIN_DIR=/home/n8942188/various_programs/canu/canu-1.9/Linux-amd64/bin
 ## Reads FASTA location
