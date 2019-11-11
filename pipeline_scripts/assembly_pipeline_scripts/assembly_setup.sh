@@ -32,10 +32,10 @@ FASTA_FILE_NAME=${SPECIES}.subreads.fasta
 SUBREADS_LOC_NAME=subreads_loc.txt
 
 # STEP 1: Setup working directory
-mkdir $HOME_DIR/${SPECIES}
+mkdir -p $HOME_DIR/${SPECIES}
 cd $HOME_DIR/${SPECIES}
-mkdir pacbio_bam_reads
-mkdir pacbio_fasta_reads
+mkdir -p pacbio_bam_reads
+mkdir -p pacbio_fasta_reads
 
 # STEP 2: Copy or link to BAM files & produce subreads_loc.txt file
 cd $HOME_DIR/${SPECIES}/pacbio_bam_reads
