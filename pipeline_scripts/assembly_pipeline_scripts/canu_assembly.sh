@@ -30,4 +30,4 @@ mkdir -p canu
 cd canu
 
 # STEP 1: Run Canu
-${CANU_BIN_DIR}/canu -d ${HOME_DIR}/canu/${PREFIX}_assembly -p ${PREFIX} genomeSize=${GENOME_SIZE} maxMemory=${MEM} maxThreads=${CPUS} useGrid=false minReadLength=${MIN_READ} minOverlapLength=${MIN_OVERLAP} corOutCoverage=${OUT_COVERAGE} -pacbio-raw ${FASTA_DIR}/${FASTA_NAME}.fasta
+${CANU_BIN_DIR}/canu -d ${HOME_DIR}/canu/${PREFIX}_assembly -p ${PREFIX} genomeSize=${GENOME_SIZE} maxMemory=${MEM} maxThreads=${CPUS} useGrid=false minReadLength=${MIN_READ} minOverlapLength=${MIN_OVERLAP} corOutCoverage=${OUT_COVERAGE} -pacbio-raw ${FASTA_DIR}/${FASTA_NAME}
