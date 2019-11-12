@@ -823,7 +823,7 @@ def find_longest_orf_nostopallowed(seq, firstCodon):
                         longest = [frameOrf, nucl]
         return longest
 
-def validate_prot(cdsNucl, cdsRecords, cdsID, alignPctCutoff): ## TESTING
+def validate_prot(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
         # Modify alignPctCutoff if relevant
         if alignPctCutoff > 1:
                 alignPctCutoff = alignPctCutoff / 100 # This will handle situations where the input value is on a 1->100 scale, not a ratio of 0->1.0
@@ -1657,9 +1657,9 @@ covDrops = {}
 stopcodonDrops = {}
 sigpDrops = {}
 extensionDrops = {}
-segDrops = {} ## TESTING ##
-validationDrops = {} ## TESTING ##
-covDrops2 = {} ## TESTING ##
+segDrops = {}
+validationDrops = {}
+covDrops2 = {}
 
 for candidateID in goodIntronCandidates:
         ## Curation phase: remove exonerate alignments that do not meet quality cutoffs
@@ -1787,7 +1787,7 @@ for candidateID in goodIntronCandidates:
                 continue
         # Compare genomic sequence against the underlying transcript to assess alignment percentage
         transcriptID = bestPctList[2].rsplit('.', maxsplit=1)[0] # This removes the '.path#' suffix which won't be present in the original FASTA file
-        validatedProt = validate_prot(origCandidateCDS, cdsRecords, transcriptID, args.alignPctCutoff) ## TESTING
+        validatedProt = validate_prot(origCandidateCDS, cdsRecords, transcriptID, args.alignPctCutoff)
         if validatedProt == False:
                 candidateProt = cds_to_prot(origCandidateCDS, '.', candidateID, args.translationTable)
                 validationDrops[candidateID] = [candidateMrnaObj['CDS']['coords'], candidateMrnaObj['contig_id'], candidateMrnaObj['orientation'], candidateProt, mrnaID, 'Transcript='+candidateMrnaObj['attributes']['ID']]
@@ -1880,9 +1880,9 @@ output_func(covDrops, exonerateIndex, gmapIndex, args.outputFileName + '_covDrop
 output_func(stopcodonDrops, exonerateIndex, gmapIndex, args.outputFileName + '_stopcodonDrops')
 output_func(sigpDrops, exonerateIndex, gmapIndex, args.outputFileName + '_sigpDrops')
 output_func(extensionDrops, exonerateIndex, gmapIndex, args.outputFileName + '_extensionDrops')
-output_func(segDrops, exonerateIndex, gmapIndex, args.outputFileName + '_segDrops') ## TESTING ##
-output_func(validationDrops, exonerateIndex, gmapIndex, args.outputFileName + '_validationDrops') ## TESTING ##
-output_func(covDrops2, exonerateIndex, gmapIndex, args.outputFileName + '_covDrops2') ## TESTING ##
+output_func(segDrops, exonerateIndex, gmapIndex, args.outputFileName + '_segDrops')
+output_func(validationDrops, exonerateIndex, gmapIndex, args.outputFileName + '_validationDrops')
+output_func(covDrops2, exonerateIndex, gmapIndex, args.outputFileName + '_covDrops2')
 
 # Clean up temporary directory if relevant
 if args.signalp:
@@ -1899,6 +1899,6 @@ print(str(len(covDrops)) + ' models were dropped due to preliminary coverage cut
 print(str(len(stopcodonDrops)) + ' models were dropped due to lack of stop codon in alignment region.')
 print(str(len(sigpDrops)) + ' models were dropped due to lacking signal peptide.')
 print(str(len(extensionDrops)) + ' models were dropped due to requiring excess extension to reach a stop codon.')
-print(str(len(segDrops)) + ' models were dropped due to being mostly low-complexity according to seg.') ## TESTING ##
-print(str(len(validationDrops)) + ' models were dropped due to failure to validate via alignment to original transcript.') ## TESTING ##
-print(str(len(covDrops2)) + ' models were dropped due to final coverage cutoff.') ## TESTING ##
+print(str(len(segDrops)) + ' models were dropped due to being mostly low-complexity according to seg.')
+print(str(len(validationDrops)) + ' models were dropped due to failure to validate via alignment to original transcript.')
+print(str(len(covDrops2)) + ' models were dropped due to final coverage cutoff.')
