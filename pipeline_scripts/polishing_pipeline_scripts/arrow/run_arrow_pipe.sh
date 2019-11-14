@@ -202,5 +202,5 @@ if [ "$SKIPARROW" == "FALSE" ]; then ARROWJOBID=$(qsub ${ARROWJOBFILE}); else AR
 
 ## Step 5: Fix arrow ID alterations and index with faidx
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${ARROWJOBID},' ${FIXJOBFILE}"
-qsub ${FAIDXSCRIPT}
+qsub ${FIXJOBFILE}
 
