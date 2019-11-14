@@ -4,7 +4,6 @@
 #PBS -l ncpus=1
 #PBS -l walltime=00:01:00
 #PBS -l mem=1G
-#PBS -j oe
 
 cd $PBS_O_WORKDIR
 
