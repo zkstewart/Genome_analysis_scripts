@@ -32,17 +32,21 @@ ASSEM=hgap
 
 ###### NOTHING BELOW THIS LINE NEEDS TO BE CHANGED; OPTIONAL STEP SKIPPING OR JOB SUBMISSION RESOURCES ONLY
 
-## Setup: Step skipping behaviour [these skip values should all remain as FALSE unless you intend to resume a job at a step after the first BLASR step]
-SKIPBLASR=FALSE
+## Setup: Step skipping behaviour [these skip values should all remain as FALSE unless you intend to resume a job at a step after the first BLASR step, in which case set the steps to be TRUE]
+SKIPBLASR=FALSE ## Note: There is no faidx skip condition since that task requires so little time/resources
 SKIPSAMSORT=FALSE
 SKIPMERGE=FALSE
 SKIPARROW=FALSE
 
-## Setup: Automatically generated values and computational resources
+## Setup: Automatically generated values
 PREFIX=${SPECIES}_${ASSEM}
 HOMEDIR=${PBS_O_WORKDIR}
 
 ## Setup: Sub-job qsub values
+FAIDXNAME="faidx_${PREFIX}"
+FAIDXTIME="00:10:00"
+FAIDXMEM="5G"
+
 BLASRNAME="blasr_${PREFIX}"
 BLASRTIME="48:00:00"
 BLASRMEM="35G"
@@ -67,7 +71,7 @@ ARROWCPUS=24
 
 FIXNAME="fix_${PREFIX}"
 FIXTIME="00:30:00"
-FIXMEM="20G"
+FIXMEM="5G"
 
 ## STEP 1: Set up directories
 mkdir -p blasr_iter${ITERATION}
@@ -75,6 +79,22 @@ mkdir -p merged_bam_iter${ITERATION}
 mkdir -p arrow_working_dir${ITERATION}
 
 ## STEP 2: Generate script files for qsub
+### FAIDX
+FAIDXJOBFILE="${HOMEDIR}/run_faidx.sh"
+echo "
+#!/bin/bash -l
+#PBS -N ${FAIDXNAME}
+#PBS -l ncpus=1
+#PBS -l walltime=${FAIDXTIME}
+#PBS -l mem=${FAIDXMEM}
+#PBS -W depend=afterok:
+
+cd ${GENDIR}
+module load samtools/1.3.1-foss-2016a
+samtools faidx ${GENNAME}
+"> ${FAIDXJOBFILE}
+sed -i '1d' ${FAIDXJOBFILE}
+
 ### BLASR
 BLASRJOBFILE="${HOMEDIR}/blasr_iter${ITERATION}/run_blasr.sh"
 echo "
@@ -85,6 +105,7 @@ echo "
 #PBS -l mem=${BLASRMEM}
 #PBS -j oe
 #PBS -J 1-${BLASRARRAYSIZE}
+#PBS -W depend=afterok:
 
 SUBREADLOC=${SUBREADLOC}
 conda activate ${CONDA_ENV}
@@ -168,8 +189,8 @@ arrow ${HOMEDIR}/merged_bam_iter${ITERATION}/${PREFIX}_blasr_iter${ITERATION}.so
 "> ${ARROWJOBFILE}
 sed -i '1d' ${ARROWJOBFILE}
 
-### FIX AND FAIDX
-FIXJOBFILE="${HOMEDIR}/arrow_working_dir${ITERATION}/run_fix_and_faidx.sh"
+### FIX
+FIXJOBFILE="${HOMEDIR}/arrow_working_dir${ITERATION}/run_fix.sh"
 echo "
 #!/bin/bash -l
 #PBS -N ${FIXNAME}
@@ -179,28 +200,30 @@ echo "
 #PBS -W depend=afterok:
 
 cd ${HOMEDIR}
-module load samtools/1.3.1-foss-2016a
 python ${VARIOUSSCRIPTSDIR}/arrow_fix.py -i ${HOMEDIR}/arrow_working_dir${ITERATION}/${PREFIX}.arrow${ITERATION}.pre_fix.fasta -o ${PREFIX}.arrow${ITERATION}.fasta
-samtools faidx ${PREFIX}.arrow${ITERATION}.fasta
 "> ${FIXJOBFILE}
 sed -i '1d' ${FIXJOBFILE}
 
-## Step 1: Run BLASR
+## Step 1: Run faidx
+FAIDXJOBID=$(qsub ${FAIDXJOBFILE})
+
+## Step 2: Run BLASR
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${FAIDXJOBID},' ${BLASRJOBFILE}"
 if [ "$SKIPBLASR" == "FALSE" ]; then BLASRJOBID=$(qsub ${BLASRJOBFILE}); else BLASRJOBID=""; fi
 
-## Step 2: Run samsort
+## Step 3: Run samsort
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${BLASRJOBID},' ${SAMTOOLSJOBFILE}"
 if [ "$SKIPSAMSORT" == "FALSE" ]; then SAMSORTJOBID=$(qsub ${SAMTOOLSJOBFILE}); else SAMSORTJOBID=""; fi
 
-## Step 3: Run mergebam
+## Step 4: Run mergebam
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMSORTJOBID},' ${MERGEBAMJOBFILE}"
 if [ "$SKIPMERGE" == "FALSE" ]; then MERGEBAMJOBID=$(qsub ${MERGEBAMJOBFILE}); else MERGEBAMJOBID=""; fi
 
-## Step 4: Run arrow
+## Step 5: Run arrow
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${MERGEBAMJOBID},' ${ARROWJOBFILE}"
 if [ "$SKIPARROW" == "FALSE" ]; then ARROWJOBID=$(qsub ${ARROWJOBFILE}); else ARROWJOBID=""; fi
 
-## Step 5: Fix arrow ID alterations and index with faidx
+## Step 6: Fix arrow ID alterations
 eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${ARROWJOBID},' ${FIXJOBFILE}"
 qsub ${FIXJOBFILE}
 
