@@ -29,7 +29,7 @@ ASSEM=hgap
 ###### NOTHING BELOW THIS LINE NEEDS TO BE CHANGED; JOB SUBMISSION RESOURCES ONLY
 
 ## Setup: Step skipping behaviour [these skip values should all remain as FALSE unless you intend to resume a job at a step after the first PARALLEL step, in which case set the steps to be TRUE]
-SKIPPARALLEL=FALSE ## Note: There is no faidx skip condition since that task requires so little time/resources
+SKIPPARALLEL=FALSE
 SKIPRECOMBINE=FALSE
 SKIPMAKEFASTA=FALSE
 
@@ -122,7 +122,7 @@ echo "
 
 cd ${HOMEDIR}
 
-${SCRIPTDIR}/gff3_to_fasta.py -i ${GENOMEDIR}/${GENOMENAME} -g ${PREFIX}_EVM.all.gff3 -l isoforms -s both -o ${PREFIX}_EVM.all_isos
+python ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENOMEDIR}/${GENOMENAME} -g ${PREFIX}_EVM.all.gff3 -l isoforms -s both -o ${PREFIX}_EVM.all_isos
 " > ${FASTAJOBFILE}
 sed -i '1d' ${FASTAJOBFILE}
 
