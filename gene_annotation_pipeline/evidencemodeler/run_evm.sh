@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#PBS -N tel_EVM
+#PBS -N EVM1_tel
 #PBS -l walltime=00:20:00
 #PBS -l mem=5G
 #PBS -l ncpus=1
@@ -28,6 +28,11 @@ ASSEM=hgap
 
 ###### NOTHING BELOW THIS LINE NEEDS TO BE CHANGED; JOB SUBMISSION RESOURCES ONLY
 
+## Setup: Step skipping behaviour [these skip values should all remain as FALSE unless you intend to resume a job at a step after the first PARALLEL step, in which case set the steps to be TRUE]
+SKIPPARALLEL=FALSE ## Note: There is no faidx skip condition since that task requires so little time/resources
+SKIPRECOMBINE=FALSE
+SKIPMAKEFASTA=FALSE
+
 ## Setup: Automatically-generated values
 PREFIX=${SPECIES}_${ASSEM}
 HOMEDIR=${PBS_O_WORKDIR}
@@ -48,27 +53,31 @@ EVM3NAME="EVM3_${PREFIX}"
 EVM3TIME="01:30:00"
 EVM3MEM="25G"
 
-MAKEFASTANAME="2fasta_${PREFIX}"
+MAKEFASTANAME="EVM4_${PREFIX}"
 MAKEFASTATIME="00:10:00"
 MAKEFASTAMEM="25G"
 
-BUSCONAME="EVM2_${PREFIX}"
+BUSCONAME="EVM5_${PREFIX}"
 BUSCOTIME="01:30:00"
 BUSCOMEM="15G"
 BUSCOCPUS=6
 
-# STEP 1: Generate weightsfile
+# STEP 1: Set up directories
+mkdir -p busco_results
+
+# STEP 2: Generate weightsfile
 WEIGHTSFILE="${HOMEDIR}/weightsfile.txt"
 echo "
 ABINITIO_PREDICTION	Augustus	1
 TRANSCRIPT	assembler-${PREFIX}_pasa.sqlite	10"> ${WEIGHTSFILE}
 sed -i '1d' ${WEIGHTSFILE}
 
-# STEP 2: Partition and setup for the main EVM pipeline
+# STEP 3: Partition and setup for the main EVM pipeline
 ${EVMDIR}/EvmUtils/partition_EVM_inputs.pl --genome ${GENOMEDIR}/${GENOMENAME} --gene_predictions ${AUGGFFDIR}/${AUGGFFNAME} --transcript_alignments ${PASAGFFDIR}/${PASAGFFNAME} --segmentSize ${SEGSIZE} --overlapSize ${OLAPSIZE} --partition_listing partitions_list_${PREFIX}.out
 ${EVMDIR}/EvmUtils/write_EVM_commands.pl --genome ${GENOMEDIR}/${GENOMENAME} --weights `pwd`/weightsfile.txt --gene_predictions ${AUGGFFDIR}/${AUGGFFNAME} --transcript_alignments ${PASAGFFDIR}/${PASAGFFNAME} --output_file_name ${OUTFILE} --partitions partitions_list_${PREFIX}.out > ${PREFIX}_commands.list
 
-# STEP 3: Run main EVM pipeline in parallel
+# STEP 4: Generate script files for qsub
+## PARALLEL
 PARALLELJOBFILE="run_evm_parallel.sh"
 echo "
 #!/bin/bash -l
@@ -77,14 +86,13 @@ echo "
 #PBS -l mem=${PARALLELMEM}
 #PBS -l ncpus=${PARALLELCPUS}
 
-cd $PBS_O_WORKDIR
+cd ${HOMEDIR}
 
 ${PARALLELDIR}/parallel --jobs ${PARALLELCPUS} < ${PREFIX}_commands.list
 " > ${PARALLELJOBFILE}
+sed -i '1d' ${PARALLELJOBFILE}
 
-PARALLELJOBID=$(qsub ${PARALLELJOBFILE})
-
-# STEP 4: Run the second component of EVM after parallel execution has completed
+## EVM3/RECOMBINE
 RECOMBINEJOBFILE="run_evm_recombine.sh"
 echo "
 #!/bin/bash -l
@@ -92,19 +100,17 @@ echo "
 #PBS -l walltime=${EVM3TIME}
 #PBS -l mem=${EVM3MEM}
 #PBS -l ncpus=1
-#PBS -W depend=afterok:${PARALLELJOBID}
+#PBS -W depend=afterok:
 
-cd $PBS_O_WORKDIR
+cd ${HOMEDIR}
 
-## Step 2:
 ${EVMDIR}/EvmUtils/recombine_EVM_partial_outputs.pl --partitions partitions_list_${PREFIX}.out --output_file_name ${OUTFILE}
 ${EVMDIR}/EvmUtils/convert_EVM_outputs_to_GFF3.pl --partitions partitions_list_${PREFIX}.out --output ${OUTFILE} --genome ${GENOMEDIR}/${GENOMENAME}
 find . -regex ".*evm.out.gff3" -exec cat {} \; > ${PREFIX}_EVM.all.gff3
 " > ${RECOMBINEJOBFILE}
+sed -i '1d' ${RECOMBINEJOBFILE}
 
-RECOMBINEJOBID=$(qsub ${RECOMBINEJOBFILE})
-
-# STEP 5: Convert to FASTA
+## MAKEFASTA
 FASTAJOBFILE="run_makefasta.sh"
 echo "
 #!/bin/bash -l
@@ -112,32 +118,43 @@ echo "
 #PBS -l walltime=${MAKEFASTATIME}
 #PBS -l mem=${MAKEFASTAMEM}
 #PBS -l ncpus=1
-#PBS -W depend=afterok:${RECOMBINEJOBFILE}
+#PBS -W depend=afterok:
 
-cd $PBS_O_WORKDIR
+cd ${HOMEDIR}
 
 ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENOMEDIR}/${GENOMENAME} -g ${PREFIX}_EVM.all.gff3 -l isoforms -s both -o ${PREFIX}_EVM.all_isos
 " > ${FASTAJOBFILE}
+sed -i '1d' ${FASTAJOBFILE}
 
-FASTAJOBID=$(qsub ${FASTAJOBFILE})
-
-# STEP 5: Run BUSCO to validate EVM output
-mkdir -p busco_results
-cd busco_results
-BUSCOJOBFILE="run_busco.sh"
+## BUSCO
+BUSCOJOBFILE="${HOMEDIR}/busco_results/run_busco.sh"
 echo "
 #!/bin/bash -l
 #PBS -N ${BUSCONAME}
 #PBS -l walltime=${BUSCOTIME}
 #PBS -l mem=${BUSCOMEM}
 #PBS -l ncpus=${BUSCOCPUS}
-#PBS -W depend=afterok:${FASTAJOBID}
+#PBS -W depend=afterok:
 
-cd $PBS_O_WORKDIR
+cd ${HOMEDIR}/busco_results
 
-python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${PREFIX}_EVM.all_isos.aa -o $_EVM.all_isos_busco.aa -l $LINEAGE -m prot -c ${BUSCOCPUS}
-python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${PREFIX}_EVM.all_isos.cds -o _EVM.all_isos_busco.cds -l $LINEAGE -m tran -c ${BUSCOCPUS}
-python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${PREFIX}_EVM.all_isos.trans -o _EVM.all_isos_busco.trans -l $LINEAGE -m tran -c ${BUSCOCPUS}
-" > ${RECOMBINEJOBFILE}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.aa -o $_EVM.all_isos_busco.aa -l $LINEAGE -m prot -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.cds -o _EVM.all_isos_busco.cds -l $LINEAGE -m tran -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.trans -o _EVM.all_isos_busco.trans -l $LINEAGE -m tran -c ${BUSCOCPUS}
+" > ${BUSCOJOBFILE}
+sed -i '1d' ${BUSCOJOBFILE}
 
-qsub ${RECOMBINEJOBFILE}
+# STEP 5: Run main EVM pipeline in parallel
+if [ "$SKIPPARALLEL" == "FALSE" ]; then PARALLELJOBID=$(qsub ${PARALLELJOBFILE}); else PARALLELJOBID=""; fi
+
+# STEP 6: Run the second component of EVM after parallel execution has completed
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${PARALLELJOBID},' ${RECOMBINEJOBFILE}"
+if [ "$SKIPRECOMBINE" == "FALSE" ]; then RECOMBINEJOBID=$(qsub ${RECOMBINEJOBFILE}); else RECOMBINEJOBID=""; fi
+
+# STEP 7: Convert to FASTA
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${RECOMBINEJOBID},' ${FASTAJOBFILE}"
+if [ "$SKIPMAKEFASTA" == "FALSE" ]; then FASTAJOBID=$(qsub ${FASTAJOBFILE}); else FASTAJOBID=""; fi
+
+# STEP 8: Run BUSCO to validate EVM output
+eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${FASTAJOBID},' ${BUSCOJOBFILE}"
+qsub ${BUSCOJOBFILE}
