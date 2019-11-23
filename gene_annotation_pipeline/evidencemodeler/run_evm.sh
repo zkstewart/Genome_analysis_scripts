@@ -138,9 +138,9 @@ echo "
 
 cd ${HOMEDIR}/busco_results
 
-python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.aa -o $_EVM.all_isos_busco.aa -l $LINEAGE -m prot -c ${BUSCOCPUS}
-python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.cds -o _EVM.all_isos_busco.cds -l $LINEAGE -m tran -c ${BUSCOCPUS}
-python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.trans -o _EVM.all_isos_busco.trans -l $LINEAGE -m tran -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.aa -o ${PREFIX}_EVM.all_isos_busco.aa -l ${BUSCOLINEAGE} -m prot -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.cds -o ${PREFIX}_EVM.all_isos_busco.cds -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${PREFIX}_EVM.all_isos.trans -o ${PREFIX}_EVM.all_isos_busco.trans -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
 " > ${BUSCOJOBFILE}
 sed -i '1d' ${BUSCOJOBFILE}
 
