@@ -29,6 +29,7 @@ ASSEM=hgap
 ###### NOTHING BELOW THIS LINE NEEDS TO BE CHANGED; JOB SUBMISSION RESOURCES ONLY
 
 ## Setup: Step skipping behaviour [these skip values should all remain as FALSE unless you intend to resume a job at a step after the first PARALLEL step, in which case set the steps to be TRUE]
+SKIPPARTITION=FALSE
 SKIPPARALLEL=FALSE
 SKIPRECOMBINE=FALSE
 SKIPMAKEFASTA=FALSE
@@ -73,8 +74,7 @@ TRANSCRIPT	assembler-${PREFIX}_pasa.sqlite	10"> ${WEIGHTSFILE}
 sed -i '1d' ${WEIGHTSFILE}
 
 # STEP 3: Partition and setup for the main EVM pipeline
-${EVMDIR}/EvmUtils/partition_EVM_inputs.pl --genome ${GENOMEDIR}/${GENOMENAME} --gene_predictions ${AUGGFFDIR}/${AUGGFFNAME} --transcript_alignments ${PASAGFFDIR}/${PASAGFFNAME} --segmentSize ${SEGSIZE} --overlapSize ${OLAPSIZE} --partition_listing partitions_list_${PREFIX}.out
-${EVMDIR}/EvmUtils/write_EVM_commands.pl --genome ${GENOMEDIR}/${GENOMENAME} --weights `pwd`/weightsfile.txt --gene_predictions ${AUGGFFDIR}/${AUGGFFNAME} --transcript_alignments ${PASAGFFDIR}/${PASAGFFNAME} --output_file_name ${OUTFILE} --partitions partitions_list_${PREFIX}.out > ${PREFIX}_commands.list
+if [ "$SKIPPARTITION" == "FALSE" ]; then ${EVMDIR}/EvmUtils/partition_EVM_inputs.pl --genome ${GENOMEDIR}/${GENOMENAME} --gene_predictions ${AUGGFFDIR}/${AUGGFFNAME} --transcript_alignments ${PASAGFFDIR}/${PASAGFFNAME} --segmentSize ${SEGSIZE} --overlapSize ${OLAPSIZE} --partition_listing partitions_list_${PREFIX}.out; ${EVMDIR}/EvmUtils/write_EVM_commands.pl --genome ${GENOMEDIR}/${GENOMENAME} --weights `pwd`/weightsfile.txt --gene_predictions ${AUGGFFDIR}/${AUGGFFNAME} --transcript_alignments ${PASAGFFDIR}/${PASAGFFNAME} --output_file_name ${OUTFILE} --partitions partitions_list_${PREFIX}.out > ${PREFIX}_commands.list; fi
 
 # STEP 4: Generate script files for qsub
 ## PARALLEL
