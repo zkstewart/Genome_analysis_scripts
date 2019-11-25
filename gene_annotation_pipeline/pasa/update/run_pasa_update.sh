@@ -90,7 +90,7 @@ cDNA_annotation_comparer.dbi:--GENETIC_CODE=<__GENETIC_CODE__>
 
 # STEP 2: Run PASA update iteration 1
 ${PASADIR}/scripts/Load_Current_Gene_Annotations.dbi -c ${ALIGNASSEMBLYFILE} -g ${GENDIR}/${GENFILE} -P ${EVMDIR}/${EVMGFF}
-${PASADIR}/Launch_PASA_pipeline.pl -c ${ANNOTCOMPAREFILE} -A -g ${GENDIR}/${GENFILE} -t ${TXDIR}/${CLTXOMENAME} --CPU ${CPUS} --stringent_alignment_overlap ${OVL}
+${PASADIR}/Launch_PASA_pipeline.pl -c ${ANNOTCOMPAREFILE} -A -g ${GENDIR}/${GENFILE} -t ${TXDIR}/${CLTXOME} --CPU ${CPUS} --stringent_alignment_overlap ${OVL}
 echo "Iter 1 done"
 mv ${SQLDB}.gene_structures_post_PASA_updates.*.bed ${SQLDB}.gene_structures_post_PASA_updates.iter1.bed
 mv ${SQLDB}.gene_structures_post_PASA_updates.*.gff3 ${SQLDB}.gene_structures_post_PASA_updates.iter1.gff3
@@ -98,7 +98,7 @@ mv ${SQLDB}.gene_structures_post_PASA_updates.*.gff3 ${SQLDB}.gene_structures_po
 # STEP 3: Run PASA update iteration 2
 EVMGFFITER2=${SQLDB}.gene_structures_post_PASA_updates.iter1.gff3
 ${PASADIR}/scripts/Load_Current_Gene_Annotations.dbi -c ${ALIGNASSEMBLYFILE} -g ${GENDIR}/${GENFILE} -P ${EVMGFFITER2}
-${PASADIR}/Launch_PASA_pipeline.pl -c ${ANNOTCOMPAREFILE} -A -g ${GENDIR}/${GENFILE} -t ${TXDIR}/${CLTXOMENAME} --CPU ${CPUS} --stringent_alignment_overlap ${OVL}
+${PASADIR}/Launch_PASA_pipeline.pl -c ${ANNOTCOMPAREFILE} -A -g ${GENDIR}/${GENFILE} -t ${TXDIR}/${CLTXOME} --CPU ${CPUS} --stringent_alignment_overlap ${OVL}
 echo "Iter 2 done"
 
 # STEP 4: Rename final files
