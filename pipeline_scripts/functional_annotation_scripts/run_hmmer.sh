@@ -14,8 +14,8 @@ module load hmmer/3.1b2-foss-2016a
 ## Setup: Manual specification of input files
 HMMDBDIR=/home/n8942188/various_programs/hmm_db/04-09-19
 HMMDB=CDD_SUPFAM_CATH.hmm
-QUERYDIR=/home/n8942188/act_assembly/gene_models/most_recent_versions
-QUERYFILE=act_smart_postdeGRIT2.rnam-trna.merged.ggf.curated.remredun_isos.aa
+QUERYDIR=/home/n8942188/telmatactis/gene_models/transcriptomes/evidentialgene/concatenated
+QUERYFILE=tel_hgap_okay-okalt.cds
 
 ## Setup: Manual specification of file prefixes and HPC parameters
 SPECIES=tel
