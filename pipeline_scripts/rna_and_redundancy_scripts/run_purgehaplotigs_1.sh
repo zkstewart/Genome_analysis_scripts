@@ -32,13 +32,13 @@ THREADMEM=$(echo "$(printf "%.0f\n" $(echo "(${MEM}*0.50)/${CPUS}"|bc -l))")
 PREFIX=${SPECIES}_${ASSEM}
 
 # STEP 1: Echo the above file locations / parameters / etc., into run_purgehaplotigs_2.sh
-eval "sed -i 's,#PBS -l ncpus=*,#PBS -l ncpus=${CPUS},' run_purgehaplotigs_2.sh"
-eval "sed -i 's,#PBS -l mem=*,#PBS -l mem=${MEM}G,' run_purgehaplotigs_2.sh"
-eval "sed -i 's,conda activate*,conda activate ${CONDAENV},' run_purgehaplotigs_2.sh"
-eval "sed -i 's,GENDIR=*,GENDIR=${GENDIR},' run_purgehaplotigs_2.sh"
-eval "sed -i 's,GENNAME=*,GENNAME=${GENNAME},' run_purgehaplotigs_2.sh"
-eval "sed -i 's,CPUS=*,CPUS=${CPUS},' run_purgehaplotigs_2.sh"
-eval "sed -i 's,PREFIX=*,PREFIX=${PREFIX},' run_purgehaplotigs_2.sh"
+eval "sed -i '/^#PBS -l ncpus=*/c\#PBS -l ncpus=${CPUS}' run_purgehaplotigs_2.sh"
+eval "sed -i '/^#PBS -l mem=*/c\#PBS -l mem=${MEM}G' run_purgehaplotigs_2.sh"
+eval "sed -i '/^conda activate*/c\conda activate ${CONDAENV}' run_purgehaplotigs_2.sh"
+eval "sed -i '/^GENDIR=*/c\GENDIR=${GENDIR}' run_purgehaplotigs_2.sh"
+eval "sed -i '/^GENNAME=*/c\GENNAME=${GENNAME}' run_purgehaplotigs_2.sh"
+eval "sed -i '/^CPUS=*/c\CPUS=${CPUS}' run_purgehaplotigs_2.sh"
+eval "sed -i '/^PREFIX=*/c\PREFIX=${PREFIX}' run_purgehaplotigs_2.sh"
 
 # STEP 2: Convert repeat masker .out file to .bed
 ## See http://gtamazian.blogspot.com/2014/10/one-line-script-to-convert-repeatmasker.html for details of below operation
