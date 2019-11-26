@@ -13,30 +13,25 @@ BUSCOLINEAGE=/home/n8942188/various_programs/busco/lineage/metazoa_odb9
 
 ## Setup: Invariant file inputs for pipeline [these files do not change regardless of genome being processed]
 HMMDB=/home/n8942188/various_programs/hmm_db/04-09-19/CDD_SUPFAM_CATH.hmm
-TRANSPOSONS=/home/n8942188/genome_assembly/protein_exclusion/clean/transposon_models.txt
 SCRIPTDIR=/home/n8942188/scripts/Genome_analysis_scripts
+
+## Setup: Manual specification of input genome file
+GENDIR=/home/n8942188/scaffolded_act
+GENFILE=PGA_assembly.fasta
+
+## Setup: Manual specification of directories where known files are contained
+PASAGFF3DIR=/home/n8942188/scaffolded_act/gene_models/pasa_update ## Note: This is where PASA update was run for your genome
+TXCDSDIR=/home/n8942188/scaffolded_act/gene_models/transcriptomes/evidentialgene/concatenated ## Note: This is where concatenated okay-okalt files for EvidentialGene are located
+RNAMGFFDIR=/home/n8942188/scaffolded_act/gene_models/annotation/rnammer ## Note: This is where RNAmmer was run for your genome
+TRNARESULTDIR=/home/n8942188/scaffolded_act/gene_models/annotation/trnascan-se ## Note: This is where tRNAscan-SE was run for your genome
+GMAPALIGNDIR=/home/n8942188/scaffolded_act/gene_models/annotation/gmap_alignment ## Note: This is where you should have aligned the PASA update .nucl FASTA and transcriptome FASTA to the genome
+HAPLOTIGIDSDIR=/home/n8942188/scaffolded_act/redundancy_reduce ## Note: This does not need to be specified if SKIPHAPLOTIGSTEP=TRUE below
 
 ## Setup: Manual specification of file prefixes and HPC parameters
 SPECIES=act
 ASSEM=scaff
 CPUS=6
-
-## Setup: Manual specification of pre-generated rRNA, tRNA, and Purge Haplotigs annotation inputs
-RNAMGFF2=/home/n8942188/scaffolded_act/gene_models/annotation/rnammer/PGA_assembly_rnammer_predictions.gff2
-TRNARESULT=/home/n8942188/scaffolded_act/gene_models/annotation/trnascan-se/PGA_assembly_trnascan-SE_predictions.results
-HAPLOTIGIDS=/home/n8942188/scaffolded_act/redundancy_reduce/curated.artefacts-haplotigs.ids ## Note: This does not need to be specified if SKIPHAPLOTIGSTEP=TRUE below
-
-## Setup: Manual specification of transcriptome-related inputs
-GMAPFILES="/home/n8942188/scaffolded_act/gene_models/annotation/gmap_alignment/act_scaff_okay-okalt.cds_n12_gmap.gff3 /home/n8942188/scaffolded_act/gene_models/annotation/gmap_alignment/act_scaff_pasa.sqlite.gene_structures_post_PASA_updates.iter2.nucl_n12_gmap.gff3"
-CDSFILES="/home/n8942188/scaffolded_act/gene_models/transcriptomes/evidentialgene/concatenated/act_scaff_okay-okalt.cds /home/n8942188/scaffolded_act/gene_models/pasa_update/act_scaff_pasa.sqlite.gene_structures_post_PASA_updates.iter2.nucl"
-TXCDSDIR=/home/n8942188/scaffolded_act/gene_models/transcriptomes/evidentialgene/concatenated
-TXCDSFILE=act_scaff_okay-okalt.cds
-
-## Setup: Manual specification of genome FASTA and annotation GFF3 inputs
-GENDIR=/home/n8942188/scaffolded_act
-GENFILE=PGA_assembly.fasta
-PASAGFF3DIR=/home/n8942188/scaffolded_act/gene_models/pasa_update
-PASAGFF3=act_scaff_pasa.sqlite.gene_structures_post_PASA_updates.iter2.gff3
+NUMPATHS=12 ## Note: This should be the parameter that was provided to the gmap_align.sh file; by default it should be 12 but you may have changed it
 
 ###### NOTHING BELOW THIS LINE NEEDS TO BE CHANGED; OPTIONAL STEP SKIPPING ONLY
 
@@ -47,7 +42,14 @@ CURATEBEHAVIOUR=both ## Note: Set CURATEBEHAVIOUR=transposons if you do not wish
 
 ## Setup: Automatically generated values and setup
 mkdir -p busco_results
+TRANSPOSONS=${SCRIPTDIR}/pipeline_scripts/repeat_pipeline_scripts/transposon_models.txt
 PREFIX=${SPECIES}_${ASSEM}
+TXCDSFILE=${PREFIX}_okay-okalt.cds
+RNAMGFF2=${RNAMGFFDIR}/${PREFIX}_rnammer_predictions.gff2
+TRNARESULT=${TRNARESULTDIR}/${PREFIX}_trnascan-SE_predictions.results
+GMAPFILES="${GMAPALIGNDIR}/${PREFIX}_okay-okalt.cds_n${NUMPATHS}_gmap.gff3 ${GMAPALIGNDIR}/${PREFIX}_pasa.sqlite.gene_structures_post_PASA_updates.iter2_isos.nucl_n${NUMPATHS}_gmap.gff3"
+CDSFILES="${TXCDSDIR}/${TXCDSFILE} ${PASAGFF3DIR}/${PREFIX}_pasa.sqlite.gene_structures_post_PASA_updates.iter2_isos.nucl"
+HAPLOTIGIDS=${HAPLOTIGIDSDIR}/${PREFIX}.curated.artefacts.fasta.ids
 
 ## STEP 1: gmap_gene_find
 if [ "$SKIPGGFSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/ggf/gmap_gene_find.py -gm ${GMAPFILES} -cd ${CDSFILES} -ge ${GENDIR}/${GENFILE} -an ${PASAGFF3DIR}/${PASAGFF3} -o ${PREFIX}_gmap_gene_find.gff3; fi
