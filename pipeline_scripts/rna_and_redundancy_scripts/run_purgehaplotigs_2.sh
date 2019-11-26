@@ -23,7 +23,7 @@ CPUS=PLACE_HOLDER
 PREFIX=PLACE_HOLDER
 
 # STEP 1: Calculate coverage on each contig to flag "junk" and "suspect" contigs
-purge_haplotigs cov -i ${PREFIX}.aligned.bam.genecov -l ${LOWCUT} -m ${MID} -h ${HIGHCUT} -o ${PREFIX}_coverage_stats.csv
+purge_haplotigs cov -i ${PREFIX}.aligned.bam.gencov -l ${LOWCUT} -m ${MID} -h ${HIGHCUT} -o ${PREFIX}_coverage_stats.csv
 
 # STEP 2: Run main purging pipeline
 purge_haplotigs purge -g ${GENDIR}/${GENNAME} -c ${PREFIX}_coverage_stats.csv -t ${CPUS} -r ${GENNAME}.RMOUT.bed -o ${PREFIX}.curated
