@@ -114,5 +114,5 @@ python ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENDIR}/${GENFILE} -g ${SQLDB}.gene_st
 mkdir -p busco_results
 cd busco_results
 python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${SQLDB}.gene_structures_post_PASA_updates.iter2_isos.aa -o ${SQLDB}.gene_structures_post_PASA_updates.iter2_isos_busco.aa -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
-python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${SQLDB}.gene_structures_post_PASA_updates.iter2_isos.cds -o ${SQLDB}.gene_structures_post_PASA_updates.iter2_isos_busco.cds -l ${BUSCOLINEAGE} -m tran -c ${CPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${SQLDB}.gene_structures_post_PASA_updates.iter2_isos.nucl -o ${SQLDB}.gene_structures_post_PASA_updates.iter2_isos_busco.nucl -l ${BUSCOLINEAGE} -m tran -c ${CPUS}
 python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ${HOMEDIR}/${SQLDB}.gene_structures_post_PASA_updates.iter2_isos.trans -o ${SQLDB}.gene_structures_post_PASA_updates.iter2_isos_busco.trans -l ${BUSCOLINEAGE} -m tran -c ${CPUS}
