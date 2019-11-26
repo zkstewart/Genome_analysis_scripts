@@ -12,7 +12,7 @@ cd $PBS_O_WORKDIR
 GENDIR=/home/path/to/genome
 GENNAME=genome_file.fasta
 
-## Iteration number
+## Setup: Iteration number
 ITERATION=1
 
 # Setup of details that DO NOT vary each iteration
@@ -23,7 +23,7 @@ VARIOUSSCRIPTSDIR=/home/n8942188/scripts/Various_scripts
 ## Setup: Conda environment name containg arrow installation
 CONDA_ENV=pb_polish # This should be what you call with "conda activate"
 
-## Subreads location text file
+## Setup: Subreads location text file
 SUBREADLOC=/home/n8942188/telmatactis/assembly_ready/subread_loc.txt
 
 ## Setup: Prefixes
