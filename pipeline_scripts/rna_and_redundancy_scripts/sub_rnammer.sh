@@ -21,5 +21,8 @@ ASSEM=hgap
 ## Setup: Manual specification of program parameters
 ORGANISMTYPE=euk # euk for eukaryote, bac for bacteria, arc for archaea
 
+## Setup: Automatically-generated values and setup
+PREFIX=${SPECIES}_${ASSEM}
+
 # STEP 1: Run RNAmmer
 perl ${RNAMMERDIR}/rnammer -S ${ORGANISMTYPE} -m lsu,ssu,tsu -gff - < ${GENDIR}/${GENFILE} > ${PREFIX}_rnammer_predictions.gff2
