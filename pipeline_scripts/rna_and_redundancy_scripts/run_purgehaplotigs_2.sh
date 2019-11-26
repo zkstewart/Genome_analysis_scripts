@@ -17,6 +17,7 @@ conda activate PLACE_HOLDER
 #
 GENDIR=PLACE_HOLDER
 GENNAME=PLACE_HOLDER
+VARIOUSSCRIPTS=PLACE_HOLDER
 #
 CPUS=PLACE_HOLDER
 #
@@ -27,3 +28,6 @@ purge_haplotigs cov -i ${PREFIX}.aligned.bam.gencov -l ${LOWCUT} -m ${MID} -h ${
 
 # STEP 2: Run main purging pipeline
 purge_haplotigs purge -g ${GENDIR}/${GENNAME} -c ${PREFIX}_coverage_stats.csv -t ${CPUS} -r ${GENNAME}.RMOUT.bed -o ${PREFIX}.curated
+
+# STEP 3: Generate an IDs text file of removed contigs
+python ${VARIOUSSCRIPTS}/fasta_handling_master_code.py -i ${PREFIX}..curated.haplotigs.fasta -f descriptions -o ${PREFIX}..curated.haplotigs.fasta.ids

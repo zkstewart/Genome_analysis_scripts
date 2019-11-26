@@ -19,6 +19,7 @@ GENNAME=telmatactis_HGAP.arr4.pil2.fasta
 READSDIR=/home/n8942188/telmatactis/assembly_ready
 READS=telmatactis.subreads.fasta
 SOFTMASKDIR=/home/n8942188/telmatactis/repeat_annotation/tel_HGAP_softmask
+VARIOUSSCRIPTS=/home/n8942188/scripts/Various_scripts # Cloned directory for https://github.com/zkstewart/Various_scripts
 
 ## Setup: Manual specification of file prefixes and HPC parameters
 SPECIES=tel
@@ -38,6 +39,7 @@ eval "sed -i '/^#PBS -l mem=*/c\#PBS -l mem=${MEM}G' run_purgehaplotigs_2.sh"
 eval "sed -i '/^conda activate*/c\conda activate ${CONDAENV}' run_purgehaplotigs_2.sh"
 eval "sed -i '/^GENDIR=*/c\GENDIR=${GENDIR}' run_purgehaplotigs_2.sh"
 eval "sed -i '/^GENNAME=*/c\GENNAME=${GENNAME}' run_purgehaplotigs_2.sh"
+eval "sed -i '/^VARIOUSSCRIPTS=*/c\VARIOUSSCRIPTS=${VARIOUSSCRIPTS}' run_purgehaplotigs_2.sh"
 eval "sed -i '/^CPUS=*/c\CPUS=${CPUS}' run_purgehaplotigs_2.sh"
 eval "sed -i '/^PREFIX=*/c\PREFIX=${PREFIX}' run_purgehaplotigs_2.sh"
 
