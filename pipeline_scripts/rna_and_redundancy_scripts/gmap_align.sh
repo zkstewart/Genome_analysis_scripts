@@ -7,10 +7,10 @@
 cd $PBS_O_WORKDIR
 
 ## Setup: Manual specification of input file locations
-GENDIR=/home/n8942188/scaffolded_act
-GENFILE=PGA_assembly.fasta
-TXDIR=/home/n8942188/scaffolded_act/gene_models/transcriptomes/evidentialgene/concatenated
-TXFILE=act_scaff_okay-okalt.cds
+GENDIR=/home/n8942188/telmatactis
+GENFILE=telmatactis_HGAP.arr4.pil2.fasta
+TXDIR=/home/n8942188/telmatactis/gene_models/transcriptomes/evidentialgene/concatenated
+TXFILE=tel_hgap_okay-okalt.cds
 
 ## Setup: Manual specification of file prefixes and HPC parameters
 NUMPATHS=12
