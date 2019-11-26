@@ -25,7 +25,7 @@ TXCDSDIR=/home/n8942188/scaffolded_act/gene_models/transcriptomes/evidentialgene
 RNAMGFFDIR=/home/n8942188/scaffolded_act/gene_models/annotation/rnammer ## Note: This is where RNAmmer was run for your genome
 TRNARESULTDIR=/home/n8942188/scaffolded_act/gene_models/annotation/trnascan-se ## Note: This is where tRNAscan-SE was run for your genome
 GMAPALIGNDIR=/home/n8942188/scaffolded_act/gene_models/annotation/gmap_alignment ## Note: This is where you should have aligned the PASA update .nucl FASTA and transcriptome FASTA to the genome
-HAPLOTIGIDSDIR=/home/n8942188/scaffolded_act/redundancy_reduce ## Note: This does not need to be specified if SKIPHAPLOTIGSTEP=TRUE below
+HAPLOTIGSDIR=/home/n8942188/scaffolded_act/redundancy_reduce ## Note: This does not need to be specified if SKIPHAPLOTIGSTEP=TRUE below
 
 ## Setup: Manual specification of file prefixes and HPC parameters
 SPECIES=act
@@ -44,12 +44,13 @@ CURATEBEHAVIOUR=both ## Note: Set CURATEBEHAVIOUR=transposons if you do not wish
 mkdir -p busco_results
 TRANSPOSONS=${SCRIPTDIR}/pipeline_scripts/repeat_pipeline_scripts/transposon_models.txt
 PREFIX=${SPECIES}_${ASSEM}
+PASAGFF3=${PREFIX}_pasa.sqlite.gene_structures_post_PASA_updates.iter2.gff3
 TXCDSFILE=${PREFIX}_okay-okalt.cds
 RNAMGFF2=${RNAMGFFDIR}/${PREFIX}_rnammer_predictions.gff2
 TRNARESULT=${TRNARESULTDIR}/${PREFIX}_trnascan-SE_predictions.results
 GMAPFILES="${GMAPALIGNDIR}/${PREFIX}_okay-okalt.cds_n${NUMPATHS}_gmap.gff3 ${GMAPALIGNDIR}/${PREFIX}_pasa.sqlite.gene_structures_post_PASA_updates.iter2_isos.nucl_n${NUMPATHS}_gmap.gff3"
 CDSFILES="${TXCDSDIR}/${TXCDSFILE} ${PASAGFF3DIR}/${PREFIX}_pasa.sqlite.gene_structures_post_PASA_updates.iter2_isos.nucl"
-HAPLOTIGIDS=${HAPLOTIGIDSDIR}/${PREFIX}.curated.artefacts.fasta.ids
+HAPLOTIGIDS=${HAPLOTIGSDIR}/${PREFIX}.curated.artefacts-haplotigs.fasta.ids
 
 ## STEP 1: gmap_gene_find
 if [ "$SKIPGGFSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/ggf/gmap_gene_find.py -gm ${GMAPFILES} -cd ${CDSFILES} -ge ${GENDIR}/${GENFILE} -an ${PASAGFF3DIR}/${PASAGFF3} -o ${PREFIX}_gmap_gene_find.gff3; fi
