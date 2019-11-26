@@ -30,6 +30,7 @@ MEM="20" # Note: This needs to be an integer in quotation marks equal to what yo
 conda activate ${CONDAENV}
 THREADMEM=$(echo "$(printf "%.0f\n" $(echo "(${MEM}*0.50)/${CPUS}"|bc -l))")
 PREFIX=${SPECIES}_${ASSEM}
+DEPTH=200 # Note: This is the default value for histogram generation; if you need the maximum X value to be > 200, change that here
 
 # STEP 1: Echo the above file locations / parameters / etc., into run_purgehaplotigs_2.sh
 eval "sed -i '/^#PBS -l ncpus=*/c\#PBS -l ncpus=${CPUS}' run_purgehaplotigs_2.sh"
