@@ -30,4 +30,7 @@ purge_haplotigs cov -i ${PREFIX}.aligned.bam.gencov -l ${LOWCUT} -m ${MID} -h ${
 purge_haplotigs purge -g ${GENDIR}/${GENNAME} -c ${PREFIX}_coverage_stats.csv -t ${CPUS} -r ${GENNAME}.RMOUT.bed -o ${PREFIX}.curated
 
 # STEP 3: Generate an IDs text file of removed contigs
-python ${VARIOUSSCRIPTS}/fasta_handling_master_code.py -i ${PREFIX}..curated.haplotigs.fasta -f descriptions -o ${PREFIX}..curated.haplotigs.fasta.ids
+python ${VARIOUSSCRIPTS}/fasta_handling_master_code.py -i ${PREFIX}.curated.artefacts.fasta -f descriptions -o ${PREFIX}.curated.artefacts.fasta.ids
+python ${VARIOUSSCRIPTS}/fasta_handling_master_code.py -i ${PREFIX}.curated.haplotigs.fasta -f descriptions -o ${PREFIX}.curated.haplotigs.fasta.ids
+cat ${PREFIX}.curated.artefacts.fasta.ids ${PREFIX}.curated.haplotigs.fasta.ids > ${PREFIX}.curated.artefacts-haplotigs.fasta.ids
+rm ${PREFIX}.curated.artefacts.fasta.ids ${PREFIX}.curated.haplotigs.fasta.ids
