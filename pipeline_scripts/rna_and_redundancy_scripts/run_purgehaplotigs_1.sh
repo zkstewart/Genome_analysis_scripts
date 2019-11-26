@@ -23,7 +23,7 @@ SOFTMASKDIR=/home/n8942188/telmatactis/repeat_annotation/tel_HGAP_softmask
 ## Setup: Manual specification of file prefixes and HPC parameters
 SPECIES=tel
 ASSEM=hgap
-CPUS=6
+CPUS=12
 MEM="20" # Note: This needs to be an integer in quotation marks equal to what you provided above (i.e., in the '#PBS -l mem=' field); it should be measured in gigabytes ("G")
 
 ## Setup: Automatically-generated values and setup
