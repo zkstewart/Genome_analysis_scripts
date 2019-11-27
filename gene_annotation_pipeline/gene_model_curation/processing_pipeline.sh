@@ -83,7 +83,7 @@ python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFI
 cd ..
 
 ## STEP 8: redun_remove
-if [ "$SKIPHAPLOTIGSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/gff3_entry_retrieve_remove.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -t ${HAPLOTIGIDS} -b remove -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3; else mv ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3; echo "Haplotig removal was not performed for file ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3" >> ${PREFIX}.HAPLOTIG_REMOVAL_SKIPPED_NOTICE; fi
+if [ "$SKIPHAPLOTIGSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/gff3_entry_retrieve_remove.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -t ${HAPLOTIGIDS} -m remove -b main -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3; else mv ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3; echo "Haplotig removal was not performed for file ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3" >> ${PREFIX}.HAPLOTIG_REMOVAL_SKIPPED_NOTICE; fi
 
 ## STEP 9: gff3_order
 python ${SCRIPTDIR}/gff3_order.py -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3 -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3
