@@ -11,7 +11,7 @@ cd $PBS_O_WORKDIR
 
 ## Setup: Module load & specify conda environment where Purge Haplotigs is installed
 module load bedtools/2.25.0-foss-2016a
-CONDAENV="purge_haplotigs_env"
+CONDAENV="purge_haplotigs_env" # Note: You need to make sure this environment has biopython installed (conda install -c bioconda biopython)
 
 ## Setup: Manual specification of input files
 GENDIR=/home/n8942188/telmatactis
