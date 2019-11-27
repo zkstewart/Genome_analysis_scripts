@@ -56,7 +56,7 @@ HAPLOTIGIDS=${HAPLOTIGSDIR}/${PREFIX}.curated.artefacts-haplotigs.fasta.ids
 if [ "$SKIPGGFSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/ggf/gmap_gene_find.py -gm ${GMAPFILES} -cd ${CDSFILES} -ge ${GENDIR}/${GENFILE} -an ${PASAGFF3DIR}/${PASAGFF3} -o ${PREFIX}_gmap_gene_find.gff3; fi
 
 ## STEP 2: merge
-if [ "$SKIPGGFSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/gff3_merge.py -og ${PASAGFF3DIR}/${PASAGFF3} -ng ${PREFIX}_gmap_gene_find.gff3 -out ${PREFIX}.merged.ggf.gff3; else cp ${PASAGFF3DIR}/${PASAGFF3} ${PREFIX}.merged.ggf.gff3; echo "GGF was not performed for file ${PREFIX}.merged.ggf.gff3" >> ${PREFIX}.GGF_SKIPPED_NOTICE; fi
+if [ "$SKIPGGFSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/gff3_merge.py -og ${PASAGFF3DIR}/${PASAGFF3} -ng ${PREFIX}_gmap_gene_find.gff3 -out ${PREFIX}.merged.ggf.gff3 -m all -b reject; else cp ${PASAGFF3DIR}/${PASAGFF3} ${PREFIX}.merged.ggf.gff3; echo "GGF was not performed for file ${PREFIX}.merged.ggf.gff3" >> ${PREFIX}.GGF_SKIPPED_NOTICE; fi
 
 ## STEP 3: make_cds
 python ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENDIR}/${GENFILE} -g ${PREFIX}.merged.ggf.gff3 -l isoforms -s cds -o ${PREFIX}.merged.ggf
