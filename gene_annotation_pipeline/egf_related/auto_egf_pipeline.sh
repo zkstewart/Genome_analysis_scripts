@@ -12,7 +12,6 @@ module load exonerate/2.4.0-foss-2016a
 ## SETUP: Manual specification of program file locations
 SEGDIR=/home/n8942188/various_programs/seg
 SIGPDIR=/home/n8942188/various_programs/signalp-4.1
-EXONDIR=/pkg/suse12/software/exonerate/2.4.0-foss-2016a/bin
 SCRIPTDIR=/home/n8942188/scripts/Genome_analysis_scripts
 
 ## SETUP: Manual specification of input file locations
@@ -41,7 +40,7 @@ SUFFIX=rnam-trna.merged.ggf.curated.remredun.egf # Note: This shouldn't need to 
 PREFIX=${SPECIES}_${ASSEM}
 
 # STEP 1: Run exonerate alignment
-${EXONDIR}/exonerate --model protein2genome --showtargetgff yes ${PROTDIR}/${PROTFILE} ${GENDIR}/${GENFILE} > ${PREFIX}_exonerate_${PROTDETAIL}.gff3
+exonerate --model protein2genome --showtargetgff yes ${PROTDIR}/${PROTFILE} ${GENDIR}/${GENFILE} > ${PREFIX}_exonerate_${PROTDETAIL}.gff3
 
 # STEP 2: Run EGF
 python ${SCRIPTDIR}/ggf/exonerate_gene_find.py -ge ${GENDIR}/${GENFILE} -e ${PREFIX}_exonerate_${PROTDETAIL}.gff3 -f ${PROTDIR}/${PROTFILE} -gm ${GMAPDIR}/${GMAPFILE} -cd ${CDSDIR}/${CDSFILE} -o ${PREFIX}_exonerate_gene_find.gff3 -seg ${SEGDIR} -sigp -sigpdir ${SIGPDIR} -nosigpskip
