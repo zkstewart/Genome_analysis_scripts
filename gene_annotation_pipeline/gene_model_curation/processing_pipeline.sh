@@ -6,9 +6,11 @@
 
 cd $PBS_O_WORKDIR
 
-## Setup: Imports and manual configuration
+## Setup: Module imports
 module load blast+/2.3.0-foss-2016a-python-2.7.11
-export BUSCO_CONFIG_FILE="/home/n8942188/various_programs/busco/config/config.ini"
+
+## Setup: Manual specification of program directories
+BUSCODIR=/home/n8942188/various_programs/busco
 BUSCOLINEAGE=/home/n8942188/various_programs/busco/lineage/metazoa_odb9
 
 ## Setup: Invariant file inputs for pipeline [these files do not change regardless of genome being processed]
@@ -41,6 +43,7 @@ SKIPGGFSTEP=FALSE ## Note: Set SKIPGGFSTEP=TRUE if you do not wish to add gmap_g
 CURATEBEHAVIOUR=both ## Note: Set CURATEBEHAVIOUR=transposons if you do not wish to remove close-proximity single-exon genes, otherwise leave this as "both"
 
 ## Setup: Automatically generated values and setup
+export BUSCO_CONFIG_FILE="${BUSCODIR}/config/config.ini"
 mkdir -p busco_results
 TRANSPOSONS=${SCRIPTDIR}/pipeline_scripts/repeat_pipeline_scripts/transposon_models.txt
 PREFIX=${SPECIES}_${ASSEM}
@@ -61,7 +64,7 @@ if [ "$SKIPGGFSTEP" == "FALSE" ]; then python ${SCRIPTDIR}/gff3_merge.py -og ${P
 ## STEP 3: make_cds
 python ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENDIR}/${GENFILE} -g ${PREFIX}.merged.ggf.gff3 -l isoforms -s cds -o ${PREFIX}.merged.ggf
 cd busco_results
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.merged.ggf.aa -o ${PREFIX}.merged.ggf -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ../${PREFIX}.merged.ggf.aa -o ${PREFIX}.merged.ggf -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
 cd ..
 
 ## STEP 4: run HMMER
@@ -79,7 +82,7 @@ python ${SCRIPTDIR}/gff3_trnascan-se_update.py -g ${PREFIX}.rnam.merged.ggf.cura
 ## STEP 7: make_cds
 python ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENDIR}/${GENFILE} -g ${PREFIX}.rnam-trna.merged.ggf.curated.gff3 -l isoforms -s cds -o ${PREFIX}.rnam-trna.merged.ggf.curated
 cd busco_results
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
 cd ..
 
 ## STEP 8: redun_remove
@@ -93,8 +96,8 @@ rm ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.tmp.gff3
 python ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENDIR}/${GENFILE} -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3 -l isoforms -s both -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos
 python ${SCRIPTDIR}/gff3_to_fasta.py -i ${GENDIR}/${GENFILE} -g ${PREFIX}.rnam-trna.merged.ggf.curated.remredun.gff3 -l main -s both -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main
 cd busco_results
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos.trans -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos_transcripts -l ${BUSCOLINEAGE} -m tran -c ${CPUS}
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main.trans -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main_transcripts -l ${BUSCOLINEAGE} -m tran -c ${CPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos.trans -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_isos_transcripts -l ${BUSCOLINEAGE} -m tran -c ${CPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main.aa -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main -l ${BUSCOLINEAGE} -m prot -c ${CPUS}
+python3 ${BUSCODIR}/scripts/run_BUSCO.py -i ../${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main.trans -o ${PREFIX}.rnam-trna.merged.ggf.curated.remredun_main_transcripts -l ${BUSCOLINEAGE} -m tran -c ${CPUS}
 cd ..
