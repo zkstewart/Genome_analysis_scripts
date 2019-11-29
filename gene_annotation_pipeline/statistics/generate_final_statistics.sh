@@ -18,7 +18,7 @@ BUSCOLINEAGE=/home/n8942188/various_programs/busco/lineage/metazoa_odb9
 GENDIR=/home/n8942188/heterodactyla/gene_models/most_recent_versions
 GENFILE=heterodactyla_HGAP.arr3.pil2.noredun.fasta
 ANNOTGFF3DIR=/home/n8942188/heterodactyla/gene_models/most_recent_versions
-ANNOTGFF3FILE=tel_hgap.rnam-trna.merged.ggf.curated.remredun.gff3
+ANNOTGFF3FILE=het_hgap.rnam-trna.merged.ggf.curated.remredun.gff3
 
 ## SETUP: Manual specification of file prefixes, suffixes, and HPC parameters
 SPECIES=het
