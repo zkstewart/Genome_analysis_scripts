@@ -21,7 +21,7 @@ ANNOTGFF3DIR=/home/n8942188/heterodactyla/gene_models/most_recent_versions
 ANNOTGFF3FILE=tel_hgap.rnam-trna.merged.ggf.curated.remredun.gff3
 
 ## SETUP: Manual specification of file prefixes, suffixes, and HPC parameters
-SPECIES=tel
+SPECIES=het
 ASSEM=hgap
 SUFFIX=rnam-trna.merged.ggf.curated.remredun.egf # Note: This shouldn't need to be changed if you used the scripts in SCRIPTDIR for your annotation; otherwise, make it representative of your annotation + egf
 CPUS=6
