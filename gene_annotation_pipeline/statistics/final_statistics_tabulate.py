@@ -145,6 +145,7 @@ def main():
         # Output file
         with open(args.outputFileName, 'w') as file_out:
                 file_out.write('\n'.join(output_statistics_lines))
+        print('Program completed successfully!')
 
 if __name__ == '__main__':
         main()
