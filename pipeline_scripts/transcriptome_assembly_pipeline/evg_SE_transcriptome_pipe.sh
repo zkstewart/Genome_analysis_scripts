@@ -218,6 +218,7 @@ echo "
 
 module load trinity/2.8.5-foss-2016a
 module load gmap-gsnap/2019-02-15-foss-2018a
+module load jellyfish/2.2.6-foss-2016a
 cd ${HOMEDIR}/transcriptomes/trinity-denovo
 Trinity --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --SS_lib_type F --min_kmer_cov 2 --monitoring --seqType fq --single ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed.fq --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
 " > ${TRINDNJOBFILE}
