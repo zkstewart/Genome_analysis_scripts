@@ -31,7 +31,7 @@ def parse_text_to_list(fileName):
 
 def parse_refseq_gff3_prot_nuc_ids(fileName):
         GFF3_MRNA_LINE_LEN = 9
-        PREFIX_TO_STRIP = "cds-"
+        PREFIX_TO_STRIP = "rna-"
         idsDict = {}
         with open(fileName, "r") as fileIn:
                 for line in fileIn:
@@ -51,7 +51,7 @@ def parse_refseq_gff3_prot_nuc_ids(fileName):
                                         split_details = details[i].split('=', maxsplit=1)
                                         detail_dict[split_details[0]] = split_details[1]
                                 # Obtain nuc and prot IDs
-                                nucID = detail_dict["ID"][len(PREFIX_TO_STRIP):]
+                                nucID = detail_dict["Parent"][len(PREFIX_TO_STRIP):]
                                 protID = detail_dict["protein_id"]
                                 # Associate IDs in main dict
                                 idsDict[nucID] = protID
@@ -87,12 +87,16 @@ idsDict = parse_refseq_gff3_prot_nuc_ids(args.gff3FileName)
 # Output file with inverted IDs (where possible)
 with open(args.outputFileName, "w") as fileOut:
         for listID in idsList:
-                try:
-                        fileOut.write(idsDict[listID] + '\n')
-                except:
-                        #fileOut.write(listID + '\n')
-                        if args.warning:
-                                print("Warning: {0} not found in gff3".format(listID))
+                abbrevID = listID.split(" ")[0] # RefSeq IDs are commonly the first bit before whitespace
+                if abbrevID in idsDict:
+                        fileOut.write(idsDict[abbrevID] + '\n')
+                else:
+                        try:
+                                fileOut.write(idsDict[listID] + '\n')
+                        except:
+                                fileOut.write(listID + '\n')
+                                if args.warning:
+                                        print("Warning: {0} not found in gff3".format(listID))
 
 # All done!
 print('Program completed successfully!')
