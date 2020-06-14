@@ -94,7 +94,6 @@ with open(args.outputFileName, "w") as fileOut:
                         try:
                                 fileOut.write(idsDict[listID] + '\n')
                         except:
-                                fileOut.write(listID + '\n')
                                 if args.warning:
                                         print("Warning: {0} not found in gff3".format(listID))
 
