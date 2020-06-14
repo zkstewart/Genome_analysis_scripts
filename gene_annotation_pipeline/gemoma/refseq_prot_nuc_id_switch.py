@@ -87,10 +87,10 @@ idsDict = parse_refseq_gff3_prot_nuc_ids(args.gff3FileName)
 # Output file with inverted IDs (where possible)
 with open(args.outputFileName, "w") as fileOut:
         for listID in idsList:
-                if listID in idsDict:
+                try:
                         fileOut.write(idsDict[listID] + '\n')
-                else:
-                        fileOut.write(listID + '\n')
+                except:
+                        #fileOut.write(listID + '\n')
                         if args.warning:
                                 print("Warning: {0} not found in gff3".format(listID))
 
