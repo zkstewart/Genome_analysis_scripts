@@ -1,0 +1,31 @@
+# Workflow for performing GeMoMa annotation of specific genes
+
+# Step 1: Obtain target data
+> Genome (FASTA)
+> RNA-seq data (SRA Download)
+
+# Step 2: Map RNA-seq data to genome
+> Trim RNA-seq data [run_trimmomatic]
+> STAR spliced alignment [run_star_trimmed.sh / run_sam2bamsort.sh]
+
+# Step 3: Obtain genes of interest
+> Gene models of interest (FASTA) received via email
+
+# Step 4: Obtain reference data with GeMoMa NCBI Reference Retriever (NRR)
+> GeMoMa NRR rl=${RL} [run_nrr.sh]
+> Additionally, download the proteins for each species
+
+# Step 5: Obtain a single gene of interest file
+> Concatenate models of interest obtained into a single file [safe_file_concat.py]
+
+## DEPRECATED # Step 6: Convert reference data into gene models
+> gff3_to_fasta.py for each reference .fna / .gff pair to make .aa files [convert_all_to_gff.sh]
+
+# Step 7: Run OrthoFinder + Extract orthogroups containing genes of interest + Extract IDs for sequences in orthogroups containing genes of interest
+> [run_gemoma_orthofinder.sh]
+
+# Step 8: Switch IDs for refseq proteins to be their matching nucleotide ID
+> [run_prot_to_nuc_ids.sh]
+
+# Step 9: Run GeMoMa
+> [run_gemoma_parts.sh]
