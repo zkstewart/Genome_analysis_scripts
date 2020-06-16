@@ -31,7 +31,7 @@ def parse_text_to_list(fileName):
 
 def parse_refseq_gff3_prot_nuc_ids(fileName):
         GFF3_MRNA_LINE_LEN = 9
-        PREFIX_TO_STRIP = "rna-"
+        #PREFIX_TO_STRIP = "rna-"
         idsDict = {}
         with open(fileName, "r") as fileIn:
                 for line in fileIn:
@@ -51,7 +51,8 @@ def parse_refseq_gff3_prot_nuc_ids(fileName):
                                         split_details = details[i].split('=', maxsplit=1)
                                         detail_dict[split_details[0]] = split_details[1]
                                 # Obtain nuc and prot IDs
-                                nucID = detail_dict["Parent"][len(PREFIX_TO_STRIP):]
+                                #nucID = detail_dict["Parent"][len(PREFIX_TO_STRIP):]
+                                nucID = detail_dict["Parent"]
                                 protID = detail_dict["protein_id"]
                                 # Associate IDs in main dict
                                 idsDict[nucID] = protID
