@@ -28,4 +28,7 @@
 > [run_prot_to_nuc_ids.sh]
 
 # Step 9: Run GeMoMa
-> [run_gemoma_parts.sh]
+> [run_gemoma_pipe.sh]
+
+# Step 10: Run the final GeMoMa steps and generate useable output
+> [run_gemoma_combine.sh]
