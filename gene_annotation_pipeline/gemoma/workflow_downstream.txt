@@ -1,0 +1,21 @@
+# Workflow for performing gene annotation using multiple lines of evidence to identify novel variants
+
+# Step 1: Run the process outlined in workflow.txt
+[workflow.txt]
+
+# Step 2: Generate transcriptomes for each species
+[evg_transcriptome_pipe.sh]
+
+# Step 3: Run GMAP alignment of transcripts against genomes
+[gmap_align_gemoma.sh]
+
+# Step 4: Run GGF to generate novel transcript models
+[auto_ggf_pipeline.sh
+run_ggf_orthofinder.sh]
+
+# Step 5: Run EGF to align GeMoMa models to the genome and generate models
+[auto_exonerate_parts.sh
+auto_egf_pipeline.sh]
+
+# Step 6: Combine GeMoMA + GGF + EGF
+[auto_combine_genes.sh]
