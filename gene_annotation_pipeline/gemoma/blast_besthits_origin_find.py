@@ -10,10 +10,6 @@ from Bio import SeqIO
 # Define functions for later use
 def validate_args(args):
         # Validate input file locations
-        if not os.path.isfile(args.inputFileName):
-                print('I am unable to locate the input FASTA file (' + args.inputFileName + ')')
-                print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
         if not os.path.isfile(args.inputTsvName):
                 print('I am unable to locate the input TSV file (' + args.inputTsvName + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
