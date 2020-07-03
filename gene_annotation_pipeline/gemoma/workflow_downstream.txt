@@ -19,3 +19,22 @@ auto_egf_pipeline.sh]
 
 # Step 6: Combine GeMoMA + GGF + EGF
 [auto_combine_genes.sh]
+
+# Step 7: Separate gene models into putative groups - AP1, FLC, SOC1
+[ ... ]
+> MMSeqs2 search ${SPECIES}.gemoma.ggf.egf_main.aa against ap1-flc-soc1.fasta file
+> Find best match for ${SPECIES} file against ap1-flc-soc1.fasta, determine if the sequence matched against a file from ap1.fasta, flc.fasta, or soc1.fasta
+> Grab contigs which match
+
+# Step 8: Perform manual MSA to find in-group sequences, and note IDs to remove from the file
+[ ... manual
+> This could be automated, but it'll require making a new script which isn't necessary at this point]
+
+# Step 9: Curate gene models, removing out-group sequences
+[gff3_entry_retrieve_remove.py, with step 8 IDs as input]
+i.e.,
+[for species in alm avo clem lily; do for gene in ap1 flc soc1; do python "D:\Libraries\Documents\GitHub\Genome_analysis_scripts\gff3_entry_retrieve_remove.py" -m remove -b main -g "F:\plant_annotation\segregated\\${species}_${gene}.gemoma.ggf.egf.gff3" -o "${species}_${gene}.gemoma.ggf.egf.curated.gff3" -t "${species}_${gene}_TO_REMOVE.txt"; done; done]
+... followed by ...
+[for species in alm avo clem lily; do for gene in ap1 flc soc1; do python "D:\Libraries\Documents\GitHub\Genome_analysis_scripts\gff3_to_fasta.py" -g "${species}_${gene}.gemoma.ggf.egf.curated.gff3" -i "F:\plant_annotation\genomes\\${species}.fasta" -l main -s cds -o "${species}_${gene}.gemoma.ggf.egf.curated_main"; python "D:\Libraries\Documents\GitHub\Genome_analysis_scripts\gff3_to_fasta.py" -g "${species}_${gene}.gemoma.ggf.egf.curated.gff3" -i "F:\plant_annotation\genomes\\${species}.fasta" -l isoforms -s cds -o "${species}_${gene}.gemoma.ggf.egf.curated_isos"; done; done]
+
+# Step 10: Manually inspect gene models in IGV? Apollo? 
