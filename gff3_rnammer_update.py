@@ -215,7 +215,7 @@ def gff3_index(gff3File):
 
 def gff3_index_add_lines(gff3IndexDict, gff3File, mainTypes):
         # Setup
-        knownHeadComments = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
+        knownHeadComments = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND', '# GEMOMA ANNOTATION', '# APOLLO ANNOTATION') # These are the comment lines we'll handle within this code; anything not like this is ignored
         knownFootComments = ('#PROT')
         # Main loop
         with open(gff3File, 'r') as fileIn:

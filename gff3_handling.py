@@ -157,7 +157,7 @@ class Gff3:
         def add_lines(self):
                 # Setup
                 main_types = list(self.id_values['main'].keys())
-                KNOWN_HEAD_COMMENTS = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
+                KNOWN_HEAD_COMMENTS = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND', '# GEMOMA ANNOTATION', '# APOLLO ANNOTATION') # These are the comment lines we'll handle within this code; anything not like this is ignored
                 KNOWN_FOOT_COMMENTS = ('#PROT')
                 assert self.file_location != None
                 # Main loop
@@ -225,7 +225,7 @@ class Gff3:
         
         def add_comments(self): # This function is just add_lines but with the gene lines section gutted
                 # Setup
-                KNOWN_HEAD_COMMENTS = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND') # These are the comment lines we'll handle within this code; anything not like this is ignored
+                KNOWN_HEAD_COMMENTS = ('# ORIGINAL', '# PASA_UPDATE', '# GMAP_GENE_FIND', '# EXONERATE_GENE_FIND', '# GEMOMA ANNOTATION', '# APOLLO ANNOTATION') # These are the comment lines we'll handle within this code; anything not like this is ignored
                 KNOWN_FOOT_COMMENTS = ('#PROT')
                 assert self.file_location != None
                 # Main loop
