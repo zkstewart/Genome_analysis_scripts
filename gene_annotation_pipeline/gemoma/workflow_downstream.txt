@@ -14,20 +14,26 @@
 run_ggf_orthofinder.sh]
 
 # Step 5: Run EGF to align GeMoMa models to the genome and generate models
-[auto_exonerate_parts.sh
+## 5.1: Extract SOIs from each reference using the SOI ids text files
+[for file in GCF_*.faa; do PREFIX=$(basename ${file} .faa); python /home/n8942188/scripts/Various_scripts/Fasta_related/fastaContigGrabber.py -i ${file} -t /home/n8942188/plant_annotation/gemoma_related/orthofinder_gi-lfy/OrthoFinder/Results_Jul03/Orthogroups/Orthogroups_w_soi.ids -b retrieve -e -o ${PREFIX}.soi; done]
+## 5.2: Concatenate them + spike the target sequences back into a single file
+[SOIFILES=""; for file in /home/n8942188/plant_annotation/gemoma_related/unzipped_references/*.soi; do SOIFILES+=" ${file}"; done; python /home/n8942188/scripts/Various_scripts/safe_file_concat.py -i /home/n8942188/plant_annotation/gemoma_related/target/ap1-flc-soc1.fasta ${SOIFILES} -o references.soi.faa]
+## 5.3: Run exonerate
+[auto_exonerate_parts.sh]
+## 5.4: Run EGF
 auto_egf_pipeline.sh]
 
 # Step 6: Combine GeMoMA + GGF + EGF
 [auto_combine_genes.sh]
 
 # Step 7: Separate gene models into putative groups - AP1, FLC, SOC1
-[ ... ]
+[auto_segregate_genes.sh]
 > MMSeqs2 search ${SPECIES}.gemoma.ggf.egf_main.aa against ap1-flc-soc1.fasta file
 > Find best match for ${SPECIES} file against ap1-flc-soc1.fasta, determine if the sequence matched against a file from ap1.fasta, flc.fasta, or soc1.fasta
 > Grab contigs which match
 
 # Step 8: Perform manual MSA to find in-group sequences, and note IDs to remove from the file
-[ ... manual
+[ ... manual ...
 > This could be automated, but it'll require making a new script which isn't necessary at this point]
 
 # Step 9: Curate gene models, removing out-group sequences
