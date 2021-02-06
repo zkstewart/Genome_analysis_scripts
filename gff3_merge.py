@@ -574,7 +574,9 @@ p.add_argument("-ip", "-isoPercent", dest="isoPercent", type=float, default=30,
 p.add_argument("-dp", "-duplicatePercent", dest="duplicatePercent", type=float, default=60,
                help="Specify the percentage overlap of two models before they are considered duplicates (and rejected). Default == 60")
 p.add_argument("-out", "-outputFile", dest="outputFileName",
-               help="Output file name.")
+               help="Output file name")
+p.add_argument("-d", dest="detailedMerges", action="store_true", default=False,
+               help="Optionally provide more detailed information of gene replacements i.e., which genes were replaced/rejected by another gene")
 
 args = p.parse_args()
 args = validate_args(args)
@@ -602,6 +604,7 @@ novelRNACount = 0       # Ditto above; also, we want to keep a separate count of
 excludeList = []        # We need a list of these values for detection later
 excludeGeneCount = 0    # We also want to separate the counts for genes/rRNA/tRNA features since the gene number is more "important"
 excludeRNACount = 0
+excludeDict = {}        # Provides optional functionality as part of the -d argument
 valueList = [newGff3.mrna_values]
 if args.mode == 'all':
         for key in newGff3.id_values['feature'].keys():
@@ -651,10 +654,24 @@ for i in range(len(valueList)):
                                         will simply add it into one of them'''
                         # Duplicate sequences
                         else:
+                                '''The excludeDict functionality works such that, when behaviour is reject, we store a dictionary where each original
+                                gene has a list associated with it of the new genes it caused to be rejected. Inversely, when behaviour is replace,
+                                we store a dictionary where each new gene has a list associated with it of the original genes it replaced.
+                                '''
                                 if args.behaviour == 'reject':
                                         exclude.append(key)
+                                        if args.detailedMerges: 
+                                                if seqid not in excludeDict:
+                                                        excludeDict[seqid] = [key]
+                                                else:
+                                                        excludeDict[seqid].append(key)
                                 elif args.behaviour == 'replace':
                                         exclude.append(result[2])
+                                        if args.detailedMerges:
+                                                if key not in excludeDict:
+                                                        excludeDict[key] = [seqid]
+                                                else:
+                                                        excludeDict[key].append(seqid)
                 # Add to respective list/dict
                 if exclude != []:
                         exclude = list(set(exclude))
@@ -692,7 +709,29 @@ if args.behaviour == 'reject':
 elif args.behaviour == 'replace':
         print(str(excludeGeneCount) + ' original gene models were replaced due to duplication cutoff.')
         print(str(excludeRNACount) + ' original non-gene models were replaced due to duplication cutoff.')
-if excludeList != []:
-        print('These excluded gene and/or non-gene models include...')
-        for entry in excludeList:
-                print(entry)
+if not args.detailedMerges:
+        if excludeList != []:
+                print('These excluded gene and/or non-gene models include...')
+                for entry in excludeList:
+                        print(entry)
+else:
+    if excludeList != []:
+            print("\n--------------------------------\n")
+            if args.behaviour == 'reject':
+                    print("Detailed breakdown of original genes which caused rejections:")
+            else:
+                    print("Detailed breakdown of new genes which caused replacements:")
+            # Figure out details for formatting pretty output spacing
+            longestKey = 0
+            for key in excludeDict.keys(): # I thought max() would work, but it doesn't. Not sure why?
+                if len(key) > longestKey:
+                    longestKey = len(key)
+            # Present formatted output
+            for key, value in excludeDict.items():
+                    for val in value:
+                            if val == value[0]:
+                                    print("{0}: {1}".format(key.rjust(longestKey), val))
+                            else:
+                                    print("{0}  {1}".format(" "*longestKey, val))
+
+
