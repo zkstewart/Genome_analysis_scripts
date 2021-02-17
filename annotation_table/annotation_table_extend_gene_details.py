@@ -125,15 +125,21 @@ with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fil
                                 formattedTaxa = ''
                                 formattedLengths = ''
                                 for i in range(len(accs)):
-                                        accDetails = accDict[accs[i]]   # Format is [gene name, common taxon]
-                                        if i == 0:
-                                                formattedNames += accDetails[0] + ' '
-                                                formattedTaxa += accDetails[1] + ' '
-                                                formattedLengths += accDetails[2] + ' '
-                                        else:
-                                                formattedNames += '[' + accDetails[0] + ']'
-                                                formattedTaxa += '[' + accDetails[1] + ']'
-                                                formattedLengths += '[' + accDetails[2] + ']'
+                                        try:
+                                                accDetails = accDict[accs[i]]   # Format is [gene name, common taxon]
+                                                if i == 0:
+                                                        formattedNames += accDetails[0] + ' '
+                                                        formattedTaxa += accDetails[1] + ' '
+                                                        formattedLengths += accDetails[2] + ' '
+                                                else:
+                                                        formattedNames += '[' + accDetails[0] + ']'
+                                                        formattedTaxa += '[' + accDetails[1] + ']'
+                                                        formattedLengths += '[' + accDetails[2] + ']'
+                                        except:
+                                                print("## DEBUG:")
+                                                print("Program broke at {0}".format(accDetails))
+                                                print("accs={0}...i={1}".format(accs, i))
+                                                print(line)
                                 # Output
                                 newL = [*line[0:3], formattedNames, formattedTaxa, formattedLengths, *line[3:]]
                                 fileOut.write('\t'.join(newL) + '\n')
