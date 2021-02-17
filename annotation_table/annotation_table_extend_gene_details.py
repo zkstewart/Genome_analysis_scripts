@@ -23,17 +23,17 @@ def uniref_xml_parse(tableFile, xmlFile, lenType):
                                 for entry in line[2].split('['):
                                         accDict[entry.rstrip('] ').split('_')[0]] = ''               # This provides a structure we can quickly check to see if we should hold onto results, and then replace its value with the xml string.
         # Parse through the xml file now and hold onto xml blocks as string values
-        xmlBlock = ['','','','']      # Format is [accession, gene name, common taxon, sequence length]
+        xmlBlock = ['', '', '', '', '']      # Format is [accession, gene name, common taxon, sequence length, UniProtKB accession]
         with open(xmlFile, 'r') as fileIn:
                 for line in fileIn:
                         # Handle entry lines
                         if line.startswith('<entry id='):
-                                if xmlBlock == ['','', '', '']:                                 # i.e., if this is the first loop, just start building the current block
+                                if xmlBlock == ['', '', '', '', '']:                             # i.e., if this is the first loop, just start building the current block
                                         acc = line.split('"')[1].split('_', maxsplit=1)[1]      # This corresponds to the "UniRef###_acc" value
                                         xmlBlock[0] = acc
                                 else:
                                         # Save current block to dict if relevant
-                                        if xmlBlock[0] in accDict:
+                                        if xmlBlock[0] in accDict or xmlBlock[4] in accDict:
                                                 if xmlBlock[1] == '':
                                                         xmlBlock[1] = 'None'
                                                 if xmlBlock[2] == '':
@@ -43,10 +43,13 @@ def uniref_xml_parse(tableFile, xmlFile, lenType):
                                                         print('Something went wrong with XML parsing - couldn\'t find sequence length?')
                                                         print(xmlBlock)
                                                         quit()
-                                                accDict[xmlBlock[0]] = xmlBlock[1:]             # We just need to hold onto the gene name, taxon code, and sequence length; the accession becomes the dictionary key
+                                                if xmlBlock[0] in accDict:
+                                                        accDict[xmlBlock[0]] = xmlBlock[1:4]    # We just need to hold onto the gene name, taxon code, and sequence length; the accession becomes the dictionary key
+                                                else:
+                                                        accDict[xmlBlock[4]] = xmlBlock[1:4]    # This is a new addition to fix issues encountered in new uniref100.xml files
                                         # Start new block
                                         acc = line.split('"')[1].split('_', maxsplit=1)[1]
-                                        xmlBlock = [acc, '', '', '']
+                                        xmlBlock = [acc, '', '', '', '']
                         # Handle relevant information lines
                         elif line.startswith('<name>'):
                                 name = line.replace('<name>Cluster: ', '').replace('</name>\n', '')
@@ -59,6 +62,9 @@ def uniref_xml_parse(tableFile, xmlFile, lenType):
                                 if lenType == 'nucl':
                                         length = str(int(length)*3)
                                 xmlBlock[3] = length
+                        elif 'type="UniProtKB ID"' in line:
+                                upi = line.split('value=')[1].strip('">/')
+                                xmlBlock[4] = upi
         return accDict
 
 def validate_args(args):
