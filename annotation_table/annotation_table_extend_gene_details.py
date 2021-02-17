@@ -62,7 +62,7 @@ def uniref_xml_parse(tableFile, xmlFile, lenType):
                                 if lenType == 'nucl':
                                         length = str(int(length)*3)
                                 xmlBlock[3] = length
-                        elif 'type="UniProtKB ID"' in line:
+                        elif 'type="UniProtKB accession"' in line:
                                 upi = line.split('value=')[1].strip('">/')
                                 xmlBlock[4] = upi
         return accDict
