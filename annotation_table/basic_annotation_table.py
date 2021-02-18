@@ -90,7 +90,7 @@ def blasttab_best_hits(blastTab, evalue, numHits, idmapSet, skipList):
                                         # Alter the target name if it has UniRef prefix
                                         if val[1].startswith('UniRef'):
                                                 val[1] = val[1].split('_')[1]           # This handles normal scenarios ("UniRef100_UPI0000") as well as MMseqs2 weird ID handling ("UniRef100_UPI0000_0")
-                                        if val not in skipList:  # NEW BEHAVIOUR: Provide ability to skip IDs that cause problems in later table generation
+                                        if val[1] not in skipList:  # NEW BEHAVIOUR: Provide ability to skip IDs that cause problems in later table generation
                                                 bestHits.append(val)
                         # Skip this hit if we found no matches which pass E-value cut-off
                         if bestHits == []:
