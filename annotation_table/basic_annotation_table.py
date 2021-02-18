@@ -37,6 +37,22 @@ def validate_args(args):
                 print('You need to specify a database tag. This value will be presented in the tabular output to note the database that was queried.')
                 print('This should be a short descriptive value, such as "UniRef100" or "uniparc"')
                 quit()
+        # Check that skip file (if provided) exists
+        if args.skipFile != None:
+                if not os.path.isfile(args.skipFile):
+                        print('I am unable to locate the input skip IDs file (' + args.skipFile + ')')
+                        print('Make sure you\'ve typed the file name or location correctly and try again.')
+                        quit()
+
+def parse_skipfile(skipFile):
+        skipList = []
+        # Load file and iterate through lines
+        with open(skipFile, 'r') as fileIn:
+                for line in fileIn:
+                        skipID = line.rstrip("\r\n")
+                        if skipID not in skipList:
+                            skipList.append(skipID)
+        return skipList
 
 def parse_idmap(idmapFile):
         idmapSet = set()        # This will simply hold onto values for quick retrieval to see what's inside the idmapping file
@@ -54,7 +70,7 @@ def parse_idmap(idmapFile):
                         idmapSet.add(upiAc)
         return idmapSet
 
-def blasttab_best_hits(blastTab, evalue, numHits, idmapSet):
+def blasttab_best_hits(blastTab, evalue, numHits, idmapSet, skipList):
         from itertools import groupby
         # Preliminary declaration of grouper function & main dictionary to hold onto the alignment details of all selected hits
         grouper = lambda x: x.split('\t')[0]
@@ -74,7 +90,8 @@ def blasttab_best_hits(blastTab, evalue, numHits, idmapSet):
                                         # Alter the target name if it has UniRef prefix
                                         if val[1].startswith('UniRef'):
                                                 val[1] = val[1].split('_')[1]           # This handles normal scenarios ("UniRef100_UPI0000") as well as MMseqs2 weird ID handling ("UniRef100_UPI0000_0")
-                                        bestHits.append(val)
+                                        if val not in skipList:  # NEW BEHAVIOUR: Provide ability to skip IDs that cause problems in later table generation
+                                                bestHits.append(val)
                         # Skip this hit if we found no matches which pass E-value cut-off
                         if bestHits == []:
                                 continue
@@ -125,15 +142,23 @@ p.add_argument("-numhits", "-n", dest="numHits", type=int,
                    help="Number of hits for each sequence to report (only the most significant will have full alignment details reported).")
 p.add_argument("-database", "-db", dest="databaseTag",
                    help="Specify the name of the database being queried (e.g., uniparc or uniref100) - this will be presented in the tabular output.")
+p.add_argument("-s", "-skip", dest="skipFile",
+                   help="Optionally provide a list of IDs to skip when obtaining hits from the BLAST-tab results")
 
 args = p.parse_args()
 validate_args(args)
+
+# Parse skip IDs file
+if args.skipFile != None:
+        skipList = parse_skipfile(args.skipFile)
+else:
+        skipList = []
 
 # Parse idmapping file
 idmapSet = parse_idmap(args.idmappingFile)      # I'd like to use something that isn't so memory demanding (uses 40Gb of mem from personal use) but can't conceive of something suitable and fast.
 
 # Parse the blast-tab file
-outDict = blasttab_best_hits(args.blastTab, args.evalue, args.numHits, idmapSet)
+outDict = blasttab_best_hits(args.blastTab, args.evalue, args.numHits, idmapSet, skipList)
 
 # Loop through ID file to rename the genes (if applicable), order the output appropriately, and identify gaps in the BLAST-tab file
 with open(args.idFile, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
