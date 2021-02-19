@@ -56,9 +56,9 @@ def idmap_go_parse(tableFile, idmapFile):
                         # Check to see if we need to hold onto any of these values' GO terms
                         if uref100Ac in accDict:
                                 accDict[uref100Ac] = go
-                        elif upkbAc in accDict:
+                        if upkbAc in accDict:
                                 accDict[upkbAc] = go
-                        elif upiAc in accDict:
+                        if upiAc in accDict:
                                 accDict[upiAc] = go
         return accDict
 
