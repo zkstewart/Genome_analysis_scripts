@@ -99,8 +99,8 @@ go = obo_parser.GODag(args.oboFile)
 #                'GO:0001191': 'GO:0001085', 'GO:0001076': 'GO:0001085', 'GO:0000989': 'GO:0008134',
 #                'GO:0001190': 'GO:0001085', 'GO:0000991': 'GO:0140110', 'GO:0001129': 'GO:0051123',
 #                'GO:2001275': 'GO:1900078', 'GO:0031659': 'GO:0045737'} 
-obsoletedGOs = {}
-replacedGOs = {}
+obsoletedGOs = ['GO:0055114']                 # Similar to comment above; go-basic.obo file was downloaded 12/02/21
+replacedGOs = {'GO:0018192': 'GO:0098822'}    # Additional modifications were made to this code 19/02/21
 
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
