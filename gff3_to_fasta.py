@@ -4,7 +4,7 @@
 # output by PASA and retrieves the main and/or alternative isoform transcripts 
 # from each locus
 
-import os, argparse, re
+import os, argparse, re#, copy
 from Bio import SeqIO
 
 # Define functions for later use
@@ -321,7 +321,7 @@ class Gff3:
                                 assert mrnaID not in self.pasa_prots # If this assertion fails, GFF3 comment format is flawed - there is a duplicate mRNA ID
                                 self.pasa_prots[mrnaID] = sequence
 
-def gff3_object_sequence_extract(gff3Object, mrna, genomeRecords, seqType): # gff3Object should be produced by the Gff3 class; mrna is a string which should correspond to a subfeature key in the Gff3.index_dict; genomeRecords should be a Biopython SeqIO.parse() object of the genome's contigs
+def gff3_object_sequence_extract(gff3Object, mrna, genomeRecords, seqType, vcfDict): # gff3Object should be produced by the Gff3 class; mrna is a string which should correspond to a subfeature key in the Gff3.index_dict; genomeRecords should be a Biopython SeqIO.parse() object of the genome's contigs
         # Setup
         cdsWarning = False
         # Ensure that seqType is sensible
@@ -365,6 +365,8 @@ def gff3_object_sequence_extract(gff3Object, mrna, genomeRecords, seqType): # gf
                 value[mrna]['exon']['coords'].reverse()
                 if 'CDS' in value[mrna]:
                         value[mrna]['CDS']['coords'].reverse()
+        # Edit genomic sequence if needed
+        genomeSeq = vcf_edit_sequence(vcfDict, value, mrna, genomeSeq)
         # Join sequence segments
         if seqType == 'transcript' or seqType == 'both':
                 transcript = ''
@@ -391,6 +393,102 @@ def gff3_object_sequence_extract(gff3Object, mrna, genomeRecords, seqType): # gf
                 return cds
         elif seqType == 'both':
                 return transcript, cds
+
+def gff3_object_indel_sub_extract(gff3Object): # This function will handle Apollo-created gene models
+    ACCEPTED_INDEL_SUB_TYPES = ['deletion_artifact', 'substitution_artifact', 'insertion_artifact']
+    vcfOutput = {}
+    for type in ACCEPTED_INDEL_SUB_TYPES:
+            if type in gff3Object.id_values['main']:
+                    for entryID in gff3Object.id_values['main'][type]:
+                            # Get main feature details
+                            entry = gff3Object.gene_dict[entryID]
+                            contig = entry['contig_id']
+                            feature = entry['feature_type']
+                            coords = entry['coords']
+                            # Obtain residues value if relevant
+                            residues = "."
+                            if 'residues' in entry['attributes']:
+                                    residues = entry['attributes']['residues']
+                            # Add to vcfOutput dictionary
+                            if contig not in vcfOutput:
+                                    vcfOutput[contig] = []
+                            for coord in range(coords[0], coords[1] + 1):
+                                    vcfOutput[contig].append([coord, feature, residues])
+    return vcfOutput
+
+def vcf_edit_sequence(vcfDict, gff3Value, mrnaID, genomeSeq): # mrnaValue should be the result of a gff3Object entry with [mrna] indexed
+        contigID = gff3Value['contig_id']
+        if contigID in vcfDict:
+                # Format edit positions list
+                vcfList = vcfDict[contigID]
+                vcfList.sort(reverse=True)
+                # Edit the genome sequence
+                for edit in vcfList:
+                        indelIndex = edit[0] - 1                                        # - 1 to make this act 0-based (in the main program we instead minused coordRange which accomplished the same goal of making the index 0-based).
+                        editType = edit[1]
+                        editResidue = edit[2]
+                        # Skip irrelevant edits to this mRNA
+                        if indelIndex not in range(gff3Value['coords'][0], gff3Value['coords'][1]+1):
+                            continue
+                        # Make edits
+                        if editType == 'deletion_artifact':
+                                genomeSeq = genomeSeq[:indelIndex] + genomeSeq[indelIndex+1:]
+                        elif editType == 'substitution_artifact':
+                                genomeSeq = genomeSeq[:indelIndex] + editResidue + genomeSeq[indelIndex+1:]
+                        elif editType == 'insertion_artifact':
+                                genomeSeq = genomeSeq[:indelIndex] + editResidue + genomeSeq[indelIndex:]
+                        vcf_edit_update_coords(edit, gff3Value, mrnaID)
+        return genomeSeq
+
+def vcf_edit_update_coords(edit, gff3Value, mrnaID):
+    # Extract relevant information
+    indelIndex = edit[0] # We don't need this to be 0-based, 1-based is correct here
+    editType = edit[1]
+    residue = edit[2]
+    # Skip irrelevant edits
+    if editType == 'substitution_artifact': # Substitutions don't affect our lengths
+            return None
+    # Edit gene-level coords
+    if indelIndex in range(gff3Value['coords'][0], gff3Value['coords'][1]+1):       # This should always be true?
+            if editType == 'deletion_artifact':
+                    gff3Value['coords'][1] -= 1                                     # Deletions are always one at a time, so we can expect length to subtract as 1 per edit
+            elif editType == 'insertion_artifact':
+                    gff3Value['coords'][1] += len(residue)                          # Insertions may be one or more residue, so length is contingent on residues
+    # Edit mrna-level coords
+    if indelIndex in range(gff3Value[mrnaID]['coords'][0], gff3Value[mrnaID]['coords'][1]+1): # This should always be true?
+            if editType == 'deletion_artifact':
+                    gff3Value[mrnaID]['coords'][1] -= 1
+            elif editType == 'insertion_artifact':
+                    gff3Value[mrnaID]['coords'][1] += len(residue)
+    # Edit exon-level coords
+    cumulativeChange = 0 # Cumulative change will propagate length differences throughout coords as they occur in order 
+    for i in range(len(gff3Value[mrnaID]['exon']['coords'])):
+            # Make cumulative changes
+            gff3Value[mrnaID]['exon']['coords'][i][0] += cumulativeChange
+            gff3Value[mrnaID]['exon']['coords'][i][1] += cumulativeChange
+            # Make edit-specific changes
+            if indelIndex in range(gff3Value[mrnaID]['exon']['coords'][i][0], gff3Value[mrnaID]['exon']['coords'][i][1]+1):
+                    if editType == 'deletion_artifact':
+                            gff3Value[mrnaID]['exon']['coords'][i][1] -= 1 # Deletions are always one at a time, so we can expect length to subtract as 1 per edit
+                            cumulativeChange -= 1
+                    elif editType == 'insertion_artifact':
+                            gff3Value[mrnaID]['exon']['coords'][i][1] += len(residue)
+                            cumulativeChange += len(residue)
+    # Edit CDS-level coords
+    cumulativeChange = 0
+    if 'CDS' in gff3Value[mrnaID]:
+            for i in range(len(gff3Value[mrnaID]['CDS']['coords'])):
+                    # Make cumulative changes
+                    gff3Value[mrnaID]['CDS']['coords'][i][0] += cumulativeChange
+                    gff3Value[mrnaID]['CDS']['coords'][i][1] += cumulativeChange
+                    # Make edit-specific changes
+                    if indelIndex in range(gff3Value[mrnaID]['CDS']['coords'][i][0], gff3Value[mrnaID]['CDS']['coords'][i][1]+1):
+                            if editType == 'deletion_artifact':
+                                    gff3Value[mrnaID]['CDS']['coords'][i][1] -= 1 # Deletions are always one at a time, so we can expect length to subtract as 1 per edit
+                                    cumulativeChange -= 1
+                            elif editType == 'insertion_artifact':
+                                    gff3Value[mrnaID]['CDS']['coords'][i][1] += len(residue)
+                                    cumulativeChange += len(residue)
 
 # Hacky code to allow with->open statements to be compacted [based on https://stackoverflow.com/questions/22226708/can-a-with-statement-be-used-conditionally]
 class Dummysink(object):
@@ -443,6 +541,9 @@ gff3Object = Gff3(args.gff3)
 gff3Object.add_comments()
 gff3Object.pasaprots_extract()
 
+# Extra parsing for indel/substitution events
+vcfDict = gff3_object_indel_sub_extract(gff3Object)
+
 # Produce output files
 with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasink(nuclOutputFileName, 'cds', args.seqType) as nuclOut, datasink(protOutputFileName, 'cds', args.seqType) as protOut:
         for key in gff3Object.gene_values:
@@ -453,7 +554,7 @@ with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasi
                         mrnas = longest_iso(value)
                 # Loop through mRNAs and produce relevant outputs
                 for mrna in mrnas:
-                        transcript, cds = gff3_object_sequence_extract(gff3Object, mrna, genomeRecords, 'both')   # We can hardcode the respond wanted from this function to be both, and return result selectively below
+                        transcript, cds = gff3_object_sequence_extract(gff3Object, mrna, genomeRecords, 'both', vcfDict)   # We can hardcode the respond wanted from this function to be both, and return result selectively below
                         # Retrieve protein sequence if relevant
                         if args.seqType == 'cds' or args.seqType == 'both':
                                 prot = None
