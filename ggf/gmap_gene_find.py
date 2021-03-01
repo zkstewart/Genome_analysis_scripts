@@ -166,7 +166,7 @@ def check_model(detailDict, covCutoff, idCutoff):
         # Passed all cutoffs!
         return True
 
-def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, alignPctCutoff):
+def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, alignPctCutoff, allowMicroExon):
         def correct_overshoots(splitCoord):
                 if int(splitCoord[0]) < 1:
                         splitCoord[0] = 1
@@ -209,7 +209,7 @@ def cds_build(coords, contigID, orientation, cdsRecords, genomeRecords, cdsID, a
         # Find out if we've dropped any exons along the way
         startChange = cds.find(orfNucl)
         stopChange = len(cds) - len(orfNucl) - startChange
-        coords, startExonLen, stopExonLen = coord_excess_cut(coords, startChange, stopChange, orientation)
+        coords, startExonLen, stopExonLen = coord_excess_cut(coords, startChange, stopChange, orientation, allowMicroExon)
         # Drop the model if we reduced it to a single exon
         if len(coords) == 1:
                 return False
@@ -320,13 +320,20 @@ def validate_translated_cds(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
         else:
                 return False
 
-def coord_excess_cut(coords, startChange, stopChange, orientation):
+def coord_excess_cut(coords, startChange, stopChange, orientation, allowMicroExon):
         # Cull exons that aren't coding and chop into coding exons
         startReduction = startChange
         stopReduction = stopChange
         startExonLen = 0
         stopExonLen = 0
-        microExonSize = -3      # This value is an arbitrary measure where, if a terminal exon is less than this size, we consider it 'fake' and delete it
+        if allowMicroExon == False:
+            microExonSize = -3      # This value is an arbitrary measure where, if a terminal exon is less than this size, we consider it 'fake' and delete it
+        else:
+            '''microExonSize is being changed as of 1/03/21. In the original vision of the program, it's probable that I saw potential for gmap to "fish"
+            for a start or stop for a gene. This is probably especially possible if using CDS for the alignment. However, when using transcripts, this risk should
+            be greatly reduced. At this date, this behaviour was causing problems in the program, so I needed to make this change. It's a bit risky, but I've set it
+            as an optional parameter so it should be okay?'''
+            microExonSize = 0
         for i in range(2):
                 while True:
                         if i == 0:
@@ -1025,6 +1032,8 @@ def main():
                            help="Alignment percent cut-off (new sequence must align against original >= provided value; accepted range 0.0->100.0; default == 90.0).", default=90.0)
         p.add_argument("-o", "-outputFile", dest="outputFileName",
                            help="Output file name.")
+        p.add_argument("-mexon", dest="allowMicroExon", action='store_true',
+                            help="Optional parameter to set if you are using transcripts (NOT CDS) for the alignment, to change how terminal micro-exons are handled.", default=False)
         
         args = p.parse_args()
         args = validate_args(args)
@@ -1061,7 +1070,7 @@ def main():
                         decision = check_model(value['attributes'], args.coverageCutoff, args.identityCutoff)
                         if decision == False:
                                 continue
-                        result = cds_build(value['exon']['coords'], value['contig_id'], value['orientation'], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff) # Split off the '.mrna#' suffix ## CHECK THIS OUT
+                        result = cds_build(value['exon']['coords'], value['contig_id'], value['orientation'], cdsRecords, genomeRecords, transcriptID, args.alignPctCutoff, args.allowMicroExon) # Split off the '.mrna#' suffix ## CHECK THIS OUT
                         if result == False:
                                 continue
                         else:
