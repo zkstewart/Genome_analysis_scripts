@@ -37,7 +37,7 @@ def gff3_index(gff3File):
                         # Get details
                         sl = line.rstrip('\n').split('\t')
                         lineType = sl[2]
-                        details = sl[8].split(';')
+                        details = sl[8].strip("\"").split(';')
                         detailDict = {}
                         for i in range(len(details)):
                                 if details[i] == '':

@@ -41,7 +41,7 @@ class Gff3:
                                 # Get details
                                 sl = line.rstrip('\n').split('\t')
                                 line_type = sl[2]
-                                details = sl[8].split(';')
+                                details = sl[8].strip("\"").split(';')
                                 detail_dict = {}
                                 for i in range(len(details)):
                                         if details[i] == '':

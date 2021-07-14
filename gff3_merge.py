@@ -65,7 +65,7 @@ def gff3_parse_ncls(gff3File, featureTypes):
                         contigStart = int(sl[3])
                         contigStop = int(sl[4])
                         orient = sl[6]
-                        details = sl[8].split(';')
+                        details = sl[8].strip("\"").split(';')
                         detail_dict = {}
                         for i in range(len(details)):
                                 if details[i] == '' or details[i] == '\n':
