@@ -2,7 +2,7 @@
 # Pipeline all-in-one script to perform a phylogenetic analysis using OrthoFinder's
 # single copy gene files.
 
-import os, argparse, pathlib, math, threading
+import os, argparse, pathlib, math, threading, subprocess, re
 from Bio.Align.Applications import MafftCommandline
 from Bio import AlignIO, SeqIO
 
@@ -121,6 +121,77 @@ def concat_msas(fileList, outputFile):
         for i in range(0, numEntries):
             fileOut.write(">species_{0}\n{1}\n".format(i+1, seqs[i]))
 
+def run_raxml(raxmlExe, params):
+        cmd = "{0} {1}"
+        # Run CD-HIT
+        run_raxml = subprocess.Popen(cmd, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
+        rxout, rxerr = run_raxml.communicate()
+        if rxerr.decode("utf-8") != '':
+                raise Exception('RAxML Error text below' + str(rxerr.decode("utf-8")))
+
+def run_r8s(inputNwk, cafeDir, outputDir, sParam, pParam, cParam):
+    # Run prep script
+    prepCmd = "python2 {0} -i {1} -o {2} -s {3} -p {4} -c {5}".format(os.path.join(cafeDir, "tutorial", "prep_r8s.py"),
+        inputNwk, os.path.join(outputDir, "r8s_ctl_file.txt"), sParam, pParam, cParam)
+    run_prep = subprocess.Popen(prepCmd, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
+    prepout, preperr = run_prep.communicate()
+    if preperr.decode("utf-8") != '':
+            raise Exception('prep_r8s.py Error text below' + str(preperr.decode("utf-8")))
+    
+    # Run r8s
+    r8sCmd = "r8s -b -f {0} > {1}".format(os.path.join(outputDir, "r8s_ctl_file.txt"), os.path.join(outputDir, "r8s_tmp.txt"))
+    run_r8s = subprocess.Popen(r8sCmd, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
+    r8sout, r8serr = run_r8s.communicate()
+    if r8serr.decode("utf-8") != '':
+            raise Exception('r8s Error text below' + str(r8serr.decode("utf-8")))
+    
+    # Extract tree from r8s result
+    tailCmd = "tail -n 1 {0} | cut -c 16- > {1}".format(os.path.join(outputDir, "r8s_tmp.txt"), os.path.join(outputDir, "ultrametric_tree.txt"))
+    run_tail = subprocess.Popen(tailCmd, stdout = subprocess.DEVNULL, stderr = subprocess.PIPE, shell = True)
+    tailout, tailerr = run_tail.communicate()
+    if tailerr.decode("utf-8") != '':
+            raise Exception('Tail Error text below' + str(tailerr.decode("utf-8")))
+
+def ggtree_ready_nwk(labeledNwk, cladeResults, countResults, outputFileName):
+    # Parse clade results file
+    cladeDict = {}
+    with open(cladeResults, "r") as fileIn:
+        for line in fileIn:
+            if line.startswith("#"):
+                continue
+            sl = line.rstrip("\r\n").split("\t")
+            tag = "<" + sl[0].split("<")[1]
+            cladeDict[tag] = [sl[1], sl[2]]
+    
+    # Parse count results file
+    rootCount = 0
+    with open(countResults, "r") as fileIn:
+        for line in fileIn:
+            if line.startswith("FamilyID"):
+                rootTag = line.rstrip("\r\n").split("\t")[-1]
+            else:
+                rootCount += int(line.rstrip("\r\n").split("\t")[-1])
+    
+    # Parse and update the nwk file to be ggtree ready
+    with open(labeledNwk, "r") as fileIn:
+        nwkContents = fileIn.read()
+    nwkContents = nwkContents.rstrip("\r\n")
+
+    for key, value in cladeDict.items():
+        match = re.search("(" + key + r"\*?_\d{1,5}):(.+?(,|\)))", nwkContents)
+        # Generate new text and replace the matched section
+        newText = ":{0}".format(match.groups()[1][:-1]) + "[&&NHX:I={0}:D={1}]{2}".format(value[0], value[1], match.groups()[1][-1])
+        nwkContents = nwkContents[0: match.start()] + newText + nwkContents[match.end(): ]
+
+    rootMatch = re.search("(" + rootTag + r"\*?_\d{1,5})", nwkContents)
+    newText = "[&&NHX:T={0}]".format(rootCount)
+    nwkContents = nwkContents[0: rootMatch.start()] + newText + nwkContents[rootMatch.end(): ]
+    
+    # Write the updated nwk file
+    with open(outputFileName, "w") as fileOut:
+        fileOut.write(nwkContents)
+
+
 def main():
     # User input
     usage = """%(prog)s processes the output single copy orthologs from OrthoFinder to perform
@@ -132,6 +203,16 @@ def main():
     # > Required arguments
     p.add_argument("-i", dest="inputDir",
         help="Input directory containing only OrthoFinder's single copy ortholog sequence files")
+    p.add_argument("-rp", dest="raxmlThreaded",
+        help="Specify the name of the executable for running RAxML in multi-threaded mode")
+    p.add_argument("-rs", dest="raxmlStandard",
+        help="Specify the name of the executable for running RAxML in standard mode")
+    p.add_argument("-cd", dest="cafeDir",
+        help="Specify the location of the CAFE base directory")
+    p.add_argument("-cp", dest="cafeP",
+        help="Specify the value to be provided as -p to the CAFE prep_r8s.py script e.g., \"species_7,species_3\"")
+    p.add_argument("-cc", dest="cafeC",
+        help="Specify the value to be provided as -c to the CAFE prep_r8s.py script e.g., '25'") 
     # > Optionals
     p.add_argument("-c", dest="threads", type=int, default=1,
         help="Optionally specify the number of threads for program execution")
@@ -144,6 +225,8 @@ def main():
     pathlib.Path(args.tempDir).mkdir(parents=True, exist_ok=True)
     msasDir = os.path.join(args.tempDir, "msas")
     pathlib.Path(msasDir).mkdir(parents=True, exist_ok=True)
+    ultrametricDir = os.path.join(args.tempDir, "ultrametric")
+    pathlib.Path(ultrametricDir).mkdir(parents=True, exist_ok=True)
     
     # Get list of files to work with
     scFiles = [os.path.join(args.inputDir, file) for file in os.listdir(args.inputDir)]
@@ -163,9 +246,55 @@ def main():
     phylipFile = os.path.join(args.tempDir, "concat_msa.phy")
     if not os.path.isfile(phylipFile):
         with open(concatFile, "r") as fileIn:
-            fastaMSA = AlignIO.read(concatFile, "fasta")
+            fastaMSA = AlignIO.read(fileIn, "fasta")
             with open(phylipFile, "w") as fileOut:
-                SeqIO.write(fastaMSA, phylipFile, "phylip")
+                SeqIO.write(fastaMSA, fileOut, "phylip")
+    
+    # Run RAxML
+    SEED = "12345"
+    NUMTREES = 20
+    NUMSTRAPS = 100
+    BEST = "PROTGAMMAJTT" # Figure this out automatically somehow...?
+    params1 = "-p {0} -m PROTGAMMAAUTO -s {1} -n AUTO -N {2}".format(SEED, phylipFile, NUMTREES)
+    params2 = "-p {0} -m {1} -s {2} -b {0} -n BOOTSTRAP -N {3} -T {4}".format(SEED, BEST, phylipFile, NUMSTRAPS, args.threads)
+    params3 = "-p {0} -m {1} -f b -t RAxML_bestTree.AUTO -z RAxML_bootstrap.BOOTSTRAP -n BIPARTITION".format(SEED, BEST)
+
+    if not os.path.isfile("RAxML_bestTree.AUTO"):
+        run_raxml(args.raxmlThreaded, params1)
+    if not os.path.isfile("RAxML_bootstrap.BOOTSTRAP"):
+        run_raxml(args.raxmlThreaded, params2)
+    if not os.path.isfile("RAxML_bipartitions.BIPARTITION"):
+        run_raxml(args.raxmlStandard, params3)
+
+    # Get S param for ultrametric tree creation
+    with open(concatFile, "r") as fileIn:
+        S = 0
+        idCount = 0
+        for line in concatFile:
+            if line.startswith(">"):
+                idCount += 1
+            elif idCount == 1:
+                S += len(line.rstrip("\r\n"))
+            else:
+                break
+    
+    # Make ultrametric tree
+    run_r8s("RAxML_bestTree.AUTO", args.cafeDir, ultrametricDir, S, args.cafeP, args.cafeC)
+
+    # Get filtered input for CAFE
+    ## TBD...
+    ## This involves the Orthogroups.GeneCount.tsv file with some minor reformatting
+
+    # Run CAFE
+    ## TBD...
+
+    # Produce an output tree with gain/loss numbers
+    labeledNwk = r"F:\plant_phylogeny\cafe\visualised_tree\plants_labeled.nwk"
+    cladeResults = r"F:\plant_phylogeny\cafe\results\Base_clade_results.txt"
+    countResults = r"F:\plant_phylogeny\cafe\results\Base_count.tab"
+    updatedNwk = r"F:\plant_phylogeny\cafe\visualised_tree\updated_plants_labeled.nwk"
+    ggtree_ready_nwk(labeledNwk, cladeResults, countResults, updatedNwk)
+
 
 if __name__ == "__main__":
     main()
