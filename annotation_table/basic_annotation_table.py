@@ -34,8 +34,7 @@ def validate_args(args):
                 quit()
         # Check that the database tag argument was provided
         if args.databaseTag == None:
-                print('You need to specify a database tag. This value will be presented in the tabular output to note the database that was queried.')
-                print('This should be a short descriptive value, such as "UniRef100" or "uniparc"')
+                print('You need to specify a database tag from among the available options')
                 quit()
         # Check that skip file (if provided) exists
         if args.skipFile != None:
@@ -54,7 +53,7 @@ def parse_skipfile(skipFile):
                             skipList.append(skipID)
         return skipList
 
-def parse_idmap(idmapFile):
+def parse_idmap(idmapFile, databaseTag):
         idmapSet = set()        # This will simply hold onto values for quick retrieval to see what's inside the idmapping file
         # Load file and iterate through lines
         with open(idmapFile, 'r') as fileIn:
@@ -62,11 +61,14 @@ def parse_idmap(idmapFile):
                         sl = line.split('\t')
                         # Extract information
                         upkbAc = sl[0]
-                        uref100Ac = sl[7].split('_', maxsplit=1)[1]
+                        if databaseTag == "UniRef100":
+                            urefAc = sl[7].split('_', maxsplit=1)[1]
+                        elif databaseTag == "UniRef90":
+                            urefAc = sl[8].split('_', maxsplit=1)[1]
                         upiAc = sl[10]
                         # Save information into a set for quick retrieval
                         idmapSet.add(upkbAc)
-                        idmapSet.add(uref100Ac)
+                        idmapSet.add(urefAc)
                         idmapSet.add(upiAc)
         return idmapSet
 
@@ -128,20 +130,21 @@ important to provide an informative database tag so that this information can be
 
 # Reqs
 p = argparse.ArgumentParser(description=usage)
-p.add_argument("-inputBlast", "-ib", dest="blastTab",
+p.add_argument("-inputBlast", "-ib", dest="blastTab", required=True,
                    help="Input BLAST-tab file name.")
-p.add_argument("-inputID", "-id", dest="idFile",
+p.add_argument("-inputID", "-id", dest="idFile", required=True,
                    help="Input ID list file name. This can be a simple list of all sequence IDs, or a tab-delimited list containing pairs of old\tnew IDs.")
-p.add_argument("-idmappingFile", "-im", dest="idmappingFile",
+p.add_argument("-idmappingFile", "-im", dest="idmappingFile", required=True,
                    help="Input idmapping_selected.tab file (this is available from the UniProtKB FTP site).")
-p.add_argument("-outfile", "-o", dest="outputFileName",
+p.add_argument("-outfile", "-o", dest="outputFileName", required=True,
                    help="Output BLAST-tab file name.")
-p.add_argument("-evalue", "-e", dest="evalue", type=float,
+p.add_argument("-evalue", "-e", dest="evalue", type=float, required=True,
                    help="E-value significance cut-off (i.e., hits with E-value less significant won't be reported).")
-p.add_argument("-numhits", "-n", dest="numHits", type=int,
+p.add_argument("-numhits", "-n", dest="numHits", type=int, required=True,
                    help="Number of hits for each sequence to report (only the most significant will have full alignment details reported).")
-p.add_argument("-database", "-db", dest="databaseTag",
-                   help="Specify the name of the database being queried (e.g., uniparc or uniref100) - this will be presented in the tabular output.")
+p.add_argument("-database", "-db", dest="databaseTag", required=True,
+                   choices=["UniRef100", "UniRef90"],
+                   help="Specify the name of the database being queried (i.e., UniRef100 or UniRef90).")
 p.add_argument("-s", "-skip", dest="skipFile",
                    help="Optionally provide a list of IDs to skip when obtaining hits from the BLAST-tab results")
 
@@ -155,7 +158,7 @@ else:
         skipList = []
 
 # Parse idmapping file
-idmapSet = parse_idmap(args.idmappingFile)      # I'd like to use something that isn't so memory demanding (uses 40Gb of mem from personal use) but can't conceive of something suitable and fast.
+idmapSet = parse_idmap(args.idmappingFile, args.databaseTag)      # I'd like to use something that isn't so memory demanding (uses 40Gb of mem from personal use) but can't conceive of something suitable and fast.
 
 # Parse the blast-tab file
 outDict = blasttab_best_hits(args.blastTab, args.evalue, args.numHits, idmapSet, skipList)
