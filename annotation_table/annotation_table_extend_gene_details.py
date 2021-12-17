@@ -78,7 +78,7 @@ def validate_args(args):
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         elif not os.path.isfile(args.xmlFile):
-                print('I am unable to locate the input uniparc_all.xml file (' + args.genomeFile + ')')
+                print('I am unable to locate the input uniparc_all.xml file (' + args.xmlFile + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         # Handle file overwrites
