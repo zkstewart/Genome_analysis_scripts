@@ -59,17 +59,17 @@ def parse_idmap(idmapFile, databaseTag):
         with open(idmapFile, 'r') as fileIn:
                 for line in fileIn:
                         sl = line.split('\t')
-                        # Extract information
-                        upkbAc = sl[0]
+                        # Extract information & store into set for quick retrieval
+                        upkbAc = sl[0]; idmapSet.add(upkbAc)
+                        upiAc = sl[10]; idmapSet.add(upiAc)
+                        
                         if databaseTag == "UniRef100":
-                            urefAc = sl[7].split('_', maxsplit=1)[1]
+                            if sl[7] != "":
+                                urefAc = sl[7].split('_', maxsplit=1)[1]; idmapSet.add(urefAc)
                         elif databaseTag == "UniRef90":
-                            urefAc = sl[8].split('_', maxsplit=1)[1]
-                        upiAc = sl[10]
-                        # Save information into a set for quick retrieval
-                        idmapSet.add(upkbAc)
-                        idmapSet.add(urefAc)
-                        idmapSet.add(upiAc)
+                            if sl[8] != "":
+                                urefAc = sl[8].split('_', maxsplit=1)[1]; idmapSet.add(urefAc)
+                        
         return idmapSet
 
 def blasttab_best_hits(blastTab, evalue, numHits, idmapSet, skipList):
