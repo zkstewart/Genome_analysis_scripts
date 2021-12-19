@@ -99,8 +99,11 @@ go = obo_parser.GODag(args.oboFile)
 #                'GO:0001191': 'GO:0001085', 'GO:0001076': 'GO:0001085', 'GO:0000989': 'GO:0008134',
 #                'GO:0001190': 'GO:0001085', 'GO:0000991': 'GO:0140110', 'GO:0001129': 'GO:0051123',
 #                'GO:2001275': 'GO:1900078', 'GO:0031659': 'GO:0045737'} 
-obsoletedGOs = ['GO:0055114']                 # Similar to comment above; go-basic.obo file was downloaded 12/02/21
-replacedGOs = {'GO:0018192': 'GO:0098822'}    # Additional modifications were made to this code 19/02/21
+# obsoletedGOs = ['GO:0055114']                 # Similar to comment above; go-basic.obo file was downloaded 12/02/21
+# replacedGOs = {'GO:0018192': 'GO:0098822'}    # Additional modifications were made to this code 19/02/21
+obsoletedGOs = [] # As before; go-basic.obo file was downloaded 16-12-21
+replacedGOs = {'GO:0140603': 'GO:0016887', 'GO:0036425': 'GO:0036424', 'GO:0005671': 'GO:0140671',
+               'GO:2000574': '	GO:0140659', 'GO:0102132': 'GO:0004316', 'GO:0102131': 'GO:0004316'} # Modifications were made 20-12-21
 
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
@@ -141,6 +144,7 @@ with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fil
                                                 for term in splitGOs:
                                                         if term not in go:
                                                                 print('GO term needs replacement/obsoletion! == ' + term)
+                                                                print('Line = {0}'.format(line))
                                                         else:
                                                                 splitGOs = splitGOs.union(go[term].get_all_parents())
                                                 # Format GOs for output
