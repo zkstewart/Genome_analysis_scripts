@@ -6,6 +6,16 @@
 
 import os, argparse, re#, copy
 from Bio import SeqIO
+from Bio.Seq import Seq
+try:
+    from Bio.Alphabet import generic_dna
+    GENERIC_DNA_NEEDED = True
+except:
+    '''
+    The Bio.Alphabet package has been removed from new BioPython, but it's still needed in
+    old BioPython. This is annoying, but I'll make this compatible with either new or old.
+    '''
+    GENERIC_DNA_NEEDED = False
 
 # Define functions for later use
 def validate_args(args):
@@ -102,8 +112,6 @@ def longest_iso(geneDictObj):
 def cds_to_prot(seq, phase, seqid, geneticCode):
         # Setup
         import warnings
-        from Bio.Seq import Seq
-        from Bio.Alphabet import generic_dna
         # Modify the seq depending on phase information
         if phase != '.':        # If phase isn't provided in the GFF3, we assume it is phased as 0
                 try:
@@ -112,7 +120,10 @@ def cds_to_prot(seq, phase, seqid, geneticCode):
                         print('cds_to_prot: Problem with sequence "' + seqid + '"... Phasing information in GFF3 appears to be "' + str(phase) + '" and cannot be converted to integer')
                         print('This suggests that something is wrong with your GFF3 or the individual gene model. I will simply write the frame 1 (phase 0) translation to file.')
         # Translate and validate
-        nucl = Seq(seq, generic_dna)
+        if GENERIC_DNA_NEEDED: # new/old BioPython compatibility handler
+            nucl = Seq(seq, generic_dna)
+        else:
+            nucl = Seq(seq)
         with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                         prot = str(nucl.translate(table=geneticCode))
