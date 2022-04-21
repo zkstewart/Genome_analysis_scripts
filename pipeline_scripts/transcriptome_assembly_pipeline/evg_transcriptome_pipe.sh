@@ -7,24 +7,26 @@
 cd $PBS_O_WORKDIR
 
 ## Setup: Program file locations
-TRIMMOMATICDIR=/home/n8942188/various_programs/Trimmomatic-0.36
+TRIMMOMATICDIR=/home/stewarz2/various_programs/Trimmomatic-0.36
 TRIMMOMATICJAR=trimmomatic-0.36.jar
-STARDIR=/home/n8942188/various_programs/STAR/source
-SOAPDIR=/home/n8942188/various_programs/SOAPdenovo-Trans-bin-v1.03
-OASESDIR=/home/n8942188/various_programs/oases
-VELVETDIR=/home/n8942188/various_programs/oases/velvet
-SCALDIR=/home/n8942188/various_programs/scallop-0.10.2/src
-SCRIPTDIR=/home/n8942188/scripts/Genome_analysis_scripts
-FASTAHANDLINGDIR=/home/n8942188/scripts/Various_scripts
-EVGDIR=/home/n8942188/various_programs/evigene/scripts
-BUSCOCONFIG=/home/n8942188/various_programs/busco/config/config.ini
-BUSCOLINEAGE=/home/n8942188/various_programs/busco/lineage/metazoa_odb9
+STARDIR=/home/stewarz2/various_programs/STAR/source
+SOAPDIR=/home/stewarz2/various_programs/SOAPdenovo-Trans-bin-v1.03
+OASESDIR=/home/stewarz2/various_programs/oases
+VELVETDIR=/home/stewarz2/various_programs/oases/velvet
+SCALDIR=/home/stewarz2/various_programs/scallop-0.10.5/src
+TRINITYDIR=/home/stewarz2/various_programs/trinityrnaseq-v2.14.0
+SCRIPTDIR=/home/stewarz2/scripts/Genome_analysis_scripts
+FASTAHANDLINGDIR=/home/stewarz2/scripts/Various_scripts
+EVGDIR=/home/stewarz2/various_programs/evigene/scripts
+BUSCODIR=/home/stewarz2/various_programs/busco-5.2.1/bin
+BUSCOCONFIG=/home/stewarz2/various_programs/busco-5.2.1/config/config.ini
+BUSCOLINEAGE=/home/stewarz2/various_programs/busco-5.2.1/lineage/metazoa_odb10
 
 ## Setup: Input file locations
-READDIR=/home/n8942188/telmatactis/gene_models/rnaseq_reads
+READDIR=/home/stewarz2/telmatactis/gene_models/rnaseq_reads
 READ1FILE=L10_1.fq
 READ2FILE=L10_2.fq
-GENDIR=/home/n8942188/telmatactis/pilon
+GENDIR=/home/stewarz2/telmatactis/pilon
 GENFILE=telmatactis_HGAP.arr4.pil2.fasta
 
 ## Setup: Prefixes
@@ -114,11 +116,6 @@ EVGCPUS=8
 MASTERCATNAME="cat_${PREFIX}"
 MASTERCATTIME="00:30:00"
 MASTERCATMEM="10G"
-
-EVGNAME="evg_${PREFIX}"
-EVGTIME="60:00:00"
-EVGMEM="100G"
-EVGCPUS=8
 
 OKCATNAME="okcat_${PREFIX}"
 OKCATTIME="00:30:00"
@@ -274,11 +271,9 @@ echo "
 #PBS -l ncpus=${TRINDNCPUS}
 #PBS -W depend=afterok:
 
-module load trinity/2.8.5-foss-2016a
-module load gmap-gsnap/2019-02-15-foss-2018a
 module load jellyfish/2.2.6-foss-2016a
 cd ${HOMEDIR}/transcriptomes/trinity-denovo
-Trinity --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --SS_lib_type RF --min_kmer_cov 2 --monitoring --seqType fq --left ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_1P.fq --right ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_2P.fq --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
+${TRINITYDIR}/Trinity --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --SS_lib_type RF --min_kmer_cov 2 --monitoring --seqType fq --left ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_1P.fq --right ${HOMEDIR}/trimmomatic/${PREFIX}.trimmed_2P.fq --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
 " > ${TRINDNJOBFILE}
 sed -i '1d' ${TRINDNJOBFILE}
 
@@ -378,10 +373,8 @@ echo "
 #PBS -l ncpus=${TRINGGCPUS}
 #PBS -W depend=afterok:
 
-module load trinity/2.8.5-foss-2016a
-module load gmap-gsnap/2019-02-15-foss-2018a
 cd ${HOMEDIR}/transcriptomes/trinity-gg
-Trinity --genome_guided_bam ${HOMEDIR}/star_map/Aligned.out.sorted.bam --genome_guided_max_intron ${MAXINTRON} --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --min_kmer_cov 2 --SS_lib_type FR --monitoring --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
+${TRINITYDIR}/Trinity --genome_guided_bam ${HOMEDIR}/star_map/Aligned.out.sorted.bam --genome_guided_max_intron ${MAXINTRON} --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --min_kmer_cov 2 --SS_lib_type FR --monitoring --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
 ln -s trinity_out_dir/Trinity-GG.fasta .
 " > ${TRINGGJOBFILE}
 sed -i '1d' ${TRINGGJOBFILE}
@@ -436,7 +429,7 @@ module load cd-hit/4.6.4-foss-2016a-2015-0603
 mkdir -p ${PREFIX}_evgrun
 cd ${PREFIX}_evgrun
 python ${FASTAHANDLINGDIR}/fasta_handling_master_code.py -f rename -i ${HOMEDIR}/transcriptomes/${PREFIX}_master_transcriptome.fasta -s ${PREFIX}_ -o ${PREFIX}_master_transcriptome.fasta
-${EVGDIR}/prot/tr2aacds.pl -debug -NCPU ${EVGCPUS} -MAXMEM 150000 -log -mrnaseq ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/${PREFIX}_master_transcriptome.fasta
+${EVGDIR}/prot/tr2aacds.pl -debug -NCPU ${EVGCPUS} -MAXMEM 150000 -log -cdnaseq ${HOMEDIR}/transcriptomes/evidentialgene/${PREFIX}_evgrun/${PREFIX}_master_transcriptome.fasta
 " > ${EVGJOBFILE}
 sed -i '1d' ${EVGJOBFILE}
 
@@ -472,9 +465,9 @@ module load blast+/2.3.0-foss-2016a-python-2.7.11
 export BUSCO_CONFIG_FILE=${BUSCOCONFIG}
 mkdir -p busco_results
 cd busco_results
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.aa -o ${PREFIX}_okay-okalt_busco.aa -l ${BUSCOLINEAGE} -m prot -c ${BUSCOCPUS}
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.cds -o ${PREFIX}_okay-okalt_busco.cds -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
-python3 /home/n8942188/various_programs/busco/scripts/run_BUSCO.py -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.fasta -o ${PREFIX}_okay-okalt_busco.fasta -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/busco -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.aa -o ${PREFIX}_okay-okalt_busco.aa -l ${BUSCOLINEAGE} -m prot -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/busco -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.cds -o ${PREFIX}_okay-okalt_busco.cds -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
+python3 ${BUSCODIR}/busco -i ${HOMEDIR}/transcriptomes/evidentialgene/concatenated/${PREFIX}_okay-okalt.fasta -o ${PREFIX}_okay-okalt_busco.fasta -l ${BUSCOLINEAGE} -m tran -c ${BUSCOCPUS}
 " > ${BUSCOJOBFILE}
 sed -i '1d' ${BUSCOJOBFILE}
 
