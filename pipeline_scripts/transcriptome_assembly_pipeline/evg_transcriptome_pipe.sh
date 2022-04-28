@@ -9,7 +9,7 @@ cd $PBS_O_WORKDIR
 ## Setup: Program file locations
 TRIMMOMATICDIR=/home/stewarz2/various_programs/Trimmomatic-0.36
 TRIMMOMATICJAR=trimmomatic-0.36.jar
-STARDIR=/home/stewarz2/various_programs/STAR/source
+STARDIR=/home/stewarz2/various_programs/STAR-2.7.10a/bin/Linux_x86_64_static
 SOAPDIR=/home/stewarz2/various_programs/SOAPdenovo-Trans-bin-v1.03
 OASESDIR=/home/stewarz2/various_programs/oases
 VELVETDIR=/home/stewarz2/various_programs/oases/velvet
@@ -473,30 +473,61 @@ sed -i '1d' ${BUSCOJOBFILE}
 
 ## STEP 3: Submit jobs in order to perform individual assemblies
 ### TRIMMOMATIC
-if [ "$SKIPTRIM" == "FALSE" ]; then TRIMJOBID=$(qsub ${TRIMMOMATICJOBFILE}); else TRIMJOBID=""; fi
+if [ "$SKIPTRIM" == "FALSE" ]; then
+	TRIMJOBID=$(qsub ${TRIMMOMATICJOBFILE});
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${TRIMJOBID},' ${TRINDNJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${TRIMJOBID},' ${STARJOBFILE}";
+else
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${TRINDNJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${STARJOBFILE}";
+fi
+
 ### TRINITY DE NOVO ASSEMBLY [contingent on Trimmomatic]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${TRIMJOBID},' ${TRINDNJOBFILE}"
 if [ "$SKIPTRINDN" == "FALSE" ]; then TRINDNJOBID=$(qsub ${TRINDNJOBFILE}); else TRINDNJOBID=""; fi
+
 ### STAR RNA-SEQ READ ALIGNMENT [contingent on Trimmomatic]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${TRIMJOBID},' ${STARJOBFILE}"
-if [ "$SKIPSTAR" == "FALSE" ]; then STARJOBID=$(qsub ${STARJOBFILE}); else STARJOBID=""; fi
+if [ "$SKIPSTAR" == "FALSE" ]; then
+	STARJOBID=$(qsub ${STARJOBFILE});
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${STARJOBID},' ${PICARDJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${STARJOBID},' ${SAMTOOLSJOBFILE}"
+else
+	STARJOBID="";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${PICARDJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${SAMTOOLSJOBFILE}";
+fi
+
 ### PICARD & STATISTICS FOR RNA-SEQ READS [contingent on STAR]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${STARJOBID},' ${PICARDJOBFILE}"
-if [ "$SKIPPICARD" == "FALSE" ]; then PICARDJOBID=$(qsub ${PICARDJOBFILE}); else PICARDJOBID=""; fi
+if [ "$SKIPPICARD" == "FALSE" ]; then
+	PICARDJOBID=$(qsub ${PICARDJOBFILE});
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${PICARDJOBID},' ${OASVELJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${PICARDJOBID},' ${SOAPDNJOBFILE}";
+else
+	PICARDJOBID="";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${OASVELJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${SOAPDNJOBFILE}";
+fi
+
 ### OASES-VELVET DE NOVO ASSEMBLY [contingent on Picard]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${PICARDJOBID},' ${OASVELJOBFILE}"
 if [ "$SKIPOASVEL" == "FALSE" ]; then OASVELJOBID=$(qsub ${OASVELJOBFILE}); else OASVELJOBID=""; fi
+
 ### SOAPDENOVO-TRANS ASSEMBLY [contingent on Picard]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${PICARDJOBID},' ${SOAPDNJOBFILE}"
 if [ "$SKIPSOAPDN" == "FALSE" ]; then SOAPDNJOBID=$(qsub ${SOAPDNJOBFILE}); else SOAPDNJOBID=""; fi
+
 ### SAMTOOLS SORT [contingent on STAR]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${STARJOBID},' ${SAMTOOLSJOBFILE}"
-if [ "$SKIPSORT" == "FALSE" ]; then SAMTOOLSJOBID=$(qsub ${SAMTOOLSJOBFILE}); else SAMTOOLSJOBID=""; fi
+if [ "$SKIPSORT" == "FALSE" ]; then
+	SAMTOOLSJOBID=$(qsub ${SAMTOOLSJOBFILE});
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMTOOLSJOBID},' ${TRINGGJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMTOOLSJOBID},' ${SCALLOPJOBFILE}";
+else
+	SAMTOOLSJOBID="";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${TRINGGJOBFILE}";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${SCALLOPJOBFILE}";
+fi
+
 ### TRINITY GG ASSEMBLY [contingent on samtools sort]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMTOOLSJOBID},' ${TRINGGJOBFILE}"
 if [ "$SKIPTRINGG" == "FALSE" ]; then TRINGGJOBID=$(qsub ${TRINGGJOBFILE}); else TRINGGJOBID=""; fi
+
 ### SCALLOP GG ASSEMBLY [contingent on samtools sort]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${SAMTOOLSJOBID},' ${SCALLOPJOBFILE}"
 if [ "$SKIPSCALLOP" == "FALSE" ]; then SCALLOPJOBID=$(qsub ${SCALLOPJOBFILE}); else SCALLOPJOBID=""; fi
 
 ## STEP 4: Prepare for and run EvidentialGene pipeline
@@ -507,16 +538,32 @@ if [ "$TRINGGJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${TRIN
 if [ "$SCALLOPJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${SCALLOPJOBID}"} 1' ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}; fi
 if [ "$SOAPDNJOBID" != "" ]; then awk '/#PBS -W depend=afterok.*/ {$0=$0":${SOAPDNJOBID}"} 1' ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}; fi
 TRINDNJOBID=$TRINDNJOBID OASVELJOBID=$OASVELJOBID TRINGGJOBID=$TRINGGJOBID SCALLOPJOBID=$SCALLOPJOBID SOAPDNJOBID=$SOAPDNJOBID envsubst < ${MASTERCATJOBFILE} > tmp && mv tmp ${MASTERCATJOBFILE}
-if [ "$SKIPMASTERCAT" == "FALSE" ]; then MASTERCATJOBID=$(qsub ${MASTERCATJOBFILE}); else MASTERCATJOBID=""; fi
+
+if [ "$SKIPMASTERCAT" == "FALSE" ]; then
+	MASTERCATJOBID=$(qsub ${MASTERCATJOBFILE});
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${MASTERCATJOBID},' ${EVGJOBFILE}";
+else
+	MASTERCATJOBID="";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${EVGJOBFILE}";
+fi
+
 ### EVIDENTIALGENE [contingent on concatenation]
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${MASTERCATJOBID},' ${EVGJOBFILE}"
-if [ "$SKIPEVG" == "FALSE" ]; then EVGJOBID=$(qsub ${EVGJOBFILE}); else EVGJOBID=""; fi
-### OKAY-OKALT CONCATENATION
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${EVGJOBID},' ${OKCATJOBFILE}"
-if [ "$SKIPOKCAT" == "FALSE" ]; then OKCATJOBID=$(qsub ${OKCATJOBFILE}); else OKCATJOBID=""; fi
+if [ "$SKIPEVG" == "FALSE" ]; then
+	EVGJOBID=$(qsub ${EVGJOBFILE});
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${EVGJOBID},' ${OKCATJOBFILE}"
+else
+	EVGJOBID="";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${OKCATJOBFILE}";
+fi
 
-## STEP 5: Run BUSCO to validate assembly quality
-### BUSCO
-eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${OKCATJOBID},' ${BUSCOJOBFILE}"
-if [ "$SKIPBUSCO" == "FALSE" ]; then BUSCOJOBID=$(qsub ${BUSCOJOBFILE}); else BUSCOJOBID=""; fi
+### OKAY-OKALT CONCATENATION [contingent on EvidentialGene]
+if [ "$SKIPOKCAT" == "FALSE" ]; then
+	OKCATJOBID=$(qsub ${OKCATJOBFILE});
+	eval "sed -i 's,#PBS -W depend=afterok.*,#PBS -W depend=afterok:${OKCATJOBID},' ${BUSCOJOBFILE}"
+else
+	OKCATJOBID="";
+	eval "sed -i 's,#PBS -W depend=afterok.*,,' ${BUSCOJOBFILE}";
+fi
 
+## STEP 5: Run BUSCO to validate assembly quality [contingent on okay-okalt concatenation
+if [ "$SKIPBUSCO" == "FALSE" ]; then BUSCOJOBID=$(qsub ${BUSCOJOBFILE}); fi
