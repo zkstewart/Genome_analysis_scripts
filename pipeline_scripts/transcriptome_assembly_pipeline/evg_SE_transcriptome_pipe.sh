@@ -9,7 +9,7 @@ cd $PBS_O_WORKDIR
 ## Setup: Program file locations
 TRIMMOMATICDIR=/home/stewarz2/various_programs/Trimmomatic-0.36
 TRIMMOMATICJAR=trimmomatic-0.36.jar
-STARDIR=/home/stewarz2/various_programs/STAR/source
+STARDIR=/home/stewarz2/various_programs/STAR-2.7.10a/bin/Linux_x86_64_static
 SOAPDIR=/home/stewarz2/various_programs/SOAPdenovo-Trans-bin-v1.03
 OASESDIR=/home/stewarz2/various_programs/oases
 VELVETDIR=/home/stewarz2/various_programs/oases/velvet
@@ -313,6 +313,8 @@ echo "
 #PBS -l ncpus=${TRINGGCPUS}
 #PBS -W depend=afterok:
 
+module load jellyfish/2.2.6-foss-2016a
+module load java/1.8.0_231
 cd ${HOMEDIR}/transcriptomes/trinity-gg
 ${TRINITYDIR}/Trinity --genome_guided_bam ${HOMEDIR}/star_map/Aligned.out.sorted.bam --genome_guided_max_intron ${MAXINTRON} --CPU ${TRINGGCPUS} --max_memory ${TRINGGMEM} --min_kmer_cov 2 --SS_lib_type F --monitoring --full_cleanup 2>&1 >> ${PREFIX}_Trinity.log
 ln -s trinity_out_dir/Trinity-GG.fasta .
