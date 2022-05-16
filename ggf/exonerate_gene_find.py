@@ -13,7 +13,6 @@ from ncls import NCLS
 from Bio import SeqIO
 from Bio.Data import CodonTable
 from Bio.Seq import Seq
-from Bio.Alphabet import generic_dna
 from pathlib import Path
 
 # Define functions for later use
@@ -608,7 +607,7 @@ def cds_extension_maximal(coords, contigID, orientation, genomeRecords, geneticC
                         coords[0] = [coords[0][0], accepted]
         # Determine if we need to do a stop codon crawl
         cds = make_cds(coords, genomeRecords, contigID, orientation)
-        cdsRecord = Seq(cds, generic_dna)
+        cdsRecord = Seq(cds)
         with warnings.catch_warnings():
                 warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three
                 cdsProt = str(cdsRecord.translate(table=geneticCode))
@@ -783,10 +782,10 @@ def find_longest_orf_nostopallowed(seq, firstCodon):
         # Translate into ORFs and grab the longest bits inbetween stop codons
         longest = ['', '']
         for frame in range(3):
-                record = Seq(seq, generic_dna)
+                record = Seq(seq)
                 # Get nucleotide for this frame
                 nucl = str(record)[frame:]
-                nucl = Seq(nucl, generic_dna)
+                nucl = Seq(nucl)
                 # Translate to protein
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
@@ -815,7 +814,7 @@ def find_longest_orf_nostopallowed(seq, firstCodon):
                 # Update the start position of this nucl
                 nucl = nucl[codonIndex*3:]
                 # Translate to amino acid
-                record = Seq(nucl, generic_dna)
+                record = Seq(nucl)
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                         frameOrf = str(record.translate(table=1))
@@ -832,7 +831,7 @@ def validate_prot(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
         origProt = longest_orf(cdsRecords[cdsID])
         origLen = len(origCDS)
         # Convert the new sequence to protein
-        record = Seq(cdsNucl, generic_dna)
+        record = Seq(cdsNucl)
         with warnings.catch_warnings():
                 warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                 cdsProt = str(record.translate(table=1))
@@ -861,7 +860,7 @@ def longest_orf(record):
         for frame in range(3):
                 # Get nucleotide for this frame
                 nucl = str(record.seq)[frame:]
-                nucl = Seq(nucl, generic_dna)
+                nucl = Seq(nucl)
                 # Translate to protein
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
@@ -1254,7 +1253,7 @@ def cds_to_prot(seq, phase, seqid, geneticCode):
                         print('cds_to_prot: Problem with sequence "' + seqid + '"... Phasing information in GFF3 appears to be "' + str(phase) + '" and cannot be converted to integer')
                         print('This suggests that something is wrong with your GFF3 or the individual gene model. I will simply write the frame 1 (phase 0) translation to file.')
         # Translate and validate
-        nucl = Seq(seq, generic_dna)
+        nucl = Seq(seq)
         with warnings.catch_warnings():
                 warnings.simplefilter('ignore') # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three
                 prot = str(nucl.translate(table=geneticCode))

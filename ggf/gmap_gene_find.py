@@ -7,7 +7,6 @@ import os, argparse, re, warnings, copy, parasail
 import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
-from Bio.Alphabet import generic_dna
 from ncls import NCLS
 
 # GFF3 handling
@@ -245,10 +244,10 @@ def find_longest_orf(seq, firstCodon):
         # Translate into ORFs and grab the longest bits inbetween stop codons
         longest = ['', '']
         for frame in range(3):
-                record = Seq(seq, generic_dna)
+                record = Seq(seq)
                 # Get nucleotide for this frame
                 nucl = str(record)[frame:]
-                nucl = Seq(nucl, generic_dna)
+                nucl = Seq(nucl)
                 # Translate to protein
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
@@ -277,7 +276,7 @@ def find_longest_orf(seq, firstCodon):
                 # Update the start position of this nucl
                 nucl = nucl[codonIndex*3:]
                 # Translate to amino acid
-                record = Seq(nucl, generic_dna)
+                record = Seq(nucl)
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                         frameOrf = str(record.translate(table=1))
@@ -293,7 +292,7 @@ def validate_translated_cds(cdsNucl, cdsRecords, cdsID, alignPctCutoff):
         origProt = longest_orf(cdsRecords[cdsID])
         origLen = len(origCDS)
         # Convert the new sequence to protein
-        record = Seq(cdsNucl, generic_dna)
+        record = Seq(cdsNucl)
         with warnings.catch_warnings():
                 warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                 cdsProt = str(record.translate(table=1))
@@ -453,7 +452,7 @@ def cds_extension(coords, contigID, orientation, genomeRecords):
                         coords[0] = [coords[0][0], acceptedPos]
         # Determine if we need to do a stop codon crawl
         cds = make_cds(coords, genomeRecords, contigID, orientation)
-        cdsRecord = Seq(cds, generic_dna)
+        cdsRecord = Seq(cds)
         with warnings.catch_warnings():
                 warnings.simplefilter('ignore')                         # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
                 cdsProt = str(cdsRecord.translate(table=1))
@@ -505,7 +504,7 @@ def longest_orf(record):
         for frame in range(3):
                 # Get nucleotide for this frame
                 nucl = str(record.seq)[frame:]
-                nucl = Seq(nucl, generic_dna)
+                nucl = Seq(nucl)
                 # Translate to protein
                 with warnings.catch_warnings():
                         warnings.simplefilter('ignore')                 # This is just to get rid of BioPython warnings about len(seq) not being a multiple of three. We know that in two of these frames that will be true so it's not a problem.
