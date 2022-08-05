@@ -195,6 +195,10 @@ def main():
                     if feature.ID in GFF3_obj.pasa_prots:
                         prot = GFF3_obj.pasa_prots[feature.ID]
                     else:
+                        try:
+                            cds_startingFrame = int(cds_startingFrame)
+                        except:
+                            cds_startingFrame = 0
                         prot, strand, frame = cds_FastASeq_obj.get_translation(strand=1, frame=int(cds_startingFrame))
                 
                 # Output relevant values to file
