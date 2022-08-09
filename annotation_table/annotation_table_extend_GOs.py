@@ -101,11 +101,20 @@ go = obo_parser.GODag(args.oboFile)
 #                'GO:2001275': 'GO:1900078', 'GO:0031659': 'GO:0045737'} 
 # obsoletedGOs = ['GO:0055114']                 # Similar to comment above; go-basic.obo file was downloaded 12/02/21
 # replacedGOs = {'GO:0018192': 'GO:0098822'}    # Additional modifications were made to this code 19/02/21
-obsoletedGOs = [] # As before; go-basic.obo file was downloaded 16-12-21
+obsoletedGOs = [] # go.obo file was downloaded 09-08-22
 replacedGOs = {'GO:0140603': 'GO:0016887', 'GO:0036425': 'GO:0036424', 'GO:0005671': 'GO:0140671',
                'GO:2000574': 'GO:0140659', 'GO:0102132': 'GO:0004316', 'GO:0102131': 'GO:0004316',
                'GO:0009405': 'GO:0052031', 'GO:0015002': 'GO:0016491', 'GO:0052331': 'GO:0044179',
-               'GO:0000186': 'GO:0000165', 'GO:2000575': 'GO:0140661'} # Modifications were made 20-12-21
+               'GO:0000186': 'GO:0000165', 'GO:2000575': 'GO:0140661', # Modifications to this point were made 20-12-21
+               'GO:0015491': "GO:0008324", 'GO:0006557': "GO:0004014", 'GO:0000187': "GO:0000165",
+               'GO:0018298': "GO:0043687", 'GO:0033577': "GO:0006486", 'GO:0102552': "GO:0016992",
+               'GO:2000582': "GO:0140660", 'GO:0031936': "GO:0060969", 'GO:0102553': "GO:0016992",
+               'GO:0070827': "GO:0006325", 'GO:0060968': "GO:0040029", 'GO:0045857': "GO:0044092",
+               'GO:0042766': "GO:0140658", 'GO:0009305': "GO:0036211", 'GO:0070122': "GO:0008233",
+               'GO:0010847': "GO:0006325", 'GO:0016584': "GO:0140658", 'GO:0015301': "GO:0008509",
+               'GO:0031935': "GO:1902275", 'GO:0031938': "GO:0031509" # Modifications to this point were made 09-08-22
+               } 
+
 
 with open(args.inputTable, 'r') as fileIn, open(args.outputFileName, 'w') as fileOut:
         for line in fileIn:
