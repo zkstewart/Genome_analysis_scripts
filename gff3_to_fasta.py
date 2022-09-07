@@ -161,9 +161,11 @@ def main():
     # Produce output files
     with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasink(nuclOutputFileName, 'cds', args.seqType) as nuclOut, datasink(protOutputFileName, 'cds', args.seqType) as protOut: 
         for geneFeature in GFF3_obj.types["gene"]:
-            mrnaFeatures = geneFeature.mRNA
-            #if geneFeature.ID == "aulver_manual_1":
-            #    stophere
+            # Tolerantly accept genes that lack mRNA subfeatures
+            try:
+                mrnaFeatures = geneFeature.mRNA
+            except:
+                mrnaFeatures = [geneFeature]
             # Reduce our mrnas to only the representative entry if relevant
             """
             (representative == longest; note that this is with relation to CDS
@@ -176,19 +178,10 @@ def main():
             for feature in mrnaFeatures:
                 # Get nucleotide sequence(s)
                 if args.seqType == "both" or args.seqType == "transcript":
-                    exon_FastASeq_objs, exon_featureTypes, exon_startingFrames = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "exon")
-                    assert len(exon_FastASeq_objs) == 1, \
-                        "Length of exon_FastASeq_objs isn't 1; this isn't handled"
-                    
-                    exon_FastASeq_obj = exon_FastASeq_objs[0]
+                    exon_FastASeq_obj, exon_featureType, exon_startingFrame = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "exon")
                 
                 if args.seqType == "both" or args.seqType == "cds":
-                    cds_FastASeq_objs, cds_featureTypes, cds_startingFrames = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "CDS")
-                    assert len(cds_FastASeq_objs) == 1, \
-                        "Length of cds_FastASeq_objs isn't 1; this isn't handled"
-                    
-                    cds_FastASeq_obj = cds_FastASeq_objs[0]
-                    cds_startingFrame = cds_startingFrames[0]
+                    cds_FastASeq_obj, cds_featureType, cds_startingFrame = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "CDS")
                 
                 # Retrieve protein sequence if relevant
                 if args.seqType == 'cds' or args.seqType == 'both':
@@ -199,7 +192,7 @@ def main():
                             cds_startingFrame = int(cds_startingFrame)
                         except:
                             cds_startingFrame = 0
-                        prot, strand, frame = cds_FastASeq_obj.get_translation(strand=1, frame=int(cds_startingFrame))
+                        prot, strand, frame = cds_FastASeq_obj.get_translation(strand=1, frame=cds_startingFrame)
                 
                 # Output relevant values to file
                 if args.seqType == 'both' or args.seqType == 'transcript':
