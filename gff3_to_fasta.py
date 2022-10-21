@@ -146,6 +146,9 @@ def main():
                 help="""By default this program will not overwrite existing files.
                 Specify this argument to allow this behaviour at your own risk.""",
                 default=False)
+    p.add_argument("--relaxed", dest="relaxedParsing", action='store_true', required=False,
+                help="""Optionally specify whether we should use relaxed GFF3 parsing.""",
+                default=False)
     
     args = p.parse_args()
     mainOutputFileName, nuclOutputFileName, protOutputFileName = validate_args(args)
@@ -154,7 +157,7 @@ def main():
     genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.fasta, 'r'), 'fasta'))
     
     # Parse the gff3 file
-    GFF3_obj = Function_packages.LinesGFF3(args.gff3)
+    GFF3_obj = Function_packages.LinesGFF3(args.gff3, not args.relaxedParsing) # negate it for strict_parsing
     GFF3_obj.add_comments()
     GFF3_obj.pasaprots_extract()
     
@@ -162,9 +165,9 @@ def main():
     with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasink(nuclOutputFileName, 'cds', args.seqType) as nuclOut, datasink(protOutputFileName, 'cds', args.seqType) as protOut: 
         for geneFeature in GFF3_obj.types["gene"]:
             # Tolerantly accept genes that lack mRNA subfeatures
-            try:
+            if hasattr(geneFeature, "mRNA"):
                 mrnaFeatures = geneFeature.mRNA
-            except:
+            else:
                 mrnaFeatures = [geneFeature]
             # Reduce our mrnas to only the representative entry if relevant
             """
@@ -181,10 +184,13 @@ def main():
                     exon_FastASeq_obj, exon_featureType, exon_startingFrame = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "exon")
                 
                 if args.seqType == "both" or args.seqType == "cds":
-                    cds_FastASeq_obj, cds_featureType, cds_startingFrame = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "CDS")
+                    if hasattr(feature, "CDS"):
+                        cds_FastASeq_obj, cds_featureType, cds_startingFrame = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "CDS")
+                    else:
+                        cds_FastASeq_obj = None # if feature has no CDS attributes, it's not relevant for CDS output
                 
                 # Retrieve protein sequence if relevant
-                if args.seqType == 'cds' or args.seqType == 'both':
+                if (args.seqType == 'cds' or args.seqType == 'both') and cds_FastASeq_obj != None: # feature needs CDS to have a protein associated with it
                     if feature.ID in GFF3_obj.pasa_prots:
                         prot = GFF3_obj.pasa_prots[feature.ID]
                     else:
@@ -192,12 +198,12 @@ def main():
                             cds_startingFrame = int(cds_startingFrame)
                         except:
                             cds_startingFrame = 0
-                        prot, strand, frame = cds_FastASeq_obj.get_translation(strand=1, frame=cds_startingFrame)
+                        prot, _, _ = cds_FastASeq_obj.get_translation(strand=1, frame=cds_startingFrame) # _, _ == strand, frame
                 
                 # Output relevant values to file
                 if args.seqType == 'both' or args.seqType == 'transcript':
                     mainOut.write(">{0}\n{1}\n".format(feature.ID, exon_FastASeq_obj.seq))
-                if args.seqType == 'both' or args.seqType == 'cds':
+                if (args.seqType == 'both' or args.seqType == 'cds') and cds_FastASeq_obj != None: # as above, if we have no CDS attributes, we can't do this
                     nuclOut.write(">{0}\n{1}\n".format(feature.ID, cds_FastASeq_obj.seq))
                     protOut.write(">{0}\n{1}\n".format(feature.ID, prot))
     
