@@ -78,6 +78,17 @@ def validate_args(args):
         if args.sampleNum < 1:
                 print('Sample number argument must be >= 1')
                 quit()
+        # Handle output file names
+        if args.outputFileNames != []:
+                if len(args.outputFileNames) != len(args.inputFastas):
+                        print("{0} input FASTAs given, but a non-equal number of output files given ({1})".format(len(args.inputFastas), len(args.outputFileNames)))
+                        print("Correct this issue and try again.")
+                        quit()
+                for outputFileName in args.outputFileNames:
+                        if os.path.isfile(outputFileName):
+                                print('Specified file name already exists (' + entry + ')')
+                                print('This program won\'t overwrite an existing file; provide a new name and try again.')
+                                quit()
         return seqType, lineNum1
 
 def file_name_gen(prefix):
@@ -151,11 +162,23 @@ Output files are labelled as ${INPUT}.subset${SAMPLENUM}. If this file already e
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("inputFastas", nargs="+",
-                  help="Accepts 1-2 fast(a/q) file name(s). If subsetting paired fastq files, enter both file names to ensure they use the same random seed. If using regular fasta, just one file at a time please. Will also accept a single fastq file.")
+                required=True,
+                help="""Accepts 1-2 fast(a/q) file name(s). If subsetting paired fastq files, enter both file
+                names to ensure they use the same random seed. If using regular fasta, just one file at a time
+                please. Will also accept a single fastq file.""")
 p.add_argument("-n", "--num", dest="sampleNum", type=int,
-                  help="number of samples to obtain")
+                required=True,
+                help="number of samples to obtain")
 p.add_argument("-t", "--type", dest="sampleType", choices=['random','first', 'last'],
-                  help="type of sampling mechanism [first means we sample n sequences from the start of the file, last means we sample n sequences from the end of the file, random means random selection from all sequences in the file", default = 'random')
+                required=True,
+                help="""type of sampling mechanism [first means we sample n sequences from the start of the file,
+                last means we sample n sequences from the end of the file, random means random selection from all
+                sequences in the file", default = 'random'""")
+p.add_argument("-o", "--output", destination="outputFileNames", nargs="+",
+                required=False,
+                help="""Optionally, specify the output file names; must have same number of arguments
+                as the number of input files; if not provided, names will be generated for you""",
+                default=[])
 
 # Parse arguments
 args = p.parse_args()
@@ -188,7 +211,10 @@ sampleNums = dict.fromkeys(sampleNums)
 
 # Perform sampling
 for i in range(len(args.inputFastas)):
-        outputFileName = file_name_gen(originalFastas[i] + '.subset' + str(args.sampleNum))     # By doing this, our output file will be in the same style as our original inputs and not as our temp file if we made one
+        if args.outputFileNames == []:
+                outputFileName = file_name_gen(originalFastas[i] + '.subset' + str(args.sampleNum))     # By doing this, our output file will be in the same style as our original inputs and not as our temp file if we made one
+        else:
+                outputFileName = args.outputFileNames[i]
         subsample_output(args.inputFastas[i], outputFileName, seqType, args.sampleNum)
 
 # Clean up temp files if we made them
