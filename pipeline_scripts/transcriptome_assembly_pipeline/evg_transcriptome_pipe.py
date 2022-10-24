@@ -416,27 +416,26 @@ def make_subset_script(argsContainer):
 
 cd {workingDir}/star_map
 
-##TBD...
+####
+
+READSDIR={workingDir}/prepared_reads
+NUMREADS=50000
+
+####
+
+python {genScriptDir}/fasta_extractSubset.py {inputFastas} -n ${{NUMREADS}} -t first -o 
 
 """.format(
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     buscoConfig=argsContainer.buscoConfig,
+    genScriptDir=argsContainer.genScriptDir,
+    inputFastas=f"${{READSDIR}}/${argsContainer.prefix}.fq" if argsContainer.isSingleEnd else \
+        f"${{READSDIR}}/${argsContainer.prefix}_1.fq ${{READSDIR}}/${argsContainer.prefix}_2.fq",
+    outputFastas=f"${argsContainer.prefix}.subset.fq" if argsContainer.isSingleEnd else \
+        f"${argsContainer.prefix}_1.subset.fq ${argsContainer.prefix}_2.subset.fq",
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
-
-    # Append BUSCO commands for each file to be run
-    for i in range(len(argsContainer.fastaFiles)):
-        fasta = argsContainer.fastaFiles[i]
-        mode = argsContainer.modes[i]
-        scriptText += "python3 ${{buscoDir}}/busco -i {workingDir}/transcriptomes/evidentialgene/concatenated/{fasta} -o {fasta} -l ${buscoLineage} -m ${mode} -c ${{CPUS}}\n".format(
-            buscoDir=argsContainer.buscoDir,
-            workingDir=argsContainer.workingDir,
-            buscoLineage=argsContainer.buscoLineage,
-            fasta=fasta,
-            mode=mode
-        )
-    
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
@@ -646,8 +645,16 @@ def main():
     # If not GG assembly; Run subsetted STAR alignment against transcriptome
     else:
         # Subset FASTQ reads for alignment
+        subsetScriptName = os.path.join(os.getcwd(), "star_map", "run_subset.sh")
         make_subset_script(Container({
-            
+            "outputFileName": subsetScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "genScriptDir": args.genscript,
+            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
+            "isSingleEnd": args.isSingleEnd,
         }))
         ## TBD...
         
