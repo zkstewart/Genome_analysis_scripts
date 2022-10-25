@@ -47,7 +47,7 @@ def main():
     usage = """%(prog)s reads in a Picard CollectInsertSizeMetrics imetrics file and
     identifies the best approximation of the insert size for your RNAseq library"""
     p = argparse.ArgumentParser(description=usage)
-    p.add_argument("-i", dest="imetricFile", type=int,
+    p.add_argument("-i", dest="imetricFile",
                     required=True,
                     help="Specify the input imetrics file")
     p.add_argument("-o", dest="outputFileName",
