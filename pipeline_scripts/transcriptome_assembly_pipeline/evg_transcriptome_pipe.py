@@ -93,7 +93,7 @@ def setup_work_dir(args):
     
 def qsub(scriptFileName):
     ## do the qsub, get returned ID
-    jobID = None
+    jobID = "1234" ## testing, TBD fixing
     
     return jobID
 
@@ -150,7 +150,7 @@ def concat_files(fileList, outputFileName):
                     fileOut.write(line.rstrip("\r\n") + "\n")
 
 ## Script file generators
-def make_trimmomatic_script(argsContainer):
+def make_trimmomatic_script(argsContainer, MEM="30G", CPUS="2"):
     if argsContainer.reverseFiles != None:
         filePrefixes = [os.path.commonprefix([argsContainer.forwardFiles[i], argsContainer.reverseFiles[i]]) for i in range(len(argsContainer.forwardFiles))]
     else:
@@ -160,8 +160,8 @@ def make_trimmomatic_script(argsContainer):
 """#!/bin/bash -l
 #PBS -N trim_{prefix}
 #PBS -l walltime=24:00:00
-#PBS -l mem=30G
-#PBS -l ncpus=2
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
 #PBS -J 1-{fileNum}
 
 cd {workingDir}/trimmomatic
@@ -196,6 +196,8 @@ ARRAY_INDEX=$((${{PBS_ARRAY_INDEX}}-1))
 FILEPREFIX=${{PREFIXES[${{ARRAY_INDEX}}]}}
 BASEPREFIX=$(basename ${{FILEPREFIX}})
 """.format(
+    MEM=MEM,
+    CPUS=CPUS,
     prefix=argsContainer.prefix,
     suffix=argsContainer.readsSuffix,
     fileNum=len(argsContainer.forwardFiles),
@@ -252,17 +254,19 @@ def symlink_for_trimmomatic(forwardReads, reverseReads=None):
             if reverseReads[i].endswith(".gz"):
                 gunzip(newRvsReadName)
 
-def make_trim_concat_script(argsContainer):
+def make_trim_concat_script(argsContainer, MEM="5G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N prep_{prefix}
 #PBS -l walltime=12:00:00
-#PBS -l mem=5G
-#PBS -l ncpus=1
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
 {afterokLine}
 
 cd {trimmedReadsDirectory}
 """.format(
+    MEM=MEM,
+    CPUS=CPUS,
     prefix=argsContainer.prefix,
     trimmedReadsDirectory=argsContainer.trimmedReadsDirectory,
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
@@ -286,15 +290,13 @@ cat *.trimmed_2P.fq > {outputDirectory}/{prefix}_2.fq
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_trin_dn_script(argsContainer):
-    MEM="260G"
-    
+def make_trin_dn_script(argsContainer, MEM="260G", CPUS="16"):    
     scriptText = \
 """#!/bin/bash -l
 #PBS -N trindn_{prefix}
 #PBS -l walltime=150:00:00
 #PBS -l mem={MEM}
-#PBS -l ncpus=10
+#PBS -l ncpus={CPUS}
 {afterokLine}
 
 cd {workingDir}/transcriptomes/trinity-denovo
@@ -305,7 +307,7 @@ module load jellyfish/2.2.6-foss-2016a
 module load java/1.8.0_92
 
 TRINITYDIR={trinityDir}
-CPUS=10
+CPUS={CPUS}
 MEM={MEM}
 READSDIR={workingDir}/prepared_reads
 READSPREFIX={prefix}
@@ -319,6 +321,7 @@ ${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
     --monitoring \\
     --seqType fq \\ """.format(
     MEM=MEM,
+    CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     trinityDir=argsContainer.trinityDir,
@@ -346,13 +349,13 @@ ${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_star_script(argsContainer):
+def make_star_script(argsContainer, MEM="50G", CPUS="8"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N star_{prefix}
 #PBS -l walltime=120:00:00
-#PBS -l mem=50G
-#PBS -l ncpus=8
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
 {afterokLine}
 
 cd {workingDir}/star_map
@@ -361,8 +364,6 @@ cd {workingDir}/star_map
 
 STARDIR={starDir}
 CPUS=8
-READSDIR={workingDir}/prepared_reads
-READSPREFIX={prefix}
 GENDIR={workingDir}/genome
 GENFILE={genomeFile}
 
@@ -374,6 +375,8 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     --genomeDir ${{GENDIR}} \\
     --genomeFastaFiles ${{GENDIR}}/${{GENFILE}}
 """.format(
+    MEM=MEM,
+    CPUS=CPUS,
     starDir=argsContainer.starDir,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
@@ -385,33 +388,38 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     if argsContainer.isSingleEnd:
         scriptText += \
 """# Run 2-pass procedure
-${STARDIR}/STAR --runThreadN ${CPUS} \\
-    --genomeDir ${GENDIR} \\
-    --readFilesIn ${READSDIR}/${READSPREFIX}.fq \\
+${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
+    --genomeDir ${{GENDIR}} \\
+    --readFilesIn {forwardFile} \\
     --twopassMode Basic
-"""
+""".format(
+    forwardFile=argsContainer.forwardFile
+)
     
     # Run STAR with paired-end reads
     else:
         scriptText += \
 """# Run 2-pass procedure
-${STARDIR}/STAR --runThreadN ${CPUS} \\
-    --genomeDir ${GENDIR} \\
-    --readFilesIn ${READSDIR}/${READSPREFIX}_1.fq ${READSDIR}/${READSPREFIX}_2.fq \\
+${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
+    --genomeDir ${{GENDIR}} \\
+    --readFilesIn {forwardFile} {reverseFile} \\
     --twopassMode Basic
-"""
+""".format(
+    forwardFile=argsContainer.forwardFile,
+    reverseFile=argsContainer.reverseFile
+)
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_subset_script(argsContainer):
+def make_subset_script(argsContainer, MEM="10G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N subset_{prefix}
 #PBS -l walltime=00:30:00
-#PBS -l mem=10G
-#PBS -l ncpus=1
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
 {afterokLine}
 
 cd {workingDir}/star_map
@@ -423,24 +431,25 @@ NUMREADS=50000
 
 ####
 
-python {genScriptDir}/fasta_extractSubset.py {inputFastas} -n ${{NUMREADS}} -t first -o 
+python {genScriptDir}/fasta_extractSubset.py {inputFastas} -n ${{NUMREADS}} -t first -o {outputFastas}
 
 """.format(
+    MEM=MEM,
+    CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
-    buscoConfig=argsContainer.buscoConfig,
     genScriptDir=argsContainer.genScriptDir,
     inputFastas=f"${{READSDIR}}/${argsContainer.prefix}.fq" if argsContainer.isSingleEnd else \
-        f"${{READSDIR}}/${argsContainer.prefix}_1.fq ${{READSDIR}}/${argsContainer.prefix}_2.fq",
-    outputFastas=f"${argsContainer.prefix}.subset.fq" if argsContainer.isSingleEnd else \
-        f"${argsContainer.prefix}_1.subset.fq ${argsContainer.prefix}_2.subset.fq",
+        f"${{READSDIR}}/{argsContainer.prefix}_1.fq ${{READSDIR}}/{argsContainer.prefix}_2.fq",
+    outputFastas=f"{argsContainer.prefix}.subset.fq" if argsContainer.isSingleEnd else \
+        f"{argsContainer.prefix}_1.subset.fq {argsContainer.prefix}_2.subset.fq",
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_busco_script(argsContainer):
+def make_busco_script(argsContainer, MEM="55G", CPUS="8"):
     assert len(argsContainer.fastaFiles) == len(argsContainer.modes), \
         "fastaFiles and modes lengths must be equal"
     
@@ -448,8 +457,8 @@ def make_busco_script(argsContainer):
 """#!/bin/bash -l
 #PBS -N busco_{prefix}
 #PBS -l walltime=
-#PBS -l mem=
-#PBS -l ncpus=
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
 {afterokLine}
 
 cd {workingDir}/transcriptomes/evidentialgene/concatenated
@@ -462,6 +471,8 @@ CPUS=2
 mkdir -p busco_results
 cd busco_results
 """.format(
+    MEM=MEM,
+    CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     buscoConfig=argsContainer.buscoConfig,
@@ -479,6 +490,302 @@ cd busco_results
             fasta=fasta,
             mode=mode
         )
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_picard_script(argsContainer, MEM="5G", CPUS="1"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N picard_{prefix}
+#PBS -l walltime=04:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/rnaseq_details
+
+####
+
+module load atg/picard/2.2.2
+module load samtools/1.9-foss-2016a
+
+SAMFILE={workingDir}/star_map/Aligned.out.sam
+FQFILE={forwardFile}
+SUBSETSIZE=100000
+
+PREFIX={prefix}
+MEM=5G
+
+####
+
+# Obtain subset of alignments from STAR SAM file
+head -n ${{SUBSETSIZE}} ${{SAMFILE}} > ${{PREFIX}}.subset${{SUBSETSIZE}}.sam
+
+# Sort into BAM
+samtools sort -m ${{MEM}} -@ 1 -o ${{PREFIX}}.subset${{SUBSETSIZE}}.bam -O bam ${{PREFIX}}.subset${{SUBSETSIZE}}.sam
+
+# Run picard to derive statistics
+picard CollectInsertSizeMetrics H=${{PREFIX}}.subset${{SUBSETSIZE}}.histo I=${{PREFIX}}.subset${{SUBSETSIZE}}.bam O=${{PREFIX}}.subset${{SUBSETSIZE}}.imetrics
+
+# Run imetrics parsing and extract insert size from output file
+python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/imetrics_rnaseq_densepeak.py -i ${{PREFIX}}.subset${{SUBSETSIZE}}.imetrics -o ${{PREFIX}}.subset${{SUBSETSIZE}}.insert_size
+INSERTSIZE=$(cat ${{PREFIX}}.subset${{SUBSETSIZE}}.insert_size)
+
+# Obtain maximum read length from file
+head -n 10000 ${{FQFILE}} > ${{PREFIX}}.subset10000.fq
+python {genScriptDir}/genome_stats.py -i ${{PREFIX}}.subset10000.fq -o ${{PREFIX}}.subset10000.stats
+MAXREADLEN=$(cat ${{PREFIX}}.subset10000.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
+
+# Generate summary file of these two relevant statistics
+echo "INSERT_SIZE: ${{INSERTSIZE}} ; MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    genScriptDir=argsContainer.genScriptDir,
+    forwardFile=argsContainer.forwardFile,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_readsize_script(argsContainer, MEM="5G", CPUS="1"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N readSz_{prefix}
+#PBS -l walltime=04:00:00
+#PBS -l mem=5G
+#PBS -l ncpus=1
+{afterokLine}
+
+cd {workingDir}/rnaseq_details
+
+####
+
+FQFILE={forwardFile}
+SUBSETSIZE=100000
+
+PREFIX={prefix}
+MEM=5G
+
+####
+
+# Obtain maximum read length from file
+head -n 10000 ${{FQFILE}} > ${{PREFIX}}.subset10000.fq
+python {genScriptDir}/genome_stats.py -i ${{PREFIX}}.subset10000.fq -o ${{PREFIX}}.subset10000.stats
+MAXREADLEN=$(cat ${{PREFIX}}.subset10000.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
+
+# Generate summary file of these two relevant statistics
+echo "MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    genScriptDir=argsContainer.genScriptDir,
+    forwardFile=argsContainer.forwardFile,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_oases_script(argsContainer, MEM="260G", CPUS="16"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N oasvel_{prefix}
+#PBS -l walltime=150:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/velvet-oases
+
+####
+
+VELVETDIR={velvetDir}
+OASESDIR={oasesDir}
+
+CPUS={CPUS}
+READSDIR={workingDir}/prepared_reads
+PREFIX={prefix}
+
+####
+
+export OMP_NUM_THREADS=${{CPUS}}
+{insertSizeLine}
+
+for k in 23 25 31 39 47 55 63; do ${{VELVETDIR}}/velveth ${{PREFIX}}.${{k}} \\
+    ${{k}} \\
+    -fastq \\
+    -strand_specific \\ """.format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    velvetDir=argsContainer.velvetDir,
+    oasesDir=argsContainer.oasesDir,
+    insertSizeLine="" if not argsContainer.isSingleEnd else \
+        f"INSERT_SIZE=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Run velveth with single-end reads
+    if argsContainer.isSingleEnd:
+        scriptText += \
+"""
+    -short \\
+    ${READSDIR}/${READSPREFIX}.fq;
+done
+echo "velveth done"
+"""
+    
+    # Run velveth with paired-end reads
+    else:
+        scriptText += \
+"""
+    -shortPaired \\
+    -separate ${READSDIR}/${PREFIX}_1.fq ${READSDIR}/${PREFIX}_2.fq;
+done
+echo "velveth done"
+"""
+
+    # Run velvetg with single-end reads
+    if argsContainer.isSingleEnd:
+        scriptText += \
+"""for k in 23 25 31 39 47 55 63; do ${VELVETDIR}/velvetg ${PREFIX}.${k} \\
+    -read_trkg yes \\
+    -cov_cutoff 10;
+done
+echo "velvetg done"
+"""
+    # Run velvetg with paired-end reads
+    else:
+        scriptText += \
+"""for k in 23 25 31 39 47 55 63; do ${VELVETDIR}/velvetg ${PREFIX}.${k} \\
+    -read_trkg yes \\
+    -cov_cutoff 10 \\
+    -ins_length ${INSERT_SIZE};
+done
+echo "velvetg done"
+"""
+
+    # Run oases with single-end reads
+    if argsContainer.isSingleEnd:
+        scriptText += \
+"""for k in 23 25 31 39 47 55 63; do ${OASESDIR}/oases ${PREFIX}.${k} \\
+    -cov_cutoff 10 \\
+    -min_pair_count 5 \\
+    -min_trans_lgth 350;
+done
+echo "oases done"
+"""
+    # Run oases with paired-end reads
+    else:
+        scriptText += \
+"""for k in 23 25 31 39 47 55 63; do ${OASESDIR}/oases ${PREFIX}.${k} \\
+    -cov_cutoff 10 \\
+    -min_pair_count 5 \\
+    -min_trans_lgth 350 \\
+    -ins_length ${INSERT_SIZE};
+done
+echo "oases done"
+"""
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_config_script(argsContainer, MEM="5G", CPUS="1"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N cfg_{prefix}
+#PBS -l walltime=00:10:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/soapdenovo-trans
+
+####
+
+READSDIR={workingDir}/prepared_reads
+PREFIX={prefix}
+
+{insertSizeLine}
+{maxReadLenLine}
+
+####
+
+python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/create_soapdn_config.py \\
+    -i {fileInput} \\
+    -o ${{PREFIX}}.config \\
+    --max ${{MAXREADLEN}} {lineContinue}
+    {insertSizeParam}
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    genScriptDir=argsContainer.genScriptDir,
+    insertSizeLine="" if argsContainer.isSingleEnd else \
+        f"INSERT_SIZE=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
+    maxReadLenLine=f"MAXREADLEN=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $5;}}')" if not argsContainer.isSingleEnd \
+        else f"MAXREADLEN=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
+    fileInput=argsContainer.forwardFile if argsContainer.reverseFile == None else \
+        f"{argsContainer.forwardFile} {argsContainer.reverseFile}",
+    lineContinue="" if argsContainer.isSingleEnd else \
+        "\\",
+    insertSizeParam="" if argsContainer.isSingleEnd else \
+        "--insert ${INSERT_SIZE}",
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_soap_script(argsContainer, MEM="600G", CPUS="24"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N soap_{prefix}
+#PBS -l walltime=150:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/soapdenovo-trans
+
+####
+
+SOAPDIR={soapDir}
+
+CPUS={CPUS}
+READSDIR={workingDir}/prepared_reads
+PREFIX={prefix}
+
+####
+
+for k in 23 25 31 39 47 55 63 71; do ${{SOAPDIR}}/SOAPdenovo-Trans-127mer all \\
+    -s ${{PREFIX}}.config \\
+    -o ${{PREFIX}}.${{k}} \\
+    -K ${{k}} \\
+    -p ${{CPUS}} \\
+    -f -F;
+done""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    soapDir=argsContainer.soapDir,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
@@ -575,7 +882,7 @@ def main():
     
     # Create the working directory
     setup_work_dir(args)
-    runningJobIDs = []
+    runningJobIDs = {}
     
     # Obtain reads files
     forwardReads, reverseReads = get_rnaseq_files(args.readsDir, args.readsSuffix, args.isSingleEnd)
@@ -593,7 +900,7 @@ def main():
             "reverseFiles": reverseReads
         }))
         trimJobID = qsub(trimScriptName)
-        runningJobIDs.append(trimJobID)
+        runningJobIDs["trim"] = trimJobID
     else:
         symlink_for_trimmomatic(forwardReads, reverseReads)
     
@@ -605,10 +912,10 @@ def main():
         "trimmedReadsDirectory": os.path.join(os.getcwd(), "trimmomatic"),
         "outputDirectory": os.path.join(os.getcwd(), "prepared_reads"),
         "isSingleEnd": args.isSingleEnd,
-        "runningJobIDs": runningJobIDs
+        "runningJobIDs": [runningJobIDs[k] for k in ["trim"] if k in runningJobIDs]
     }))
     concatJobID = qsub(concatScriptName)
-    runningJobIDs.append(concatJobID)
+    runningJobIDs["concat"] = concatJobID
     
     # Run Trinity de novo assembler
     trindnScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "run_trin_denovo.sh")
@@ -621,26 +928,29 @@ def main():
             if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
         "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
         "isSingleEnd": args.isSingleEnd,
-        "runningJobIDs": runningJobIDs
+        "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
     }))
     trindnJobID = qsub(trindnScriptName)
-    runningJobIDs.append(trindnJobID)
+    runningJobIDs["trindn"] = trindnJobID
     
     # If genome-guided (GG) assembly: Run STAR alignment against genome
     starScriptName = os.path.join(os.getcwd(), "star_map", "run_star_trimmed.sh")
     if args.genomeFile != None:
-        runningJobIDs.pop() # Trinity won't intergere with anything
+        runningJobIDs.pop() # Trinity won't interfere with anything
         make_star_script(Container({
             "outputFileName": starScriptName,
             "workingDir": os.getcwd(),
             "prefix": args.outputPrefix,
             "starDir": args.star,
             "genomeFile": "test_genome.fasta", #args.genome,
+            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
             "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": runningJobIDs
+            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
         }))
         starJobID = qsub(starScriptName)
-        runningJobIDs.append(starJobID)
+        runningJobIDs["stargg"] = starJobID
     
     # If not GG assembly; Run subsetted STAR alignment against transcriptome
     else:
@@ -655,31 +965,97 @@ def main():
                 if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
             "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
             "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn"] if k in runningJobIDs]
         }))
-        ## TBD...
+        subsetJobID = qsub(subsetScriptName)
+        runningJobIDs["subset"] = subsetJobID
         
-        trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "TBD")
+        # Run STAR alignment with subsetted reads
+        trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
         make_star_script(Container({
             "outputFileName": starScriptName,
             "workingDir": os.getcwd(),
             "prefix": args.outputPrefix,
             "starDir": args.star,
             "genomeFile": trindnFastaFile,
+            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.subset.fq") \
+                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.subset.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.subset.fq"),
             "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": runningJobIDs
+            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
         }))
         starJobID = qsub(starScriptName)
-        runningJobIDs.append(starJobID)
+        runningJobIDs["starss"] = starJobID
     
-    # Get RNAseq read statistics from Picard
-    if args.genomeFile != None:
-        pass
+    # Get RNAseq read statistics
+    if not args.isSingleEnd:
+        picardScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_picard.sh")
+        make_picard_script(Container({
+            "outputFileName": picardScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "genScriptDir": args.genscript,
+            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
+        }))
+        picardJobID = qsub(picardScriptName)
+        runningJobIDs["picard"] = picardJobID
     else:
-        pass
+        readsizeScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_readsize.sh")
+        make_readsize_script(Container({
+            "outputFileName": readsizeScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "genScriptDir": args.genscript,
+            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
+        }))
+        readsizeJobID = qsub(readsizeScriptName)
+        runningJobIDs["readsize"] = readsizeJobID
     
     # Run oases-velvet de novo assembly
+    oasesScriptName = os.path.join(os.getcwd(), "transcriptomes", "velvet-oases", "run_oasvel.sh")
+    make_oases_script(Container({
+        "outputFileName": oasesScriptName,
+        "workingDir": os.getcwd(),
+        "prefix": args.outputPrefix,
+        "velvetDir": args.velvet,
+        "oasesDir": args.oases,
+        "isSingleEnd": args.isSingleEnd,
+        "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
+    }))
+    oasesJobID = qsub(oasesScriptName)
+    runningJobIDs["oases"] = oasesJobID
     
     # Run SOAPdenovo-Trans assembly
+    configScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_config.sh")
+    make_config_script(Container({
+        "outputFileName": configScriptName,
+        "workingDir": os.getcwd(),
+        "prefix": args.outputPrefix,
+        "genScriptDir": args.genscript,
+        "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+        "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
+        "isSingleEnd": args.isSingleEnd,
+        "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
+    }))
+    configJobID = qsub(configScriptName)
+    runningJobIDs["config"] = configJobID
+    
+    soapScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_denovo.sh")
+    make_soap_script(Container({
+        "outputFileName": soapScriptName,
+        "workingDir": os.getcwd(),
+        "prefix": args.outputPrefix,
+        "soapDir": args.soap,
+        "isSingleEnd": args.isSingleEnd,
+        "runningJobIDs": [runningJobIDs[k] for k in ["config"] if k in runningJobIDs]
+    }))
+    soapJobID = qsub(soapScriptName)
+    runningJobIDs["soap"] = soapJobID
     
     # Run sort on STAR results
     if args.genomeFile != None:
