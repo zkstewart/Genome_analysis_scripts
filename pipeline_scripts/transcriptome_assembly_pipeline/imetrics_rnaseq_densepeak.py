@@ -64,6 +64,8 @@ def main():
     # Write to output
     with open(args.outputFileName, "w") as fileOut:
         fileOut.write(str(insertSize))
+    
+    print("Program completed successfully!")
 
 if __name__ == "__main__":
     main()
