@@ -95,7 +95,7 @@ def qsub(scriptFileName):
     jobID, stderr = qsubProcess.communicate()
     jobID, stderr = jobID.decode(), stderr.decode()
     if stderr == "":
-        return jobID
+        return jobID.strip(" \r\n")
     else:
         raise Exception(f"qsub died with stderr == {stderr}")
 
@@ -1454,7 +1454,7 @@ def main():
                 "workingDir": os.getcwd(),
                 "scallopDir": args.scallop,
                 "prefix": args.outputPrefix,
-                "genomeFile": "ass.fasta", #args.genomeFile,
+                "genomeFile": args.genomeFile,
                 "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
             }))
             scallopJobID = qsub(scallopScriptName)
