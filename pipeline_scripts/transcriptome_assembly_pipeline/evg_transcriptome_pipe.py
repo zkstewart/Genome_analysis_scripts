@@ -91,7 +91,7 @@ def setup_work_dir(args):
         os.makedirs(os.path.join("transcriptomes", "trinity-gg"), exist_ok=True)
 
 def qsub(scriptFileName):
-    qsubProcess = subprocess.Popen(f"qsub {scriptFileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    qsubProcess = subprocess.Popen(f"qsub {scriptFileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
     jobID, stderr = qsubProcess.communicate()
     jobID, stderr = jobID.decode(), stderr.decode()
     if stderr == "":
@@ -1355,15 +1355,14 @@ def main():
     
     # Get RNAseq read statistics
     if not args.skipDetails:
-        if not args.isSingleEnd:
+        if not args.isSingleEnd: # i.e., if paired
             picardScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_picard.sh")
             make_picard_script(Container({
                 "outputFileName": picardScriptName,
                 "workingDir": os.getcwd(),
                 "prefix": args.outputPrefix,
                 "genScriptDir": args.genscript,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
                 "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
             }))
             picardJobID = qsub(picardScriptName)
@@ -1375,8 +1374,7 @@ def main():
                 "workingDir": os.getcwd(),
                 "prefix": args.outputPrefix,
                 "genScriptDir": args.genscript,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq"),
                 "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
             }))
             readsizeJobID = qsub(readsizeScriptName)
