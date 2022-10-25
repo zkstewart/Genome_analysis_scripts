@@ -295,7 +295,7 @@ cat *.trimmed_2P.fq > {outputDirectory}/{prefix}_2.fq
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_trin_dn_script(argsContainer, MEM="260G", CPUS="16"):    
+def make_trin_dn_script(argsContainer, MEM="670G", CPUS="12"):    
     scriptText = \
 """#!/bin/bash -l
 #PBS -N trindn_{prefix}
@@ -337,8 +337,7 @@ ${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
     if argsContainer.isSingleEnd:
         scriptText += \
 """
-    --single ${READSDIR}/${READSPREFIX}.fq \\
-    --full_cleanup 2>&1 >> ${READSPREFIX}_Trinity.log
+    --single ${READSDIR}/${READSPREFIX}.fq 2>&1 >> ${READSPREFIX}_Trinity.log
 """
     
     # Run Trinity de novo with paired-end reads
@@ -346,15 +345,14 @@ ${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
         scriptText += \
 """
     --left ${READSDIR}/${READSPREFIX}_1.fq \\
-    --right ${READSDIR}/${READSPREFIX}_2.fq \\
-    --full_cleanup 2>&1 >> ${READSPREFIX}_Trinity.log
+    --right ${READSDIR}/${READSPREFIX}_2.fq 2>&1 >> ${READSPREFIX}_Trinity.log
 """
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_star_script(argsContainer, MEM="50G", CPUS="8"):
+def make_star_script(argsContainer, MEM="150G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N star_{prefix}
@@ -559,7 +557,7 @@ echo "MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_oases_script(argsContainer, MEM="260G", CPUS="16"):
+def make_oases_script(argsContainer, MEM="260G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N oasvel_{prefix}
@@ -576,7 +574,7 @@ VELVETDIR={velvetDir}
 OASESDIR={oasesDir}
 
 CPUS={CPUS}
-READSDIR={workingDir}/prepared_reads
+READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
 PREFIX={prefix}
 
 ####
@@ -604,7 +602,7 @@ for k in 23 25 31 39 47 55 63; do ${{VELVETDIR}}/velveth ${{PREFIX}}.${{k}} \\
         scriptText += \
 """
     -short \\
-    ${READSDIR}/${READSPREFIX}.fq;
+    ${READSDIR}/single.norm.fq;
 done
 echo "velveth done"
 """
@@ -614,7 +612,7 @@ echo "velveth done"
         scriptText += \
 """
     -shortPaired \\
-    -separate ${READSDIR}/${PREFIX}_1.fq ${READSDIR}/${PREFIX}_2.fq;
+    -separate ${READSDIR}/left.norm.fq ${READSDIR}/right.norm.fq;
 done
 echo "velveth done"
 """
@@ -678,7 +676,7 @@ cd {workingDir}/transcriptomes/soapdenovo-trans
 
 ####
 
-READSDIR={workingDir}/prepared_reads
+READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
 PREFIX={prefix}
 
 {insertSizeLine}
@@ -701,8 +699,8 @@ python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/create_so
         f"INSERT_SIZE=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
     maxReadLenLine=f"MAXREADLEN=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $5;}}')" if not argsContainer.isSingleEnd \
         else f"MAXREADLEN=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
-    fileInput=argsContainer.forwardFile if argsContainer.reverseFile == None else \
-        f"{argsContainer.forwardFile} {argsContainer.reverseFile}",
+    fileInput="${READSDIR}/single.norm.fq" if argsContainer.isSingleEnd else \
+        "${READSDIR}/left.norm.fq ${READSDIR}/right.norm.fq",
     lineContinue="" if argsContainer.isSingleEnd else \
         "\\",
     insertSizeParam="" if argsContainer.isSingleEnd else \
@@ -714,7 +712,7 @@ python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/create_so
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_soap_script(argsContainer, MEM="600G", CPUS="24"):
+def make_soap_script(argsContainer, MEM="650G", CPUS="18"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N soap_{prefix}
@@ -730,7 +728,6 @@ cd {workingDir}/transcriptomes/soapdenovo-trans
 SOAPDIR={soapDir}
 
 CPUS={CPUS}
-READSDIR={workingDir}/prepared_reads
 PREFIX={prefix}
 
 ####
@@ -1390,7 +1387,7 @@ def main():
             "velvetDir": args.velvet,
             "oasesDir": args.oases,
             "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "readsize", "picard"] if k in runningJobIDs]
         }))
         oasesJobID = qsub(oasesScriptName)
         runningJobIDs["oases"] = oasesJobID
@@ -1403,9 +1400,6 @@ def main():
             "workingDir": os.getcwd(),
             "prefix": args.outputPrefix,
             "genScriptDir": args.genscript,
-            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
             "isSingleEnd": args.isSingleEnd,
             "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
         }))
@@ -1419,7 +1413,7 @@ def main():
             "prefix": args.outputPrefix,
             "soapDir": args.soap,
             "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["config"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "config"] if k in runningJobIDs]
         }))
         soapJobID = qsub(soapScriptName)
         runningJobIDs["soap"] = soapJobID
