@@ -3,10 +3,9 @@
 # Script to set up the transcriptome assembly pipeline on
 # a HPC environment
 
-import os, argparse, gzip, shutil
+import os, argparse, gzip, shutil, subprocess
 
 # Define functions for later use
-## Validate arguments
 def validate_args(args):
     # Validate input file locations
     if not os.path.isdir(args.readsDir):
@@ -90,12 +89,15 @@ def setup_work_dir(args):
         
         os.makedirs(os.path.join("transcriptomes", "scallop"), exist_ok=True)
         os.makedirs(os.path.join("transcriptomes", "trinity-gg"), exist_ok=True)
-    
+
 def qsub(scriptFileName):
-    ## do the qsub, get returned ID
-    jobID = "1234" ## testing, TBD fixing
-    
-    return jobID
+    qsubProcess = subprocess.Popen(f"qsub {scriptFileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    jobID, stderr = qsubProcess.communicate()
+    jobID, stderr = jobID.decode(), stderr.decode()
+    if stderr == "":
+        return jobID
+    else:
+        raise Exception(f"qsub died with stderr == {stderr}")
 
 def gunzip(fileName):
     assert fileName.endswith(".gz"), \
@@ -117,12 +119,12 @@ def get_rnaseq_files(readsDir, readsSuffix, isSingleEnd):
     for file in os.listdir(readsDir):
         if file.endswith(readsSuffix):
             if isSingleEnd:
-                forwardReads.append(file)
+                forwardReads.append(os.path.join(readsDir, file))
             else:
                 if file.endswith(f"1{readsSuffix}"):
-                    forwardReads.append(file)
+                    forwardReads.append(os.path.join(readsDir, file))
                 elif file.endswith(f"2{readsSuffix}"):
-                    reverseReads.append(file)
+                    reverseReads.append(os.path.join(readsDir, file))
                 else:
                     raise ValueError(f"{file} ends with the expected suffix '{readsSuffix}' but is not preceeded by a 1 or 2!")
     forwardReads.sort()
@@ -166,6 +168,8 @@ def make_trimmomatic_script(argsContainer, MEM="30G", CPUS="2"):
 
 cd {workingDir}/trimmomatic
 
+####
+
 ## SETUP: Load modules
 module load java/1.8.0_92
 
@@ -173,28 +177,25 @@ module load java/1.8.0_92
 TRIMDIR={trimDir}
 TRIMJAR={trimJar}
 
-## SETUP: Specify file prefixes
-SPECIES={prefix}
+## SETUP: Specify Trimmomatic parameters
+CPUS=2
+COMMAND="ILLUMINACLIP:${{TRIMDIR}}/adapters/QUT-TruSeq3-PE.fa:2:30:10 SLIDINGWINDOW:4:5 LEADING:5 TRAILING:5 MINLEN:25"
 
-## SETUP: Specify file suffixes
+## SETUP: Specify RNAseq file details
+RNADIR={readsDir}
 SUFFIX={suffix}
 
-## SETUP: Specify computational parameters
-CPUS=2
+## SETUP: Specify output file prefix
+OUTPREFIX={prefix}
 
-## SETUP: Specify Trimmomatic behaviour
-COMMAND="ILLUMINACLIP:/home/stewarz2/various_programs/Trimmomatic-0.36/adapters/QUT-TruSeq3-PE.fa:2:30:10 SLIDINGWINDOW:4:5 LEADING:5 TRAILING:5 MINLEN:25"
-
-## SETUP: Specify RNAseq reads
+## SETUP: Specify RNAseq read prefixes
 declare -a PREFIXES=( {filePrefixes} )
 
-#####
+####
 
-# RUN START
-## STEP 1: Get job details
+# STEP 1: Get job details
 ARRAY_INDEX=$((${{PBS_ARRAY_INDEX}}-1))
 FILEPREFIX=${{PREFIXES[${{ARRAY_INDEX}}]}}
-BASEPREFIX=$(basename ${{FILEPREFIX}})
 """.format(
     MEM=MEM,
     CPUS=CPUS,
@@ -202,29 +203,30 @@ BASEPREFIX=$(basename ${{FILEPREFIX}})
     suffix=argsContainer.readsSuffix,
     fileNum=len(argsContainer.forwardFiles),
     workingDir=argsContainer.workingDir,
+    readsDir=argsContainer.readsDir,
     trimDir=os.path.dirname(argsContainer.trimJar),
-    trimjar=os.path.basename(argsContainer.trimJar),
-    filePrefixes=filePrefixes
+    trimJar=os.path.basename(argsContainer.trimJar),
+    filePrefixes=" ".join(filePrefixes)
 )
     
     # Add lines to enable paired-end operation
     if argsContainer.reverseFiles != None:
         scriptText += \
-"""## STEP 2: Run Trimmomatic
-java -jar $TRIMDIR/$TRIMJAR PE -threads $CPUS -trimlog ${SPECIES}.logfile ${FILEPREFIX}1${SUFFIX} ${FILEPREFIX}2${SUFFIX} -baseout ${BASEPREFIX}.trimmed.fq.gz ${COMMAND}
+"""# STEP 2: Run Trimmomatic
+java -jar ${TRIMDIR}/${TRIMJAR} PE -threads ${CPUS} -trimlog ${OUTPREFIX}.logfile ${RNADIR}/${FILEPREFIX}1${SUFFIX} ${RNADIR}/${FILEPREFIX}2${SUFFIX} -baseout ${OUTPREFIX}.trimmed.fq.gz ${COMMAND}
 
-## STEP 3: Unzip files
-gunzip ${BASEPREFIX}.trimmed_1P.fq.gz ${BASEPREFIX}.trimmed_2P.fq.gz
+# STEP 3: Unzip files
+gunzip ${OUTPREFIX}.trimmed_1P.fq.gz ${OUTPREFIX}.trimmed_2P.fq.gz
 """
 
     # Add lines for single-end operation
     else:
         scriptText += \
-"""## STEP 2: Run Trimmomatic
-java -jar $TRIMDIR/$TRIMJAR SE -threads $CPUS -trimlog ${SPECIES}.logfile ${FILEPREFIX}${SUFFIX} ${BASEPREFIX}.trimmed.fq.gz ${COMMAND}
+"""# STEP 2: Run Trimmomatic
+java -jar ${TRIMDIR}/${TRIMJAR} SE -threads ${CPUS} -trimlog ${OUTPREFIX}.logfile ${RNADIR}/${FILEPREFIX}${SUFFIX} ${OUTPREFIX}.trimmed.fq.gz ${COMMAND}
 
-## STEP 3: Unzip file
-gunzip ${BASEPREFIX}.trimmed.fq.gz
+# STEP 3: Unzip file
+gunzip ${OUTPREFIX}.trimmed.fq.gz
 """
 
     # Write script to file
@@ -236,22 +238,25 @@ def symlink_for_trimmomatic(forwardReads, reverseReads=None):
         if reverseReads == None:
             newReadName = os.path.join(os.getcwd(), "trimmomatic", f"{i+1}.trimmed.fq")
             newReadName += ".gz" if forwardReads[i].endswith(".gz") else ""
-            os.symlink(forwardReads[i], newReadName)
+            if not os.path.isfile(newReadName):
+                os.symlink(forwardReads[i], newReadName)
             
-            if forwardReads[i].endswith(".gz"):
+            if newReadName.endswith(".gz") and not os.path.isfile(newReadName[:-3]):
                 gunzip(newReadName)
         else:
             newFwdReadName = os.path.join(os.getcwd(), "trimmomatic", f"{i+1}.trimmed_1P.fq")
             newFwdReadName += ".gz" if forwardReads[i].endswith(".gz") else ""
-            os.symlink(forwardReads[i], newFwdReadName)
+            if not os.path.isfile(newFwdReadName):
+                os.symlink(forwardReads[i], newFwdReadName)
             
             newRvsReadName = os.path.join(os.getcwd(), "trimmomatic", f"{i+1}.trimmed_2P.fq")
             newRvsReadName += ".gz" if reverseReads[i].endswith(".gz") else ""  
-            os.symlink(reverseReads[i], newRvsReadName)
+            if not os.path.isfile(newRvsReadName):
+                os.symlink(reverseReads[i], newRvsReadName)
             
-            if forwardReads[i].endswith(".gz"):
+            if newFwdReadName.endswith(".gz") and not os.path.isfile(newFwdReadName[:-3]):
                 gunzip(newFwdReadName)
-            if reverseReads[i].endswith(".gz"):
+            if newRvsReadName.endswith(".gz") and not os.path.isfile(newRvsReadName[:-3]):
                 gunzip(newRvsReadName)
 
 def make_trim_concat_script(argsContainer, MEM="5G", CPUS="1"):
@@ -1165,12 +1170,80 @@ def main():
                    action="store_true",
                    help="Optionally skip trimming; provided reads are assumed to be pre-trimmed",
                    default=False)
+    p.add_argument("--skipConcat", dest="skipConcat",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip trimmed read concatenation; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipTrindn", dest="skipTrindn",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip Trinity de novo assembly; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipStar", dest="skipStar",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip STAR read alignment; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipSort", dest="skipSort",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip STAR SAM sorting; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipDetails", dest="skipDetails",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip RNAseq detail getting; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipSoap", dest="skipSoap",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip SOAPdenovo assembly; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipOases", dest="skipOases",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip velvet-oases assembly; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipTringg", dest="skipTringg",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip Trinity GG assembly; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipScallop", dest="skipScallop",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip scallop GG assembly; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipMaster", dest="skipMaster",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip master transcriptome concatenation; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipEvg", dest="skipEvg",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip EvidentialGene; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipOkalt", dest="skipOkalt",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip okay-okalt concatenation; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--onlySetup", dest="onlySetup",
+                   required=False,
+                   action="store_true",
+                   help="Optionally end program after setting up the working directory",
+                   default=False)
     
     args = p.parse_args()
     validate_args(args)
     
     # Create the working directory
     setup_work_dir(args)
+    if args.onlySetup:
+        print("Program exitting after setting up work directory")
+        quit()
     runningJobIDs = {}
     
     # Obtain reads files
@@ -1184,6 +1257,7 @@ def main():
             "workingDir": os.getcwd(),
             "prefix": args.outputPrefix,
             "trimJar": args.trimmomatic,
+            "readsDir": args.readsDir,
             "readsSuffix": args.readsSuffix,
             "forwardFiles": forwardReads,
             "reverseFiles": reverseReads
@@ -1194,233 +1268,245 @@ def main():
         symlink_for_trimmomatic(forwardReads, reverseReads)
     
     # Prepare read files by concatenation into one file for fwd / rvs
-    concatScriptName = os.path.join(os.getcwd(), "prepared_reads", "run_read_prep.sh")
-    make_trim_concat_script(Container({
-        "outputFileName": concatScriptName,
-        "prefix": args.outputPrefix,
-        "trimmedReadsDirectory": os.path.join(os.getcwd(), "trimmomatic"),
-        "outputDirectory": os.path.join(os.getcwd(), "prepared_reads"),
-        "isSingleEnd": args.isSingleEnd,
-        "runningJobIDs": [runningJobIDs[k] for k in ["trim"] if k in runningJobIDs]
-    }))
-    concatJobID = qsub(concatScriptName)
-    runningJobIDs["concat"] = concatJobID
+    if not args.skipConcat:
+        concatScriptName = os.path.join(os.getcwd(), "prepared_reads", "run_read_prep.sh")
+        make_trim_concat_script(Container({
+            "outputFileName": concatScriptName,
+            "prefix": args.outputPrefix,
+            "trimmedReadsDirectory": os.path.join(os.getcwd(), "trimmomatic"),
+            "outputDirectory": os.path.join(os.getcwd(), "prepared_reads"),
+            "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["trim"] if k in runningJobIDs]
+        }))
+        concatJobID = qsub(concatScriptName)
+        runningJobIDs["concat"] = concatJobID
     
     # Run Trinity de novo assembler
-    trindnScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "run_trin_denovo.sh")
-    make_trin_dn_script(Container({
-        "outputFileName": trindnScriptName,
-        "workingDir": os.getcwd(),
-        "trinityDir": args.trinity,
-        "prefix": args.outputPrefix,
-        "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-            if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-        "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-        "isSingleEnd": args.isSingleEnd,
-        "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
-    }))
-    trindnJobID = qsub(trindnScriptName)
-    runningJobIDs["trindn"] = trindnJobID
-    
-    # If genome-guided (GG) assembly: Run STAR alignment against genome
-    starScriptName = os.path.join(os.getcwd(), "star_map", "run_star_trimmed.sh")
-    if args.genomeFile != None:
-        runningJobIDs.pop() # Trinity won't interfere with anything
-        make_star_script(Container({
-            "outputFileName": starScriptName,
+    if not args.skipTrindn:
+        trindnScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "run_trin_denovo.sh")
+        make_trin_dn_script(Container({
+            "outputFileName": trindnScriptName,
             "workingDir": os.getcwd(),
+            "trinityDir": args.trinity,
             "prefix": args.outputPrefix,
-            "starDir": args.star,
-            "genomeFile": args.genomeFile,
             "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
                 if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
             "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
             "isSingleEnd": args.isSingleEnd,
             "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
         }))
-        starJobID = qsub(starScriptName)
-        runningJobIDs["stargg"] = starJobID
+        trindnJobID = qsub(trindnScriptName)
+        runningJobIDs["trindn"] = trindnJobID
     
-    # If not GG assembly; Run subsetted STAR alignment against transcriptome
-    else:
-        # Subset FASTQ reads for alignment
-        subsetScriptName = os.path.join(os.getcwd(), "star_map", "run_subset.sh")
-        make_subset_script(Container({
-            "outputFileName": subsetScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "genScriptDir": args.genscript,
-            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn"] if k in runningJobIDs]
-        }))
-        subsetJobID = qsub(subsetScriptName)
-        runningJobIDs["subset"] = subsetJobID
+    # If genome-guided (GG) assembly: Run STAR alignment against genome
+    if not args.skipStar:
+        starScriptName = os.path.join(os.getcwd(), "star_map", "run_star_trimmed.sh")
+        if args.genomeFile != None:
+            runningJobIDs.pop() # Trinity won't interfere with anything
+            make_star_script(Container({
+                "outputFileName": starScriptName,
+                "workingDir": os.getcwd(),
+                "prefix": args.outputPrefix,
+                "starDir": args.star,
+                "genomeFile": args.genomeFile,
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
+                "isSingleEnd": args.isSingleEnd,
+                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
+            }))
+            starJobID = qsub(starScriptName)
+            runningJobIDs["stargg"] = starJobID
         
-        # Run STAR alignment with subsetted reads
-        trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
-        make_star_script(Container({
-            "outputFileName": starScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "starDir": args.star,
-            "genomeFile": trindnFastaFile,
-            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.subset.fq") \
-                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.subset.fq"),
-            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.subset.fq"),
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
-        }))
-        starJobID = qsub(starScriptName)
-        runningJobIDs["starss"] = starJobID
+        # If not GG assembly; Run subsetted STAR alignment against transcriptome
+        else:
+            # Subset FASTQ reads for alignment
+            subsetScriptName = os.path.join(os.getcwd(), "star_map", "run_subset.sh")
+            make_subset_script(Container({
+                "outputFileName": subsetScriptName,
+                "workingDir": os.getcwd(),
+                "prefix": args.outputPrefix,
+                "genScriptDir": args.genscript,
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
+                "isSingleEnd": args.isSingleEnd,
+                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn"] if k in runningJobIDs]
+            }))
+            subsetJobID = qsub(subsetScriptName)
+            runningJobIDs["subset"] = subsetJobID
+            
+            # Run STAR alignment with subsetted reads
+            trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
+            make_star_script(Container({
+                "outputFileName": starScriptName,
+                "workingDir": os.getcwd(),
+                "prefix": args.outputPrefix,
+                "starDir": args.star,
+                "genomeFile": trindnFastaFile,
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.subset.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.subset.fq"),
+                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.subset.fq"),
+                "isSingleEnd": args.isSingleEnd,
+                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
+            }))
+            starJobID = qsub(starScriptName)
+            runningJobIDs["starss"] = starJobID
     
     # Get RNAseq read statistics
-    if not args.isSingleEnd:
-        picardScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_picard.sh")
-        make_picard_script(Container({
-            "outputFileName": picardScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "genScriptDir": args.genscript,
-            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
-        }))
-        picardJobID = qsub(picardScriptName)
-        runningJobIDs["picard"] = picardJobID
-    else:
-        readsizeScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_readsize.sh")
-        make_readsize_script(Container({
-            "outputFileName": readsizeScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "genScriptDir": args.genscript,
-            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
-        }))
-        readsizeJobID = qsub(readsizeScriptName)
-        runningJobIDs["readsize"] = readsizeJobID
+    if not args.skipDetails:
+        if not args.isSingleEnd:
+            picardScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_picard.sh")
+            make_picard_script(Container({
+                "outputFileName": picardScriptName,
+                "workingDir": os.getcwd(),
+                "prefix": args.outputPrefix,
+                "genScriptDir": args.genscript,
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
+            }))
+            picardJobID = qsub(picardScriptName)
+            runningJobIDs["picard"] = picardJobID
+        else:
+            readsizeScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_readsize.sh")
+            make_readsize_script(Container({
+                "outputFileName": readsizeScriptName,
+                "workingDir": os.getcwd(),
+                "prefix": args.outputPrefix,
+                "genScriptDir": args.genscript,
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
+            }))
+            readsizeJobID = qsub(readsizeScriptName)
+            runningJobIDs["readsize"] = readsizeJobID
     
     # Run oases-velvet de novo assembly
-    oasesScriptName = os.path.join(os.getcwd(), "transcriptomes", "velvet-oases", "run_oasvel.sh")
-    make_oases_script(Container({
-        "outputFileName": oasesScriptName,
-        "workingDir": os.getcwd(),
-        "prefix": args.outputPrefix,
-        "velvetDir": args.velvet,
-        "oasesDir": args.oases,
-        "isSingleEnd": args.isSingleEnd,
-        "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
-    }))
-    oasesJobID = qsub(oasesScriptName)
-    runningJobIDs["oases"] = oasesJobID
+    if not args.skipOases:
+        oasesScriptName = os.path.join(os.getcwd(), "transcriptomes", "velvet-oases", "run_oasvel.sh")
+        make_oases_script(Container({
+            "outputFileName": oasesScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "velvetDir": args.velvet,
+            "oasesDir": args.oases,
+            "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
+        }))
+        oasesJobID = qsub(oasesScriptName)
+        runningJobIDs["oases"] = oasesJobID
     
     # Run SOAPdenovo-Trans assembly
-    configScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_config.sh")
-    make_config_script(Container({
-        "outputFileName": configScriptName,
-        "workingDir": os.getcwd(),
-        "prefix": args.outputPrefix,
-        "genScriptDir": args.genscript,
-        "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-        "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-        "isSingleEnd": args.isSingleEnd,
-        "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
-    }))
-    configJobID = qsub(configScriptName)
-    runningJobIDs["config"] = configJobID
+    if not args.skipSoap:
+        configScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_config.sh")
+        make_config_script(Container({
+            "outputFileName": configScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "genScriptDir": args.genscript,
+            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
+            "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
+        }))
+        configJobID = qsub(configScriptName)
+        runningJobIDs["config"] = configJobID
     
-    soapScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_denovo.sh")
-    make_soap_script(Container({
-        "outputFileName": soapScriptName,
-        "workingDir": os.getcwd(),
-        "prefix": args.outputPrefix,
-        "soapDir": args.soap,
-        "isSingleEnd": args.isSingleEnd,
-        "runningJobIDs": [runningJobIDs[k] for k in ["config"] if k in runningJobIDs]
-    }))
-    soapJobID = qsub(soapScriptName)
-    runningJobIDs["soap"] = soapJobID
+        soapScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_denovo.sh")
+        make_soap_script(Container({
+            "outputFileName": soapScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "soapDir": args.soap,
+            "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["config"] if k in runningJobIDs]
+        }))
+        soapJobID = qsub(soapScriptName)
+        runningJobIDs["soap"] = soapJobID
     
     # If GG assembly; Run sort on STAR results
-    if args.genomeFile != None:
-        sortScriptName = os.path.join(os.getcwd(), "star_map", "run_sam2bamsort.sh")
-        make_sort_script(Container({
-            "outputFileName": sortScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "runningJobIDs": [runningJobIDs[k] for k in ["stargg"] if k in runningJobIDs]
-        }))
-        sortJobID = qsub(sortScriptName)
-        runningJobIDs["sort"] = sortJobID
+    if not args.skipSort:
+        if args.genomeFile != None:
+            sortScriptName = os.path.join(os.getcwd(), "star_map", "run_sam2bamsort.sh")
+            make_sort_script(Container({
+                "outputFileName": sortScriptName,
+                "workingDir": os.getcwd(),
+                "prefix": args.outputPrefix,
+                "runningJobIDs": [runningJobIDs[k] for k in ["stargg"] if k in runningJobIDs]
+            }))
+            sortJobID = qsub(sortScriptName)
+            runningJobIDs["sort"] = sortJobID
     
     # If GG assembly; Run Trinity GG
-    if args.genomeFile != None:
-        tringgScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-gg", "run_trin_gg.sh")
-        make_trin_gg_script(Container({
-            "outputFileName": tringgScriptName,
-            "workingDir": os.getcwd(),
-            "trinityDir": args.trinity,
-            "prefix": args.outputPrefix,
-            "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
-        }))
-        tringgJobID = qsub(tringgScriptName)
-        runningJobIDs["tringg"] = tringgJobID
+    if not args.skipTringg:
+        if args.genomeFile != None:
+            tringgScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-gg", "run_trin_gg.sh")
+            make_trin_gg_script(Container({
+                "outputFileName": tringgScriptName,
+                "workingDir": os.getcwd(),
+                "trinityDir": args.trinity,
+                "prefix": args.outputPrefix,
+                "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
+            }))
+            tringgJobID = qsub(tringgScriptName)
+            runningJobIDs["tringg"] = tringgJobID
     
     # If GG assembly; Run scallop
-    if args.genomeFile != None:
-        scallopScriptName = os.path.join(os.getcwd(), "transcriptomes", "scallop", "run_scallop.sh")
-        make_scallop_script(Container({
-            "outputFileName": scallopScriptName,
-            "workingDir": os.getcwd(),
-            "scallopDir": args.scallop,
-            "prefix": args.outputPrefix,
-            "genomeFile": "ass.fasta", #args.genomeFile,
-            "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
-        }))
-        scallopJobID = qsub(scallopScriptName)
-        runningJobIDs["scallop"] = scallopJobID
+    if not args.skipScallop:
+        if args.genomeFile != None:
+            scallopScriptName = os.path.join(os.getcwd(), "transcriptomes", "scallop", "run_scallop.sh")
+            make_scallop_script(Container({
+                "outputFileName": scallopScriptName,
+                "workingDir": os.getcwd(),
+                "scallopDir": args.scallop,
+                "prefix": args.outputPrefix,
+                "genomeFile": "ass.fasta", #args.genomeFile,
+                "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
+            }))
+            scallopJobID = qsub(scallopScriptName)
+            runningJobIDs["scallop"] = scallopJobID
     
     # Master transcriptome concatenation
-    masterConcatScriptName = os.path.join(os.getcwd(), "transcriptomes", "cat_transcriptomes.sh")
-    make_master_concat_script(Container({
-        "outputFileName": masterConcatScriptName,
-        "workingDir": os.getcwd(),
-        "prefix": args.outputPrefix,
-        "varScriptDir": args.varscript,
-        "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop"] if k in runningJobIDs]
-    }))
-    masterConcatJobID = qsub(masterConcatScriptName)
-    runningJobIDs["master"] = masterConcatJobID
+    if not args.skipMaster:
+        masterConcatScriptName = os.path.join(os.getcwd(), "transcriptomes", "cat_transcriptomes.sh")
+        make_master_concat_script(Container({
+            "outputFileName": masterConcatScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "varScriptDir": args.varscript,
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop"] if k in runningJobIDs]
+        }))
+        masterConcatJobID = qsub(masterConcatScriptName)
+        runningJobIDs["master"] = masterConcatJobID
     
     # Run EvidentialGene
-    evgScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene", "run_evidentialgene.sh")
-    make_evg_script(Container({
-        "outputFileName": evgScriptName,
-        "workingDir": os.getcwd(),
-        "prefix": args.outputPrefix,
-        "varScriptDir": args.varscript,
-        "evgDir": args.evg,
-        "runningJobIDs": [runningJobIDs[k] for k in ["master"] if k in runningJobIDs]
-    }))
-    evgJobID = qsub(evgScriptName)
-    runningJobIDs["evg"] = evgJobID
+    if not args.skipEvg:
+        evgScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene", "run_evidentialgene.sh")
+        make_evg_script(Container({
+            "outputFileName": evgScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "varScriptDir": args.varscript,
+            "evgDir": args.evg,
+            "runningJobIDs": [runningJobIDs[k] for k in ["master"] if k in runningJobIDs]
+        }))
+        evgJobID = qsub(evgScriptName)
+        runningJobIDs["evg"] = evgJobID
     
     # Concatenate okay-okalt files
-    okaltScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene",
-                                   "concatenated", "okay_okalt_concat.sh")
-    make_okalt_script(Container({
-        "outputFileName": okaltScriptName,
-        "workingDir": os.getcwd(),
-        "prefix": args.outputPrefix,
-        "runningJobIDs": [runningJobIDs[k] for k in ["evg"] if k in runningJobIDs]
-    }))
-    okaltJobID = qsub(okaltScriptName)
-    runningJobIDs["okalt"] = okaltJobID
+    if not args.skipOkalt:
+        okaltScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene",
+                                    "concatenated", "okay_okalt_concat.sh")
+        make_okalt_script(Container({
+            "outputFileName": okaltScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "runningJobIDs": [runningJobIDs[k] for k in ["evg"] if k in runningJobIDs]
+        }))
+        okaltJobID = qsub(okaltScriptName)
+        runningJobIDs["okalt"] = okaltJobID
     
     # Run BUSCO to validate assembly
     buscoScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene", 
@@ -1446,5 +1532,4 @@ def main():
     print("Program completed successfully!")
 
 if __name__ == "__main__":
-    #main()
-    pass
+    main()
