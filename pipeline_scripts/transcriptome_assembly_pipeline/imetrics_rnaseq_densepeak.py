@@ -50,7 +50,7 @@ def main():
     p.add_argument("-i", dest="imetricFile", type=int,
                     required=True,
                     help="Specify the input imetrics file")
-    p.add_argument("-o", destination="outputFileName",
+    p.add_argument("-o", dest="outputFileName",
                     required=True,
                     help="""Specify the output file name which will contain just the
                     number of the insert size""")
