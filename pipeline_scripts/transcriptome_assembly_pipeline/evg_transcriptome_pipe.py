@@ -364,7 +364,7 @@ cd {workingDir}/star_map
 
 STARDIR={starDir}
 CPUS=8
-GENDIR={workingDir}/genome
+GENDIR={genomeDir}
 GENFILE={genomeFile}
 
 ####
@@ -380,7 +380,8 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     starDir=argsContainer.starDir,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
-    genomeFile=argsContainer.genomeFile,
+    genomeFile=os.path.basename(argsContainer.genomeFile),
+    genomeDir=os.path.dirname(argsContainer.genomeFile),
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
@@ -428,11 +429,14 @@ cd {workingDir}/star_map
 
 READSDIR={workingDir}/prepared_reads
 NUMREADS=50000
+PREFIX={prefix}
 
 ####
 
-python {genScriptDir}/fasta_extractSubset.py {inputFastas} -n ${{NUMREADS}} -t first -o {outputFastas}
-
+python {genScriptDir}/fasta_extractSubset.py {inputFastas} \\
+    -n ${{NUMREADS}} \\
+    -t first \\
+    -o {outputFastas}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
@@ -445,52 +449,6 @@ python {genScriptDir}/fasta_extractSubset.py {inputFastas} -n ${{NUMREADS}} -t f
         f"{argsContainer.prefix}_1.subset.fq {argsContainer.prefix}_2.subset.fq",
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
-    # Write script to file
-    with open(argsContainer.outputFileName, "w") as fileOut:
-        fileOut.write(scriptText)
-
-def make_busco_script(argsContainer, MEM="55G", CPUS="8"):
-    assert len(argsContainer.fastaFiles) == len(argsContainer.modes), \
-        "fastaFiles and modes lengths must be equal"
-    
-    scriptText = \
-"""#!/bin/bash -l
-#PBS -N busco_{prefix}
-#PBS -l walltime=
-#PBS -l mem={MEM}
-#PBS -l ncpus={CPUS}
-{afterokLine}
-
-cd {workingDir}/transcriptomes/evidentialgene/concatenated
-
-module load blast+/2.3.0-foss-2016a-python-2.7.11
-export BUSCO_CONFIG_FILE=${buscoConfig}
-
-CPUS=2
-
-mkdir -p busco_results
-cd busco_results
-""".format(
-    MEM=MEM,
-    CPUS=CPUS,
-    workingDir=argsContainer.workingDir,
-    prefix=argsContainer.prefix,
-    buscoConfig=argsContainer.buscoConfig,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
-)
-
-    # Append BUSCO commands for each file to be run
-    for i in range(len(argsContainer.fastaFiles)):
-        fasta = argsContainer.fastaFiles[i]
-        mode = argsContainer.modes[i]
-        scriptText += "python3 ${{buscoDir}}/busco -i {workingDir}/transcriptomes/evidentialgene/concatenated/{fasta} -o {fasta} -l ${buscoLineage} -m ${mode} -c ${{CPUS}}\n".format(
-            buscoDir=argsContainer.buscoDir,
-            workingDir=argsContainer.workingDir,
-            buscoLineage=argsContainer.buscoLineage,
-            fasta=fasta,
-            mode=mode
-        )
-    
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
@@ -778,13 +736,344 @@ for k in 23 25 31 39 47 55 63 71; do ${{SOAPDIR}}/SOAPdenovo-Trans-127mer all \\
     -K ${{k}} \\
     -p ${{CPUS}} \\
     -f -F;
-done""".format(
+done
+""".format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     soapDir=argsContainer.soapDir,
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_sort_script(argsContainer, MEM="50", CPUS="8"):
+    '''
+    Mem is intentionally left without the G because we want to use the number in
+    a calculation which the shell can compute.
+    '''
+    
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N sort_{prefix}
+#PBS -l walltime=15:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/star_map
+
+####
+
+CPUS={CPUS}
+MEM={MEM}
+
+####
+
+SAMTOOLSTHREADMEM=$(echo "$(printf "%%.0f\n" $(echo "(${{MEM}}*0.50)/${{CPUS}}"|bc -l))")
+
+samtools sort -m ${{SAMTOOLSTHREADMEM}}G \\
+    -@ ${{CPUS}} \\
+    -o Aligned.out.sorted.bam \\
+    -O bam \\
+    Aligned.out.sam
+
+samtools index Aligned.out.sorted.bam
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_trin_gg_script(argsContainer, MEM="180G", CPUS="12", MAXINTRON="21000"):
+    '''
+    MAXINTRON set to 21kb is a generous upper limit for most genes; we can leave
+    Trinity de novo to get anything that is genuinely longer than that.
+    '''
+    
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N tringg_{prefix}
+#PBS -l walltime=150:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/trinity-gg
+
+####
+
+module load jellyfish/2.2.6-foss-2016a
+module load java/1.8.0_92
+
+TRINITYDIR={trinityDir}
+CPUS={CPUS}
+MEM={MEM}
+MAXINTRON={MAXINTRON}
+BAMDIR={workingDir}/star_map
+PREFIX={prefix}
+
+####
+
+${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
+    --max_memory ${{MEM}} \\
+    --SS_lib_type FR \\
+    --min_kmer_cov 2 \\
+    --monitoring \\
+    --genome_guided_bam ${{BAMDIR}}/Aligned.out.sorted.bam \\
+    --genome_guided_max_intron ${{MAXINTRON}} \\
+    --full_cleanup 2>&1 >> ${{PREFIX}}_Trinity.log
+
+ln -s trinity-out_dir/Trinity-GG.fasta .
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    MAXINTRON=MAXINTRON,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    trinityDir=argsContainer.trinityDir,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_scallop_script(argsContainer, MEM="50G", CPUS="1"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N scal_{prefix}
+#PBS -l walltime=80:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/scallop
+
+####
+
+module load tophat/2.1.1-foss-2016a
+
+SCALLOPDIR={scallopDir}
+BAMDIR={workingDir}/star_map
+
+GENFILE={genomeFile}
+
+PREFIX={prefix}
+MINTCOV=1
+
+####
+
+${{SCALLOPDIR}}/scallop -i ${{BAMDIR}}/Aligned.out.sorted.bam \\
+    --library_type first \\
+    -o ${{PREFIX}}.gtf \\
+    --min_transcript_coverage ${{MINTCOV}}
+
+gtf_to_fasta ${{PREFIX}}.gtf \\
+    ${{GENFILE}} \\
+    ${{PREFIX}}_scallop.fasta
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    scallopDir=argsContainer.scallopDir,
+    genomeFile=argsContainer.genomeFile,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_master_concat_script(argsContainer, MEM="10G", CPUS="1"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N mcat_{prefix}
+#PBS -l walltime=02:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes
+
+####
+
+VARSCRIPTDIR={varScriptDir}
+PREFIX={prefix}
+
+####
+
+cat soapdenovo-trans/${{PREFIX}}.*.scafSeq trinity-denovo/trinity_out_dir.Trinity.fasta velvet-oases/${{PREFIX}}.*/transcripts.fa > ${{PREFIX}}_denovo_transcriptome.fasta
+python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_transcriptome.fasta -f cullbelow -n 350 -o ${{PREFIX}}_denovo_transcriptome_cull.fasta
+cat ${{PREFIX}}_denovo_transcriptome_cull.fasta scallop/${{PREFIX}}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${{PREFIX}}_master_transcriptome.fasta
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    varScriptDir=argsContainer.varScriptDir,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_evg_script(argsContainer, MEM="120G", CPUS="8"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N evg_{prefix}
+#PBS -l walltime=90:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/evidentialgene
+
+####
+
+module load exonerate/2.4.0-foss-2016a
+module load cd-hit/4.6.4-foss-2016a-2015-0603
+
+VARSCRIPTDIR={varScriptDir}
+EVGSCRIPTSDIR={evgDir}
+PREFIX={prefix}
+MASTERTRANSCRIPTOME={workingDir}/transcriptomes/${{PREFIX}}_master_transcriptome.fasta
+
+CPUS={CPUS}
+
+####
+
+# STEP 1: Create outputs directory and enter it
+mkdir -p ${{PREFIX}}_evgrun
+cd ${{PREFIX}}_evgrun
+
+# STEP 2: Make transcript names suitable for EvidentialGene
+python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -f rename \\
+    -i ${{MASTERTRANSCRIPTOME}} \\
+    -s ${{PREFIX}}_ \\
+    -o ${{PREFIX}}_master_transcriptome.fasta
+
+# STEP 3: Run EvidentialGene
+${{EVGSCRIPTSDIR}}/prot/tr2aacds.pl -debug \\
+    -NCPU ${{CPUS}} \\
+    -MAXMEM 150000 \\
+    -log \\
+    -cdnaseq {workingDir}/transcriptomes/evidentialgene/${{PREFIX}}_evgrun/${{PREFIX}}_master_transcriptome.fasta
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    varScriptDir=argsContainer.varScriptDir,
+    evgDir=argsContainer.evgDir,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_okalt_script(argsContainer, MEM="10G", CPUS="1"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N okalt_{prefix}
+#PBS -l walltime=90:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/evidentialgene/concatenated
+
+####
+
+PREFIX={prefix}
+EVGRESULTSDIR={workingDir}/transcriptomes/evidentialgene/${{PREFIX}}_evgrun
+
+####
+
+cat ${{EVGRESULTSDIR}}/okayset/*.okay.aa ${{EVGRESULTSDIR}}/okayset/*.okalt.aa > ${{PREFIX}}_okay-okalt.aa
+cat ${{EVGRESULTSDIR}}/okayset/*.okay.fasta ${{EVGRESULTSDIR}}/okayset/*.okalt.fasta > ${{PREFIX}}_okay-okalt.fasta
+cat ${{EVGRESULTSDIR}}/okayset/*.okay.cds ${{EVGRESULTSDIR}}/okayset/*.okalt.cds > ${{PREFIX}}_okay-okalt.cds
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_busco_script(argsContainer, MEM="55G", CPUS="8"):
+    assert len(argsContainer.fastaFiles) == len(argsContainer.modes), \
+        "fastaFiles and modes lengths must be equal"
+    
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N busco_{prefix}
+#PBS -l walltime=08:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/evidentialgene/concatenated
+
+####
+
+module load blast+/2.3.0-foss-2016a-python-2.7.11
+
+BUSCODIR={buscoDir}
+BUSCOCONFIG={buscoConfig}
+BUSCOLINEAGE={buscoLineage}
+
+CPUS=2
+
+####
+
+# STEP 1: Set up BUSCO dir and environment
+export BUSCO_CONFIG_FILE=${{BUSCOCONFIG}}
+mkdir -p busco_results
+cd busco_results
+
+# STEP 2: Run BUSCO for each FASTA file
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    buscoDir=argsContainer.buscoDir,
+    buscoConfig=argsContainer.buscoConfig,
+    buscoLineage=argsContainer.buscoLineage,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Append BUSCO commands for each file to be run
+    for i in range(len(argsContainer.fastaFiles)):
+        fasta = argsContainer.fastaFiles[i]
+        mode = argsContainer.modes[i]
+        scriptText += \
+"""python3 ${{BUSCODIR}}/busco -i {fasta} \\
+    -o {baseFasta} \\
+    -l ${{BUSCOLINEAGE}} \\
+    -m {mode} \\
+    -c ${{CPUS}}
+""".format(
+    fasta=fasta,
+    baseFasta=os.path.basename(fasta),
+    mode=mode
 )
     
     # Write script to file
@@ -942,7 +1231,7 @@ def main():
             "workingDir": os.getcwd(),
             "prefix": args.outputPrefix,
             "starDir": args.star,
-            "genomeFile": "test_genome.fasta", #args.genome,
+            "genomeFile": args.genomeFile,
             "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
                 if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
             "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
@@ -1057,26 +1346,81 @@ def main():
     soapJobID = qsub(soapScriptName)
     runningJobIDs["soap"] = soapJobID
     
-    # Run sort on STAR results
+    # If GG assembly; Run sort on STAR results
     if args.genomeFile != None:
-        pass
+        sortScriptName = os.path.join(os.getcwd(), "star_map", "run_sam2bamsort.sh")
+        make_sort_script(Container({
+            "outputFileName": sortScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "runningJobIDs": [runningJobIDs[k] for k in ["stargg"] if k in runningJobIDs]
+        }))
+        sortJobID = qsub(sortScriptName)
+        runningJobIDs["sort"] = sortJobID
     
-    # Run Trinity GG assembly
+    # If GG assembly; Run Trinity GG
     if args.genomeFile != None:
-        pass
+        tringgScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-gg", "run_trin_gg.sh")
+        make_trin_gg_script(Container({
+            "outputFileName": tringgScriptName,
+            "workingDir": os.getcwd(),
+            "trinityDir": args.trinity,
+            "prefix": args.outputPrefix,
+            "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
+        }))
+        tringgJobID = qsub(tringgScriptName)
+        runningJobIDs["tringg"] = tringgJobID
     
-    # Run scallop GG assembly
+    # If GG assembly; Run scallop
     if args.genomeFile != None:
-        pass
+        scallopScriptName = os.path.join(os.getcwd(), "transcriptomes", "scallop", "run_scallop.sh")
+        make_scallop_script(Container({
+            "outputFileName": scallopScriptName,
+            "workingDir": os.getcwd(),
+            "scallopDir": args.scallop,
+            "prefix": args.outputPrefix,
+            "genomeFile": "ass.fasta", #args.genomeFile,
+            "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
+        }))
+        scallopJobID = qsub(scallopScriptName)
+        runningJobIDs["scallop"] = scallopJobID
     
     # Master transcriptome concatenation
-    
+    masterConcatScriptName = os.path.join(os.getcwd(), "transcriptomes", "cat_transcriptomes.sh")
+    make_master_concat_script(Container({
+        "outputFileName": masterConcatScriptName,
+        "workingDir": os.getcwd(),
+        "prefix": args.outputPrefix,
+        "varScriptDir": args.varscript,
+        "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop"] if k in runningJobIDs]
+    }))
+    masterConcatJobID = qsub(masterConcatScriptName)
+    runningJobIDs["master"] = masterConcatJobID
     
     # Run EvidentialGene
-    
+    evgScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene", "run_evidentialgene.sh")
+    make_evg_script(Container({
+        "outputFileName": evgScriptName,
+        "workingDir": os.getcwd(),
+        "prefix": args.outputPrefix,
+        "varScriptDir": args.varscript,
+        "evgDir": args.evg,
+        "runningJobIDs": [runningJobIDs[k] for k in ["master"] if k in runningJobIDs]
+    }))
+    evgJobID = qsub(evgScriptName)
+    runningJobIDs["evg"] = evgJobID
     
     # Concatenate okay-okalt files
-    
+    okaltScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene",
+                                   "concatenated", "okay_okalt_concat.sh")
+    make_okalt_script(Container({
+        "outputFileName": okaltScriptName,
+        "workingDir": os.getcwd(),
+        "prefix": args.outputPrefix,
+        "runningJobIDs": [runningJobIDs[k] for k in ["evg"] if k in runningJobIDs]
+    }))
+    okaltJobID = qsub(okaltScriptName)
+    runningJobIDs["okalt"] = okaltJobID
     
     # Run BUSCO to validate assembly
     buscoScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene", 
@@ -1085,12 +1429,18 @@ def main():
         "outputFileName": buscoScriptName,
         "workingDir": os.getcwd(),
         "prefix": args.outputPrefix,
+        "buscoDir": args.busco,
         "buscoConfig": args.buscoConfig,
-        "fastaFiles": None,
-        "modes": ["prot"]*3,
-        "lineage": args.buscoLineage,
-        "runningJobIDs": runningJobIDs
+        "buscoLineage": args.buscoLineage,
+        "fastaFiles": [
+            os.path.join(os.path.dirname(buscoScriptName), f"{args.outputPrefix}_okay-okalt.aa"),
+            os.path.join(os.path.dirname(buscoScriptName), f"{args.outputPrefix}_okay-okalt.fasta"),
+            os.path.join(os.path.dirname(buscoScriptName), f"{args.outputPrefix}_okay-okalt.cds")
+        ],
+        "modes": ["prot", "tran", "tran"],
+        "runningJobIDs": [runningJobIDs[k] for k in ["okalt"] if k in runningJobIDs]
     }))
+    buscoJobID = qsub(buscoScriptName)
     
     # Done!
     print("Program completed successfully!")
