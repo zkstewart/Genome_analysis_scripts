@@ -162,7 +162,6 @@ Output files are labelled as ${INPUT}.subset${SAMPLENUM}. If this file already e
 """
 p = argparse.ArgumentParser(description=usage)
 p.add_argument("inputFastas", nargs="+",
-                required=True,
                 help="""Accepts 1-2 fast(a/q) file name(s). If subsetting paired fastq files, enter both file
                 names to ensure they use the same random seed. If using regular fasta, just one file at a time
                 please. Will also accept a single fastq file.""")
