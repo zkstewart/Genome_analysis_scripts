@@ -372,11 +372,14 @@ GENFILE={genomeFile}
 
 ####
 
-# Generate index
+# STEP 1: Copy genome here
+cp ${{GENDIR}}/${{GENFILE}} .
+
+# STEP 2: Generate index
 ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     --runMode genomeGenerate \\
-    --genomeDir ${{GENDIR}} \\
-    --genomeFastaFiles ${{GENDIR}}/${{GENFILE}}
+    --genomeDir {workingDir}/star_map \\
+    --genomeFastaFiles {workingDir}/star_map/${{GENFILE}}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
@@ -393,7 +396,7 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
         scriptText += \
 """# Run 2-pass procedure
 ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
-    --genomeDir ${{GENDIR}} \\
+    --genomeDir {workingDir}/star_map \\
     --readFilesIn {forwardFile} \\
     --twopassMode Basic
 """.format(
