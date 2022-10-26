@@ -420,11 +420,11 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_subset_script(argsContainer, MEM="10G", CPUS="1"):
+def make_subset_script(argsContainer, MEM="50G", CPUS="4"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N subset_{prefix}
-#PBS -l walltime=00:15:00
+#PBS -l walltime=04:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -437,15 +437,25 @@ READSDIR={workingDir}/prepared_reads
 NUMREADS=50000
 PREFIX={prefix}
 
+CDHITDIR={cdHitDir}
+TRANSCRIPTOME={transcriptomeFile}
+CPUS={CPUS}
+
 ####
 
+# STEP 1: Subset the reads for alignment
 head -n $(( 4*${{NUMREADS}} )) {fwdReadIn} > {fwdReadOut}
 {rvsReadLine}
+
+# STEP 2: Reduce size of the target transcriptome
+${{CDHITDIR}}/cd-hit-est -i ${{TRANSCRIPTOME}} -o trinity_dn_clustered.fasta -c 0.80 -n 5 -d 0 -M 25000 -T ${{CPUS}}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
+    cdHitDir=argsContainer.cdHitDir,
+    transcriptomeFile=argsContainer.transcriptomeFile,
     fwdReadIn=f"${{READSDIR}}/${argsContainer.prefix}.fq" if argsContainer.isSingleEnd else \
         f"${{READSDIR}}/{argsContainer.prefix}_1.fq",
     fwdReadOut=f"{argsContainer.prefix}.subset.fq" if argsContainer.isSingleEnd else \
@@ -1116,6 +1126,10 @@ def main():
                    required=False,
                    help="Specify the full path to the Trimmomatic JAR file (default=HPC location)",
                    default="/home/stewarz2/various_programs/Trimmomatic-0.36/trimmomatic-0.36.jar")
+    p.add_argument("-cdhit", dest="cdhit",
+                   required=False,
+                   help="Specify the location of the CD-HIT bin dir (default=HPC location)",
+                   default="/pkg/suse12/software/cd-hit/4.6.4-foss-2016a-2015-0603/bin")
     p.add_argument("-star", dest="star",
                    required=False,
                    help="Specify the location of the STAR executable (default=HPC location)",
@@ -1321,11 +1335,14 @@ def main():
         # If not GG assembly; Run subsetted STAR alignment against transcriptome
         else:
             # Subset FASTQ reads for alignment
+            trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
             subsetScriptName = os.path.join(os.getcwd(), "star_map", "run_subset.sh")
             make_subset_script(Container({
                 "outputFileName": subsetScriptName,
                 "workingDir": os.getcwd(),
                 "prefix": args.outputPrefix,
+                "transcriptomeFile": trindnFastaFile,
+                "cdHitDir": args.cdhit,
                 "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
                     if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
                 "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
@@ -1335,17 +1352,17 @@ def main():
             subsetJobID = qsub(subsetScriptName)
             runningJobIDs["subset"] = subsetJobID
             
-            # Run STAR alignment with subsetted reads
-            trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
+            # Run STAR alignment with subsetted data
+            subsetFastaFile = os.path.join(os.getcwd(), "star_map", "trinity_dn_clustered.fasta")
             make_star_script(Container({
                 "outputFileName": starScriptName,
                 "workingDir": os.getcwd(),
                 "prefix": args.outputPrefix,
                 "starDir": args.star,
-                "genomeFile": trindnFastaFile,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.subset.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.subset.fq"),
-                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.subset.fq"),
+                "genomeFile": subsetFastaFile,
+                "forwardFile": os.path.join(os.getcwd(), "star_map", f"{args.outputPrefix}.subset.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "star_map", f"{args.outputPrefix}_1.subset.fq"),
+                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "star_map", f"{args.outputPrefix}_2.subset.fq"),
                 "isSingleEnd": args.isSingleEnd,
                 "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
             }))
