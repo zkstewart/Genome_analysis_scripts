@@ -173,7 +173,7 @@ p.add_argument("-t", "--type", dest="sampleType", choices=['random','first', 'la
                 help="""type of sampling mechanism [first means we sample n sequences from the start of the file,
                 last means we sample n sequences from the end of the file, random means random selection from all
                 sequences in the file", default = 'random'""")
-p.add_argument("-o", "--output", destination="outputFileNames", nargs="+",
+p.add_argument("-o", "--output", dest="outputFileNames", nargs="+",
                 required=False,
                 help="""Optionally, specify the output file names; must have same number of arguments
                 as the number of input files; if not provided, names will be generated for you""",
