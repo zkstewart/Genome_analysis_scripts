@@ -421,7 +421,7 @@ def make_subset_script(argsContainer, MEM="10G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N subset_{prefix}
-#PBS -l walltime=00:30:00
+#PBS -l walltime=00:15:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -436,22 +436,22 @@ PREFIX={prefix}
 
 ####
 
-python {genScriptDir}/fasta_extractSubset.py {inputFastas} \\
-    -n ${{NUMREADS}} \\
-    -t first \\
-    -o {outputFastas}
+head -n $(( 4*${{NUMREADS}} )) {fwdReadIn} > {fwdReadOut}
+{rvsReadLine}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
-    genScriptDir=argsContainer.genScriptDir,
-    inputFastas=f"${{READSDIR}}/${argsContainer.prefix}.fq" if argsContainer.isSingleEnd else \
-        f"${{READSDIR}}/{argsContainer.prefix}_1.fq ${{READSDIR}}/{argsContainer.prefix}_2.fq",
-    outputFastas=f"{argsContainer.prefix}.subset.fq" if argsContainer.isSingleEnd else \
-        f"{argsContainer.prefix}_1.subset.fq {argsContainer.prefix}_2.subset.fq",
+    fwdReadIn=f"${{READSDIR}}/${argsContainer.prefix}.fq" if argsContainer.isSingleEnd else \
+        f"${{READSDIR}}/{argsContainer.prefix}_1.fq",
+    fwdReadOut=f"{argsContainer.prefix}.subset.fq" if argsContainer.isSingleEnd else \
+        f"{argsContainer.prefix}_1.subset.fq",
+    rvsReadLine="" if argsContainer.isSingleEnd else \
+        f"head -n $(( 4*${{NUMREADS}} )) ${{READSDIR}}/{argsContainer.prefix}_2.fq > {argsContainer.prefix}_2.subset.fq",
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
+
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
@@ -1323,7 +1323,6 @@ def main():
                 "outputFileName": subsetScriptName,
                 "workingDir": os.getcwd(),
                 "prefix": args.outputPrefix,
-                "genScriptDir": args.genscript,
                 "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
                     if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
                 "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
