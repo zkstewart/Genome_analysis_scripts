@@ -76,7 +76,6 @@ def setup_work_dir(args):
     os.makedirs("prepared_reads", exist_ok=True)
     os.makedirs("rnaseq_details", exist_ok=True)
     os.makedirs("transcriptomes", exist_ok=True)
-    os.makedirs("star_map", exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "soapdenovo-trans"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "trinity-denovo"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "velvet-oases"), exist_ok=True)
@@ -85,6 +84,7 @@ def setup_work_dir(args):
     
     if args.genomeFile != None:
         os.makedirs("genome", exist_ok=True)
+        os.makedirs("star_map", exist_ok=True)
         os.symlink(args.genomeFile, os.path.join("genome", os.path.basename(args.genomeFile)))
         
         os.makedirs(os.path.join("transcriptomes", "scallop"), exist_ok=True)
@@ -454,6 +454,54 @@ python ${{GENSCRIPTDIR}}/fasta_extractSubset.py -i ${{TRANSCRIPTOME}} \\
     workingDir=argsContainer.workingDir,
     genScriptDir=argsContainer.genScriptDir,
     transcriptomeFile=argsContainer.transcriptomeFile,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_denovo_details_script(argsContainer, MEM="10G", CPUS="1"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N details_{prefix}
+#PBS -l walltime=01:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/rnaseq_details
+
+####
+
+module load bbmap/37.50-foss-2017a
+
+READSDIR={workingDir}/prepared_reads
+NUMREADS=5000
+PREFIX={prefix}
+
+####
+
+# STEP 1: Subset the reads
+head -n $(( 4*${{NUMREADS}} )) ${{READSDIR}}/${{PREFIX}}_1.fq > ${{PREFIX}}_1.subset.fq
+head -n $(( 4*${{NUMREADS}} )) ${{READSDIR}}/${{PREFIX}}_2.fq > ${{PREFIX}}_2.subset.fq
+
+# STEP 2: Run bbmerge to derive the insert size
+bbmerge.sh in1=${{PREFIX}}_1.subset.fq in2=${{PREFIX}}_2.subset.fq ihist=ihist_merge.txt loose
+INSERTSIZE=$(cat ihist_merge.txt | head -n 2 | tail -n 1 | awk '{{print $2;}}')
+
+# STEP 3: Obtain maximum read length from file
+python {genScriptDir}/genome_stats.py -i ${{PREFIX}}_1.subset.fq -o ${{PREFIX}}_1.subset.stats
+MAXREADLEN=$(cat ${{PREFIX}}_1.subset.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
+
+# STEP 4: Format details for parsing by downstream programs
+echo "INSERT_SIZE: ${{INSERTSIZE}} ; MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    prefix=argsContainer.prefix,
+    workingDir=argsContainer.workingDir,
+    genScriptDir=argsContainer.genScriptDir,
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
@@ -1324,53 +1372,70 @@ def main():
             starJobID = qsub(starScriptName)
             runningJobIDs["stargg"] = starJobID
         
-        # If not GG assembly; Run subsetted STAR alignment against transcriptome
-        else:
-            # Subset FASTQ reads for alignment
-            trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
-            subsetScriptName = os.path.join(os.getcwd(), "star_map", "run_subset.sh")
-            make_subset_script(Container({
-                "outputFileName": subsetScriptName,
-                "workingDir": os.getcwd(),
-                "prefix": args.outputPrefix,
-                "genScriptDir": args.genscript,
-                "transcriptomeFile": trindnFastaFile,
-                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn"] if k in runningJobIDs]
-            }))
-            subsetJobID = qsub(subsetScriptName)
-            runningJobIDs["subset"] = subsetJobID
+        # # If not GG assembly; Run subsetted STAR alignment against transcriptome
+        # else:
+        #     # Subset FASTQ reads for alignment
+        #     trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
+        #     subsetScriptName = os.path.join(os.getcwd(), "star_map", "run_subset.sh")
+        #     make_subset_script(Container({
+        #         "outputFileName": subsetScriptName,
+        #         "workingDir": os.getcwd(),
+        #         "prefix": args.outputPrefix,
+        #         "genScriptDir": args.genscript,
+        #         "transcriptomeFile": trindnFastaFile,
+        #         "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn"] if k in runningJobIDs]
+        #     }))
+        #     subsetJobID = qsub(subsetScriptName)
+        #     runningJobIDs["subset"] = subsetJobID
             
-            # Run STAR alignment with subsetted data
-            subsetFastaFile = os.path.join(os.getcwd(), "star_map", "trinity_dn_subset.fasta")
-            make_star_script(Container({
-                "outputFileName": starScriptName,
-                "workingDir": os.getcwd(),
-                "prefix": args.outputPrefix,
-                "starDir": args.star,
-                "genomeFile": subsetFastaFile,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-                "isSingleEnd": args.isSingleEnd,
-                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
-            }))
-            starJobID = qsub(starScriptName)
-            runningJobIDs["starss"] = starJobID
+        #     # Run STAR alignment with subsetted data
+        #     subsetFastaFile = os.path.join(os.getcwd(), "star_map", "trinity_dn_subset.fasta")
+        #     make_star_script(Container({
+        #         "outputFileName": starScriptName,
+        #         "workingDir": os.getcwd(),
+        #         "prefix": args.outputPrefix,
+        #         "starDir": args.star,
+        #         "genomeFile": subsetFastaFile,
+        #         "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+        #             if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+        #         "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
+        #         "isSingleEnd": args.isSingleEnd,
+        #         "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
+        #     }))
+        #     starJobID = qsub(starScriptName)
+        #     runningJobIDs["starss"] = starJobID
     
     # Get RNAseq read statistics
     if not args.skipDetails:
         if not args.isSingleEnd: # i.e., if paired
-            picardScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_picard.sh")
-            make_picard_script(Container({
-                "outputFileName": picardScriptName,
-                "workingDir": os.getcwd(),
-                "prefix": args.outputPrefix,
-                "genScriptDir": args.genscript,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
-            }))
-            picardJobID = qsub(picardScriptName)
-            runningJobIDs["picard"] = picardJobID
+            # Get RNAseq details for GG assembly
+            if args.genomeFile != None:
+                picardScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_picard.sh")
+                make_picard_script(Container({
+                    "outputFileName": picardScriptName,
+                    "workingDir": os.getcwd(),
+                    "prefix": args.outputPrefix,
+                    "genScriptDir": args.genscript,
+                    "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                    "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg"] if k in runningJobIDs]
+                }))
+                picardJobID = qsub(picardScriptName)
+                runningJobIDs["picard"] = picardJobID
+            # Get RNAseq details de novo
+            else:
+                detailsScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_details.sh")
+                make_denovo_details_script(Container({
+                    "outputFileName": detailsScriptName,
+                    "workingDir": os.getcwd(),
+                    "prefix": args.outputPrefix,
+                    "genScriptDir": args.genscript,
+                    "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                    "reverseFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
+                    "isSingleEnd": args.isSingleEnd,
+                    "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
+                }))
+                detailsJobID = qsub(detailsScriptName)
+                runningJobIDs["details"] = detailsJobID
         else:
             readsizeScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_readsize.sh")
             make_readsize_script(Container({
@@ -1379,7 +1444,7 @@ def main():
                 "prefix": args.outputPrefix,
                 "genScriptDir": args.genscript,
                 "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq"),
-                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg", "starss"] if k in runningJobIDs]
+                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
             }))
             readsizeJobID = qsub(readsizeScriptName)
             runningJobIDs["readsize"] = readsizeJobID
@@ -1394,7 +1459,7 @@ def main():
             "velvetDir": args.velvet,
             "oasesDir": args.oases,
             "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "readsize", "picard"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "readsize", "picard", "details"] if k in runningJobIDs]
         }))
         oasesJobID = qsub(oasesScriptName)
         runningJobIDs["oases"] = oasesJobID
@@ -1408,7 +1473,7 @@ def main():
             "prefix": args.outputPrefix,
             "genScriptDir": args.genscript,
             "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard", "details"] if k in runningJobIDs]
         }))
         configJobID = qsub(configScriptName)
         runningJobIDs["config"] = configJobID
