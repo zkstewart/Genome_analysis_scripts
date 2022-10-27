@@ -372,14 +372,14 @@ GENFILE={genomeFile}
 
 ####
 
-# STEP 1: Copy genome here
-cp ${{GENDIR}}/${{GENFILE}} .
+# STEP 1: Copy genome/transcriptome here
+cp ${{GENDIR}}/${{GENFILE}} target.fasta
 
 # STEP 2: Generate index
 ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     --runMode genomeGenerate \\
     --genomeDir {workingDir}/star_map \\
-    --genomeFastaFiles {workingDir}/star_map/${{GENFILE}}
+    --genomeFastaFiles {workingDir}/star_map/target.fasta
 """.format(
     MEM=MEM,
     CPUS=CPUS,
@@ -400,6 +400,7 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     --readFilesIn {forwardFile} \\
     --twopassMode Basic
 """.format(
+    workingDir=argsContainer.workingDir,
     forwardFile=argsContainer.forwardFile
 )
     
@@ -408,10 +409,11 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
         scriptText += \
 """# Run 2-pass procedure
 ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
-    --genomeDir ${{GENDIR}} \\
+    --genomeDir {workingDir}/star_map \\
     --readFilesIn {forwardFile} {reverseFile} \\
     --twopassMode Basic
 """.format(
+    workingDir=argsContainer.workingDir,
     forwardFile=argsContainer.forwardFile,
     reverseFile=argsContainer.reverseFile
 )
@@ -420,11 +422,11 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_subset_script(argsContainer, MEM="50G", CPUS="4"):
+def make_subset_script(argsContainer, MEM="10G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N subset_{prefix}
-#PBS -l walltime=04:00:00
+#PBS -l walltime=01:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -433,35 +435,25 @@ cd {workingDir}/star_map
 
 ####
 
-READSDIR={workingDir}/prepared_reads
-NUMREADS=50000
-PREFIX={prefix}
-
-CDHITDIR={cdHitDir}
+GENSCRIPTDIR={genScriptDir}
 TRANSCRIPTOME={transcriptomeFile}
-CPUS={CPUS}
+NUMSEQS=500
 
 ####
 
-# STEP 1: Subset the reads for alignment
-head -n $(( 4*${{NUMREADS}} )) {fwdReadIn} > {fwdReadOut}
-{rvsReadLine}
+# STEP 1: Reduce size of the target transcriptome
+python ${{GENSCRIPTDIR}}/fasta_extractSubset.py -i ${{TRANSCRIPTOME}} \\
+    -n ${{NUMSEQS}} \\
+    -t longest \\
+    -o trinity_dn_subset.fasta
 
-# STEP 2: Reduce size of the target transcriptome
-${{CDHITDIR}}/cd-hit-est -i ${{TRANSCRIPTOME}} -o trinity_dn_clustered.fasta -c 0.80 -n 5 -d 0 -M 25000 -T ${{CPUS}}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
-    workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
-    cdHitDir=argsContainer.cdHitDir,
+    workingDir=argsContainer.workingDir,
+    genScriptDir=argsContainer.genScriptDir,
     transcriptomeFile=argsContainer.transcriptomeFile,
-    fwdReadIn=f"${{READSDIR}}/${argsContainer.prefix}.fq" if argsContainer.isSingleEnd else \
-        f"${{READSDIR}}/{argsContainer.prefix}_1.fq",
-    fwdReadOut=f"{argsContainer.prefix}.subset.fq" if argsContainer.isSingleEnd else \
-        f"{argsContainer.prefix}_1.subset.fq",
-    rvsReadLine="" if argsContainer.isSingleEnd else \
-        f"head -n $(( 4*${{NUMREADS}} )) ${{READSDIR}}/{argsContainer.prefix}_2.fq > {argsContainer.prefix}_2.subset.fq",
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
@@ -1341,28 +1333,24 @@ def main():
                 "outputFileName": subsetScriptName,
                 "workingDir": os.getcwd(),
                 "prefix": args.outputPrefix,
+                "genScriptDir": args.genscript,
                 "transcriptomeFile": trindnFastaFile,
-                "cdHitDir": args.cdhit,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-                "isSingleEnd": args.isSingleEnd,
                 "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn"] if k in runningJobIDs]
             }))
             subsetJobID = qsub(subsetScriptName)
             runningJobIDs["subset"] = subsetJobID
             
             # Run STAR alignment with subsetted data
-            subsetFastaFile = os.path.join(os.getcwd(), "star_map", "trinity_dn_clustered.fasta")
+            subsetFastaFile = os.path.join(os.getcwd(), "star_map", "trinity_dn_subset.fasta")
             make_star_script(Container({
                 "outputFileName": starScriptName,
                 "workingDir": os.getcwd(),
                 "prefix": args.outputPrefix,
                 "starDir": args.star,
                 "genomeFile": subsetFastaFile,
-                "forwardFile": os.path.join(os.getcwd(), "star_map", f"{args.outputPrefix}.subset.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "star_map", f"{args.outputPrefix}_1.subset.fq"),
-                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "star_map", f"{args.outputPrefix}_2.subset.fq"),
+                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
+                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
+                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
                 "isSingleEnd": args.isSingleEnd,
                 "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
             }))
