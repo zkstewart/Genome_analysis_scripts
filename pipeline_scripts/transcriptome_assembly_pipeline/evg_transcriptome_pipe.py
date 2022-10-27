@@ -645,7 +645,7 @@ for k in 23 25 31 39 47 55 63; do ${{VELVETDIR}}/velveth ${{PREFIX}}.${{k}} \\
     prefix=argsContainer.prefix,
     velvetDir=argsContainer.velvetDir,
     oasesDir=argsContainer.oasesDir,
-    insertSizeLine="" if not argsContainer.isSingleEnd else \
+    insertSizeLine="" if argsContainer.isSingleEnd else \
         f"INSERT_SIZE=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
