@@ -638,7 +638,7 @@ export OMP_NUM_THREADS=${{CPUS}}
 for k in 23 25 31 39 47 55 63; do ${{VELVETDIR}}/velveth ${{PREFIX}}.${{k}} \\
     ${{k}} \\
     -fastq \\
-    -strand_specific \\ """.format(
+    -strand_specific \\""".format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
@@ -965,21 +965,31 @@ cd {workingDir}/transcriptomes
 
 VARSCRIPTDIR={varScriptDir}
 PREFIX={prefix}
+MINSIZE={minSize}
 
 ####
 
 cat soapdenovo-trans/${{PREFIX}}.*.scafSeq trinity-denovo/trinity_out_dir.Trinity.fasta velvet-oases/${{PREFIX}}.*/transcripts.fa > ${{PREFIX}}_denovo_transcriptome.fasta
-python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_transcriptome.fasta -f cullbelow -n 350 -o ${{PREFIX}}_denovo_transcriptome_cull.fasta
-cat ${{PREFIX}}_denovo_transcriptome_cull.fasta scallop/${{PREFIX}}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${{PREFIX}}_master_transcriptome.fasta
+python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_transcriptome.fasta -f cullbelow -n ${{MINSIZE}} -o ${{PREFIX}}_denovo_transcriptome_cull.fasta
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     varScriptDir=argsContainer.varScriptDir,
+    minSize="350" if argsContainer.genomeFile != None else \
+        "250",
     afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
+    # Additionally concat GG assemblies if relevant
+    if argsContainer.genomeFile != None:
+        scriptText += "cat ${{PREFIX}}_denovo_transcriptome_cull.fasta scallop/${{PREFIX}}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${{PREFIX}}_master_transcriptome.fasta"
+    
+    # Otherwise, just symbolic link for file name consistency
+    else:
+        scriptText += "ln -s ${{PREFIX}}_denovo_transcriptome_cull.fasta ${{PREFIX}}_master_transcriptome.fasta"
+    
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
@@ -1540,6 +1550,7 @@ def main():
             "workingDir": os.getcwd(),
             "prefix": args.outputPrefix,
             "varScriptDir": args.varscript,
+            "genomeFile": args.genomeFile,
             "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop"] if k in runningJobIDs]
         }))
         masterConcatJobID = qsub(masterConcatScriptName)
