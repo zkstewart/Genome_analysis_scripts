@@ -38,6 +38,10 @@ def validate_args(args):
         print(f"I am unable to locate the oases executable file ({os.path.join(args.oases, 'oases')})")
         print("Make sure you've typed the location correctly and try again.")
         quit()
+    if not os.path.isfile(os.path.join(args.spades, "spades.py")):
+        print(f"I am unable to locate the spades python file ({os.path.join(args.spades, 'spades.py')})")
+        print("Make sure you've typed the location correctly and try again.")
+        quit()
     if not os.path.isfile(os.path.join(args.scallop, "scallop")):
         print(f"I am unable to locate the scallop executable file ({os.path.join(args.scallop, 'scallop')})")
         print("Make sure you've typed the location correctly and try again.")
@@ -716,6 +720,58 @@ echo "oases done"
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
+def make_spades_script(argsContainer, MEM="260G", CPUS="12"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N spades_{prefix}
+#PBS -l walltime=150:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/spades
+####
+
+SPADESDIR={spadesDir}
+
+CPUS={CPUS}
+READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
+PREFIX={prefix}
+
+####
+
+
+${{SPADESDIR}}/spades.py --rna \\
+    -t ${{CPUS}} \\
+    -o ${{PREFIX}} \\""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    spadesDir=argsContainer.spadesDir,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Run SPAdes with single-end reads
+    if argsContainer.isSingleEnd:
+        scriptText += \
+"""
+    -s ${READSDIR}/single.norm.fq
+"""
+    
+    # Run SPAdes with paired-end reads
+    else:
+        scriptText += \
+"""
+    -1 ${READSDIR}/left.norm.fq \\
+    -2 ${READSDIR}/right.norm.fq
+"""
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+
 def make_config_script(argsContainer, MEM="5G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
@@ -1053,7 +1109,7 @@ def make_okalt_script(argsContainer, MEM="10G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N okalt_{prefix}
-#PBS -l walltime=90:00:00
+#PBS -l walltime=01:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -1068,7 +1124,7 @@ EVGRESULTSDIR={workingDir}/transcriptomes/evidentialgene/${{PREFIX}}_evgrun
 ####
 
 cat ${{EVGRESULTSDIR}}/okayset/*.okay.aa ${{EVGRESULTSDIR}}/okayset/*.okalt.aa > ${{PREFIX}}_okay-okalt.aa
-cat ${{EVGRESULTSDIR}}/okayset/*.okay.fasta ${{EVGRESULTSDIR}}/okayset/*.okalt.fasta > ${{PREFIX}}_okay-okalt.fasta
+cat ${{EVGRESULTSDIR}}/okayset/*.okay.tr ${{EVGRESULTSDIR}}/okayset/*.okalt.tr > ${{PREFIX}}_okay-okalt.fasta
 cat ${{EVGRESULTSDIR}}/okayset/*.okay.cds ${{EVGRESULTSDIR}}/okayset/*.okalt.cds > ${{PREFIX}}_okay-okalt.cds
 """.format(
     MEM=MEM,
@@ -1196,6 +1252,10 @@ def main():
                    required=False,
                    help="Specify the location of the velvet executables (default=HPC location)",
                    default="/home/stewarz2/various_programs/oases/velvet")
+    p.add_argument("-spades", dest="spades",
+                   required=False,
+                   help="Specify the location of the SPAdes spades.py script (default=HPC location)",
+                   default="/home/stewarz2/various_programs/SPAdes-3.15.5-Linux/bin")
     p.add_argument("-scallop", dest="scallop",
                    required=False,
                    help="Specify the location of the scallop executable (default=HPC location)",
@@ -1268,6 +1328,11 @@ def main():
                    required=False,
                    action="store_true",
                    help="Optionally skip velvet-oases assembly; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipSpades", dest="skipSpades",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip SPAdes assembly; assumed to already be complete if specified",
                    default=False)
     p.add_argument("--skipTringg", dest="skipTringg",
                    required=False,
@@ -1474,6 +1539,20 @@ def main():
         oasesJobID = qsub(oasesScriptName)
         runningJobIDs["oases"] = oasesJobID
     
+    # Run SPAdes de novo assembly
+    if not args.skipSpades:
+        spadesScriptName = os.path.join(os.getcwd(), "transcriptomes", "spades", "run_spades.sh")
+        make_spades_script(Container({
+            "outputFileName": spadesScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "spadesDir": args.spades,
+            "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn"] if k in runningJobIDs]
+        }))
+        spadesJobID = qsub(spadesScriptName)
+        runningJobIDs["spades"] = spadesJobID
+    
     # Run SOAPdenovo-Trans assembly
     if not args.skipSoap:
         configScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_config.sh")
@@ -1551,7 +1630,7 @@ def main():
             "prefix": args.outputPrefix,
             "varScriptDir": args.varscript,
             "genomeFile": args.genomeFile,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop", "spades"] if k in runningJobIDs]
         }))
         masterConcatJobID = qsub(masterConcatScriptName)
         runningJobIDs["master"] = masterConcatJobID
