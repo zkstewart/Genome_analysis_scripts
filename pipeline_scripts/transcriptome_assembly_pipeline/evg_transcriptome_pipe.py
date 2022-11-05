@@ -798,6 +798,7 @@ PREFIX={prefix}
 
 for k in 23 31 47 63; do ${{ABYSSDIR}}/transabyss --kmer ${{k}} \\
     --threads ${{CPUS}} \\
+    --mpi ${{CPUS}} \\
     --outdir ${{PREFIX}}.${{k}} \\""".format(
     MEM=MEM,
     CPUS=CPUS,
