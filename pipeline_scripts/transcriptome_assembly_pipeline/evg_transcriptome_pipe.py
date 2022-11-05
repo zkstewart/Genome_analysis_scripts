@@ -83,6 +83,8 @@ def setup_work_dir(args):
     os.makedirs(os.path.join("transcriptomes", "soapdenovo-trans"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "trinity-denovo"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "velvet-oases"), exist_ok=True)
+    os.makedirs(os.path.join("transcriptomes", "spades"), exist_ok=True)
+    os.makedirs(os.path.join("transcriptomes", "transabyss"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "evidentialgene"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "evidentialgene", "concatenated"), exist_ok=True)
     
@@ -724,7 +726,7 @@ def make_spades_script(argsContainer, MEM="260G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N spades_{prefix}
-#PBS -l walltime=150:00:00
+#PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -771,6 +773,60 @@ ${{SPADESDIR}}/spades.py --rna \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
+def make_abyss_script(argsContainer, MEM="260G", CPUS="12"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N abyss_{prefix}
+#PBS -l walltime=80:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}/transcriptomes/transabyss
+
+####
+
+conda activate {condaEnv}
+
+ABYSSDIR={abyssDir}
+
+CPUS={CPUS}
+READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
+PREFIX={prefix}
+
+####
+
+for k in 23 31 47 63; do ${{ABYSSDIR}}/transabyss --kmer ${{k}} \\
+    --threads ${{CPUS}} \\
+    --outdir ${{PREFIX}}.${{k}} \\""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    abyssDir=argsContainer.abyssDir,
+    condaEnv=argsContainer.condaEnv,
+    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Run Trans-ABySS with single-end reads
+    if argsContainer.isSingleEnd:
+        scriptText += \
+"""
+    --se ${READSDIR}/single.norm.fq;
+done
+"""
+    
+    # Run Trans-ABySS with paired-end reads
+    else:
+        scriptText += \
+"""
+    --pe ${READSDIR}/left.norm.fq ${READSDIR}/right.norm.fq;
+done
+"""
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
 
 def make_config_script(argsContainer, MEM="5G", CPUS="1"):
     scriptText = \
@@ -1025,7 +1081,12 @@ MINSIZE={minSize}
 
 ####
 
-cat soapdenovo-trans/${{PREFIX}}.*.scafSeq trinity-denovo/trinity_out_dir.Trinity.fasta velvet-oases/${{PREFIX}}.*/transcripts.fa > ${{PREFIX}}_denovo_transcriptome.fasta
+cat soapdenovo-trans/${{PREFIX}}.*.scafSeq \\
+    trinity-denovo/trinity_out_dir.Trinity.fasta \\
+    velvet-oases/${{PREFIX}}.*/transcripts.fa \\
+    spades/${{PREFIX}}_assembly/transcripts.fasta \\
+    transabyss/${{PREFIX}}.*/transabyss-final.fa > ${{PREFIX}}_denovo_transcriptome.fasta
+
 python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_transcriptome.fasta -f cullbelow -n ${{MINSIZE}} -o ${{PREFIX}}_denovo_transcriptome_cull.fasta
 """.format(
     MEM=MEM,
@@ -1160,7 +1221,7 @@ BUSCODIR={buscoDir}
 BUSCOCONFIG={buscoConfig}
 BUSCOLINEAGE={buscoLineage}
 
-CPUS=2
+CPUS={CPUS}
 
 ####
 
@@ -1256,6 +1317,14 @@ def main():
                    required=False,
                    help="Specify the location of the SPAdes spades.py script (default=HPC location)",
                    default="/home/stewarz2/various_programs/SPAdes-3.15.5-Linux/bin")
+    p.add_argument("-transabyss", dest="transabyss",
+                   required=False,
+                   help="Specify the location of the Trans-ABySS executable (default=HPC location)",
+                   default="/home/stewarz2/various_programs/transabyss-2.0.1")
+    p.add_argument("-transabyssConda", dest="transabyssConda",
+                   required=False,
+                   help="Specify the name of the conda environment where Trans-ABySS is installed (default=HPC environment)",
+                   default="abyss")
     p.add_argument("-scallop", dest="scallop",
                    required=False,
                    help="Specify the location of the scallop executable (default=HPC location)",
@@ -1333,6 +1402,11 @@ def main():
                    required=False,
                    action="store_true",
                    help="Optionally skip SPAdes assembly; assumed to already be complete if specified",
+                   default=False)
+    p.add_argument("--skipAbyss", dest="skipAbyss",
+                   required=False,
+                   action="store_true",
+                   help="Optionally skip Trans-ABySS assembly; assumed to already be complete if specified",
                    default=False)
     p.add_argument("--skipTringg", dest="skipTringg",
                    required=False,
@@ -1446,39 +1520,6 @@ def main():
             }))
             starJobID = qsub(starScriptName)
             runningJobIDs["stargg"] = starJobID
-        
-        # # If not GG assembly; Run subsetted STAR alignment against transcriptome
-        # else:
-        #     # Subset FASTQ reads for alignment
-        #     trindnFastaFile = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "trinity_out_dir.Trinity.fasta")
-        #     subsetScriptName = os.path.join(os.getcwd(), "star_map", "run_subset.sh")
-        #     make_subset_script(Container({
-        #         "outputFileName": subsetScriptName,
-        #         "workingDir": os.getcwd(),
-        #         "prefix": args.outputPrefix,
-        #         "genScriptDir": args.genscript,
-        #         "transcriptomeFile": trindnFastaFile,
-        #         "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn"] if k in runningJobIDs]
-        #     }))
-        #     subsetJobID = qsub(subsetScriptName)
-        #     runningJobIDs["subset"] = subsetJobID
-            
-        #     # Run STAR alignment with subsetted data
-        #     subsetFastaFile = os.path.join(os.getcwd(), "star_map", "trinity_dn_subset.fasta")
-        #     make_star_script(Container({
-        #         "outputFileName": starScriptName,
-        #         "workingDir": os.getcwd(),
-        #         "prefix": args.outputPrefix,
-        #         "starDir": args.star,
-        #         "genomeFile": subsetFastaFile,
-        #         "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-        #             if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-        #         "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-        #         "isSingleEnd": args.isSingleEnd,
-        #         "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "trindn", "subset"] if k in runningJobIDs]
-        #     }))
-        #     starJobID = qsub(starScriptName)
-        #     runningJobIDs["starss"] = starJobID
     
     # Get RNAseq read statistics
     if not args.skipDetails:
@@ -1552,6 +1593,21 @@ def main():
         }))
         spadesJobID = qsub(spadesScriptName)
         runningJobIDs["spades"] = spadesJobID
+    
+    # Run Trans-ABySS de novo assembly
+    if not args.skipAbyss:
+        abyssScriptName = os.path.join(os.getcwd(), "transcriptomes", "transabyss", "run_transabyss.sh")
+        make_abyss_script(Container({
+            "outputFileName": abyssScriptName,
+            "workingDir": os.getcwd(),
+            "prefix": args.outputPrefix,
+            "abyssDir": args.transabyss,
+            "condaEnv": args.transabyssConda,
+            "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn"] if k in runningJobIDs]
+        }))
+        abyssJobID = qsub(abyssScriptName)
+        runningJobIDs["abyss"] = abyssJobID
     
     # Run SOAPdenovo-Trans assembly
     if not args.skipSoap:
@@ -1630,7 +1686,7 @@ def main():
             "prefix": args.outputPrefix,
             "varScriptDir": args.varscript,
             "genomeFile": args.genomeFile,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop", "spades"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop", "spades", "abyss"] if k in runningJobIDs]
         }))
         masterConcatJobID = qsub(masterConcatScriptName)
         runningJobIDs["master"] = masterConcatJobID
