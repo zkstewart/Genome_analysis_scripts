@@ -305,7 +305,7 @@ def make_trin_dn_script(argsContainer, MEM="670G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N trindn_{prefix}
-#PBS -l walltime=150:00:00
+#PBS -l walltime=120:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -616,11 +616,11 @@ echo "MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_oases_script(argsContainer, MEM="260G", CPUS="12"):
+def make_oases_script(argsContainer, MEM="600G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N oasvel_{prefix}
-#PBS -l walltime=150:00:00
+#PBS -l walltime=60:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -773,11 +773,11 @@ ${{SPADESDIR}}/spades.py --rna \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_abyss_script(argsContainer, MEM="260G", CPUS="12"):
+def make_abyss_script(argsContainer, MEM="260G", CPUS="18"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N abyss_{prefix}
-#PBS -l walltime=80:00:00
+#PBS -l walltime=200:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -878,11 +878,11 @@ python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/create_so
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_soap_script(argsContainer, MEM="650G", CPUS="18"):
+def make_soap_script(argsContainer, MEM="450G", CPUS="18"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N soap_{prefix}
-#PBS -l walltime=150:00:00
+#PBS -l walltime=80:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
@@ -1112,7 +1112,7 @@ python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_tra
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_evg_script(argsContainer, MEM="120G", CPUS="8"):
+def make_evg_script(argsContainer, MEM="90G", CPUS="8"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N evg_{prefix}
