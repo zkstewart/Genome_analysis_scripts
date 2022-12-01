@@ -1484,12 +1484,16 @@ def main():
             quit()
         # Otherwise, just raise a warning
         else:
-            _forwardTrimReads, _reverseTrimReads = get_rnaseq_files(trimDir, "fq", args.isSingleEnd)
+            
             
             if args.isSingleEnd:
+                _forwardTrimReads, _reverseTrimReads = get_rnaseq_files(trimDir, ".fq", args.isSingleEnd)
+                
                 print(f"This assumption appears to be true, with {len(_forwardTrimReads)} single end read files found;"
                       " if this doesn't sound right, qdel the jobs and figure it out now!")
             else:
+                _forwardTrimReads, _reverseTrimReads = get_rnaseq_files(trimDir, "P.fq", args.isSingleEnd)
+                
                 print(f"This assumption appears to be true, with {len(_forwardTrimReads)} paired end read files found;"
                       " if this doesn't sound right, qdel the jobs and figure it out now!")
             print()
