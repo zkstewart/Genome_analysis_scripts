@@ -1360,7 +1360,12 @@ def main():
     p.add_argument("--skipTrim", dest="skipTrim",
                    required=False,
                    action="store_true",
-                   help="Optionally skip trimming; provided reads are assumed to be pre-trimmed",
+                   help="Optionally skip trimming",
+                   default=False)
+    p.add_argument("--pretrimmedReads", dest="pretrimmedReads",
+                   required=False,
+                   action="store_true",
+                   help="If you skip trimming, indicate whether the provided reads are pre-trimmed or not",
                    default=False)
     p.add_argument("--skipConcat", dest="skipConcat",
                    required=False,
@@ -1466,8 +1471,28 @@ def main():
         }))
         trimJobID = qsub(trimScriptName)
         runningJobIDs["trim"] = trimJobID
-    else:
+    elif args.pretrimmedReads:
         symlink_for_trimmomatic(forwardReads, reverseReads)
+    else:
+        trimDir = os.path.join(os.getcwd(), "trimmomatic")
+        print("Trimmomatic is being skipped, and pretrimmedReads is not set")
+        print(f"The assumption is that trimmomatic has been run, and results are in '{trimDir}'")
+        
+        # If the trimmomatic dir is empty, raise an error
+        if os.listdir(trimDir) == []:
+            print(f"Error: assumption is violated since '{trimDir}' is empty")
+            quit()
+        # Otherwise, just raise a warning
+        else:
+            _forwardTrimReads, _reverseTrimReads = get_rnaseq_files(trimDir, "fq", args.isSingleEnd)
+            
+            if args.isSingleEnd:
+                print(f"This assumption appears to be true, with {len(_forwardTrimReads)} single end read files found;"
+                      " if this doesn't sound right, qdel the jobs and figure it out now!")
+            else:
+                print(f"This assumption appears to be true, with {len(_forwardTrimReads)} paired end read files found;"
+                      " if this doesn't sound right, qdel the jobs and figure it out now!")
+            print()
     
     # Prepare read files by concatenation into one file for fwd / rvs
     if not args.skipConcat:
