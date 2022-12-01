@@ -191,9 +191,6 @@ COMMAND="ILLUMINACLIP:${{TRIMDIR}}/adapters/QUT_TruSeq-PE.fa:2:30:10 SLIDINGWIND
 RNADIR={readsDir}
 SUFFIX={suffix}
 
-## SETUP: Specify output file prefix
-OUTPREFIX={prefix}
-
 ## SETUP: Specify RNAseq read prefixes
 declare -a PREFIXES=( {filePrefixes} )
 
@@ -202,6 +199,7 @@ declare -a PREFIXES=( {filePrefixes} )
 # STEP 1: Get job details
 ARRAY_INDEX=$((${{PBS_ARRAY_INDEX}}-1))
 FILEPREFIX=${{PREFIXES[${{ARRAY_INDEX}}]}}
+BASEPREFIX=$(echo "${{FILEPREFIX%%_R}}")
 """.format(
     MEM=MEM,
     CPUS=CPUS,
@@ -219,20 +217,20 @@ FILEPREFIX=${{PREFIXES[${{ARRAY_INDEX}}]}}
     if argsContainer.reverseFiles != None:
         scriptText += \
 """# STEP 2: Run Trimmomatic
-java -jar ${TRIMDIR}/${TRIMJAR} PE -threads ${CPUS} -trimlog ${OUTPREFIX}.logfile ${RNADIR}/${FILEPREFIX}1${SUFFIX} ${RNADIR}/${FILEPREFIX}2${SUFFIX} -baseout ${OUTPREFIX}.trimmed.fq.gz ${COMMAND}
+java -jar ${TRIMDIR}/${TRIMJAR} PE -threads ${CPUS} -trimlog ${BASEPREFIX}.logfile ${RNADIR}/${FILEPREFIX}1${SUFFIX} ${RNADIR}/${FILEPREFIX}2${SUFFIX} -baseout ${BASEPREFIX}.trimmed.fq.gz ${COMMAND}
 
 # STEP 3: Unzip files
-gunzip ${OUTPREFIX}.trimmed_1P.fq.gz ${OUTPREFIX}.trimmed_2P.fq.gz
+gunzip ${BASEPREFIX}.trimmed_1P.fq.gz ${BASEPREFIX}.trimmed_2P.fq.gz
 """
 
     # Add lines for single-end operation
     else:
         scriptText += \
 """# STEP 2: Run Trimmomatic
-java -jar ${TRIMDIR}/${TRIMJAR} SE -threads ${CPUS} -trimlog ${OUTPREFIX}.logfile ${RNADIR}/${FILEPREFIX}${SUFFIX} ${OUTPREFIX}.trimmed.fq.gz ${COMMAND}
+java -jar ${TRIMDIR}/${TRIMJAR} SE -threads ${CPUS} -trimlog ${BASEPREFIX}.logfile ${RNADIR}/${FILEPREFIX}${SUFFIX} ${BASEPREFIX}.trimmed.fq.gz ${COMMAND}
 
 # STEP 3: Unzip file
-gunzip ${OUTPREFIX}.trimmed.fq.gz
+gunzip ${BASEPREFIX}.trimmed.fq.gz
 """
 
     # Write script to file
