@@ -328,7 +328,7 @@ ${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
     --SS_lib_type RF \\
     --min_kmer_cov 2 \\
     --monitoring \\
-    --seqType fq \\ """.format(
+    --seqType fq \\""".format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
