@@ -160,9 +160,9 @@ def concat_files(fileList, outputFileName):
 ## Script file generators
 def make_trimmomatic_script(argsContainer, MEM="30G", CPUS="2"):
     if argsContainer.reverseFiles != None:
-        filePrefixes = [os.path.commonprefix([argsContainer.forwardFiles[i], argsContainer.reverseFiles[i]]) for i in range(len(argsContainer.forwardFiles))]
+        filePrefixes = [os.path.commonprefix([os.path.basename(argsContainer.forwardFiles[i]), os.path.basename(argsContainer.reverseFiles[i])]) for i in range(len(argsContainer.forwardFiles))]
     else:
-        filePrefixes = [argsContainer.forwardFiles[i].replace(argsContainer.readsSuffix, "") for i in range(len(argsContainer.forwardFiles))]
+        filePrefixes = [os.path.basename(argsContainer.forwardFiles[i]).replace(argsContainer.readsSuffix, "") for i in range(len(argsContainer.forwardFiles))]
     
     scriptText = \
 """#!/bin/bash -l
