@@ -1083,7 +1083,7 @@ MINSIZE={minSize}
 cat soapdenovo-trans/${{PREFIX}}.*.scafSeq \\
     trinity-denovo/trinity_out_dir.Trinity.fasta \\
     velvet-oases/${{PREFIX}}.*/transcripts.fa \\
-    spades/${{PREFIX}}_assembly/transcripts.fasta \\
+    spades/${{PREFIX}}/transcripts.fasta \\
     transabyss/${{PREFIX}}.*/transabyss-final.fa > ${{PREFIX}}_denovo_transcriptome.fasta
 
 python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_transcriptome.fasta -f cullbelow -n ${{MINSIZE}} -o ${{PREFIX}}_denovo_transcriptome_cull.fasta
