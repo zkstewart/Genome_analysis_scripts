@@ -1100,11 +1100,11 @@ python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_tra
 
     # Additionally concat GG assemblies if relevant
     if argsContainer.genomeFile != None:
-        scriptText += "cat ${{PREFIX}}_denovo_transcriptome_cull.fasta scallop/${{PREFIX}}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${{PREFIX}}_master_transcriptome.fasta"
+        scriptText += "cat ${PREFIX}_denovo_transcriptome_cull.fasta scallop/${PREFIX}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${PREFIX}_master_transcriptome.fasta"
     
     # Otherwise, just symbolic link for file name consistency
     else:
-        scriptText += "ln -s ${{PREFIX}}_denovo_transcriptome_cull.fasta ${{PREFIX}}_master_transcriptome.fasta"
+        scriptText += "ln -s ${PREFIX}_denovo_transcriptome_cull.fasta ${PREFIX}_master_transcriptome.fasta"
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
@@ -1484,8 +1484,6 @@ def main():
             quit()
         # Otherwise, just raise a warning
         else:
-            
-            
             if args.isSingleEnd:
                 _forwardTrimReads, _reverseTrimReads = get_rnaseq_files(trimDir, ".fq", args.isSingleEnd)
                 
@@ -1496,7 +1494,6 @@ def main():
                 
                 print(f"This assumption appears to be true, with {len(_forwardTrimReads)} paired end read files found;"
                       " if this doesn't sound right, qdel the jobs and figure it out now!")
-            print()
     
     # Prepare read files by concatenation into one file for fwd / rvs
     if not args.skipConcat:
