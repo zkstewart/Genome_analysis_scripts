@@ -10,6 +10,22 @@ import xml.etree.ElementTree as ET
 API_PICKLE_FILE = ".annottable_queried_accs.pkl" # global this for convenience
 XML_TSV_FILE = ".annottable_xml_parsed.tsv"
 
+class FileHandle(object):
+    '''
+    Helper class to create a file context object that will enable
+    us to optionally write to a file.
+    '''
+    def __init__(self, file_name, method):
+        if file_name != None:
+            self.file_obj = open(file_name, method)
+        else:
+            self.file_obj = None
+    def __enter__(self):
+        return self.file_obj
+    def __exit__(self, type, value, traceback):
+        if self.file_obj != None:
+            self.file_obj.close()
+
 # Define functions for later use
 def validate_args(args):
     # Validate input file locations
@@ -44,150 +60,55 @@ def uniref_xml_parse(tableFile, xmlFile, lenType, tsvOutput=None):
     
     ids, name, taxon, length = set(), None, None, None
     
-    # Parse XML without TSV output
-    with open(xmlFile, "r") as fileIn:
+    # Parse XML without or without TSV output
+    with open(xmlFile, "r") as fileIn, FileHandle(tsvOutput, "w") as fileOut:
+        if tsvOutput != None: # Write TSV header if relevant
+            fileOut.write("#id\tname\ttaxon_code\tlength(nucl)\n")
+        
         for line in fileIn:
+            l = line.rstrip("\r\n ")
+            
             # Handle entry start
-            if line.startswith("<entry"):
-                accession = line.split('"')[1].split("_")[1]
+            if l.startswith("<entry"):
+                accession = l.split('"')[1].split("_")[1]
                 ids.add(accession)
             
             # Handle name line
-            elif line.startswith("<name>"):
-                name = line.split("Cluster: ")[1].split("</name>")[0]
+            elif l.startswith("<name>"):
+                name = l.split("Cluster: ")[1].split("</name>")[0]
             
             # Handle taxon line
-            elif line.startswith('<property type="common taxon ID"'):
-                taxon = line.split('value="')[1].rstrip('"/>')
+            elif l.startswith('<property type="common taxon ID"'):
+                taxon = l.split('value="')[1].rstrip('"/>')
             
             # Handle length line
-            elif line.startswith('<sequence length='):
-                length = line.split('"')[1]
+            elif l.startswith('<sequence length='):
+                length = l.split('"')[1]
                 if lenType == 'nucl':
                     length = str(int(length)*3)
             
             # Handle alternate ID lines
-            elif line.startswith('<property type="UniRef100') or line.startswith('<property type="UniRef90'):
-                accession = line.split('"')[3].split("_")[1]
+            elif l.startswith('<property type="UniRef100') or l.startswith('<property type="UniRef90'):
+                accession = l.split('"')[3].split("_")[1]
                 ids.add(accession)
             
             # Handle entry end
-            elif line.startswith("</entry>"):
+            elif l.startswith("</entry>"):
+                assert all([ x != None for x in [name, taxon, length] ]) # sanity check
+                assert len(ids) != 0
+                
                 # Store values
                 for id in ids:
-                    assert all([ x != None for x in [id, name, taxon, length] ])
                     accDict[id] = [name, taxon, length] # this is our xmlBlock as a list
+                
+                    # Write to file if relevant
+                    if tsvOutput != None:
+                        fileOut.write(f"{id}\t{name}\t{taxon}\t{length}\n")
                 
                 # Reset our XML values
                 ids, name, taxon, length = set(), None, None, None
     
     return accDict
-
-# def uniref_xml_parse(tableFile, xmlFile, lenType, tsvOutput=None):
-#     '''
-#     This function is ugly but I'm not aware of any good patterns for reusing
-#     code within or without a file handle as with... context. Oh well.
-#     '''
-    
-#     def _parse_element(elem, accDict):
-#         # Get this entry's IDs
-#         acc = elem.attrib["id"].split('_', maxsplit=1)[1] # corresponds to the "UniRef###_acc" value
-#         ur100 = elem.find('.//{http://uniprot.org/uniref}property[@type="UniRef100 ID"]')
-#         ur90 = elem.find('.//{http://uniprot.org/uniref}property[@type="UniRef90 ID"]')
-        
-#         foundIDs = set([acc])
-#         for urID in [ur100, ur90]:
-#             try:
-#                 foundIDs.add(urID.attrib["value"].split("_", maxsplit=1)[1])
-#             except:
-#                 pass
-#         foundIDs = list(foundIDs)
-        
-#         # If this entry is irrelevant to us, return None to flag this to be skipped
-#         if not any([ id in accDict for id in foundIDs ]):
-#             return None, None, None, None
-        
-#         # Handle this XML block
-#         name = elem.find("{http://uniprot.org/uniref}name").text.split(": ", maxsplit=1)[1]
-#         taxon = elem.find('.//{http://uniprot.org/uniref}property[@type="common taxon ID"]').attrib["value"] # might bug
-#         length = elem.find('.//{http://uniprot.org/uniref}sequence').attrib["length"] # might bug
-        
-#         return foundIDs, name, taxon, length
-    
-#     # Preliminary parse through the table file to identify which accessions/entries we need to hold onto
-#     accDict = {}
-#     with open(tableFile, 'r') as fileIn:
-#         for line in fileIn:
-#             # Skip unnecessary lines
-#             if line.startswith('#'):
-#                 continue
-#             # Extract accessions
-#             sl = line.rstrip('\r\n').split('\t')
-#             if sl[2] == '.': # if there's no hit, we don't care about this sequence
-#                 continue
-#             else:
-#                 for entry in sl[2].replace(" ", "").replace("]", "").split('['):
-#                     accDict.setdefault(entry.split('_')[0], None)    
-    
-#     # Parse the XML file (NOT writing to TSV)
-#     if tsvOutput == None:
-#         tree = ET.iterparse(xmlFile, events=("start", "end"))
-#         for index, (event, elem) in enumerate(tree):
-#             # Get the root element
-#             if index == 0:
-#                 root = elem
-#             if event == "end" and elem.tag == "{http://uniprot.org/uniref}entry":
-#                 # Parse this element
-#                 foundIDs, name, taxon, length = _parse_element(elem, accDict)
-#                 if lenType == "nucl":
-#                     length = str(int(length)*3)
-                
-#                 # If this entry is irrelevant to us, skip it
-#                 if foundIDs == None:
-#                     continue
-                
-#                 # Otherwise, store it
-#                 else:
-#                     for urID in foundIDs:
-#                         assert all([ x != None for x in [urID, name, taxon, length] ])
-#                         accDict[urID] = [name, taxon, length] # this is our xmlBlock as a list
-                
-#                 # Now clear the root
-#                 root.clear() # this should clear elements from memory
-    
-#     # Parse the XML file (whilst writing to TSV)
-#     else:
-#         with open(tsvOutput, "w") as fileOut:
-#             fileOut.write("#id\tname\ttaxon_code\tlength(nucl)\n")
-            
-#             tree = ET.iterparse(xmlFile, events=("start", "end"))
-#             for index, (event, elem) in enumerate(tree):
-#                 # Get the root element
-#                 if index == 0:
-#                     root = elem
-#                 if event == "end" and elem.tag == "{http://uniprot.org/uniref}entry":
-#                     # Parse this element
-#                     foundIDs, name, taxon, length = _parse_element(elem, accDict)
-#                     if lenType == "nucl":
-#                         length = str(int(length)*3)
-                    
-#                     # If this entry is irrelevant to us, skip it
-#                     if foundIDs == None:
-#                         continue
-                    
-#                     # Otherwise, store it
-#                     else:
-#                         for urID in foundIDs:
-#                             assert all([ x != None for x in [urID, name, taxon, length] ])
-#                             accDict[urID] = [name, taxon, length] # this is our xmlBlock as a list
-
-#                         # And then write it, too!
-#                         fileOut.write(f"{urID}\t{name}\t{taxon}\t{length}\n")
-                        
-#                     # Now clear the root
-#                     root.clear() # this should clear elements from memory
-    
-#     return accDict
 
 def uniref_tsv_parse(tsvFileName):
     accDict = {}
@@ -402,8 +323,9 @@ def main():
                         # Output
                         newL = [*sl[0:3], formattedNames, formattedTaxa, formattedLengths, *sl[3:]]
                         fileOut.write('\t'.join(newL) + '\n')
+    # If program is ending unsuccessfuly, save any API queries now and provide debug info
     except:
-        save_pickle(queriedAccs) # try not to lose any already completed API queries!
+        save_pickle(queriedAccs)
         
         print("## DEBUG:")
         print("## Program broke at line #{0}".format(lineCounter))
@@ -413,9 +335,9 @@ def main():
         print("Program ended after failing =(")
         quit()
     
-    # Save any API queries that may have been performed after finishing
+    # Save any API queries that may have been performed after finishing successfully
     save_pickle(queriedAccs)
-        
+    
     # Done!
     print('Program completed successfully!')
 
