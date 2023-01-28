@@ -234,8 +234,11 @@ def main():
     # Optional
     p.add_argument("--xml_to_tsv", dest="xml_to_tsv",
             required=False,
+            action="store_true",
             help="""Optionally, parse and create a TSV containing only
-            the relevant portions of the XML file.""")
+            the relevant portions of the XML file (file name is
+            set to be '.annottable_xml_parsed.tsv').""",
+            default=False)
     args = p.parse_args()
     validate_args(args)
     
