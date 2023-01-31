@@ -84,7 +84,6 @@ def idmap_go_parse(tableFile, idmapFile):
             # Extract information
             upkbAc = sl[0]
             uref100Ac = sl[7].split('_', maxsplit=1)[1]
-            uref90Ac = sl[8].split('_', maxsplit=1)[1]
             upiAc = sl[10]
             go = sl[6]
             if go == '':
@@ -93,12 +92,19 @@ def idmap_go_parse(tableFile, idmapFile):
             # Check to see if we need to hold onto any of these values' GO terms
             if uref100Ac in accDict:
                 accDict[uref100Ac] = go
-            if uref90Ac in accDict:
-                accDict[uref90Ac] = go
+            
             if upkbAc in accDict:
                 accDict[upkbAc] = go
             if upiAc in accDict:
                 accDict[upiAc] = go
+            
+            # Add extra ID check
+            try:
+                uref90Ac = sl[8].split('_', maxsplit=1)[1]
+                if uref90Ac in accDict:
+                    accDict[uref90Ac] = go
+            except:
+                pass
     return accDict
 
 def main():
