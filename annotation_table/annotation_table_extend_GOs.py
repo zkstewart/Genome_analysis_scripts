@@ -38,7 +38,7 @@ REPLACED_GOS = {
     'GO:0006875': 'GO:0030003', 'GO:0046916': 'GO:0030003', 'GO:0055076': 'GO:0030003',
     'GO:0055067': 'GO:0055080', 'GO:0030004': 'GO:0030003', 'GO:0072506': 'GO:0055081',
     'GO:0015298': 'GO:0008324', 'GO:0005451': 'GO:0008324', 'GO:0035511': 'GO:0035516',
-    'GO:0044728': 'GO:0006304', 'GO:0033683': 'GO:0006289'
+    'GO:0044728': 'GO:0006304', 'GO:0033683': 'GO:0006289', 'GO:0008022': 'GO:0005515'
 } # Modifications to this point made 17-01-23
 
 # Define functions for later use
@@ -84,7 +84,6 @@ def idmap_go_parse(tableFile, idmapFile):
             # Extract information
             upkbAc = sl[0]
             uref100Ac = sl[7].split('_', maxsplit=1)[1]
-            uref90Ac = sl[8].split('_', maxsplit=1)[1]
             upiAc = sl[10]
             go = sl[6]
             if go == '':
@@ -93,12 +92,19 @@ def idmap_go_parse(tableFile, idmapFile):
             # Check to see if we need to hold onto any of these values' GO terms
             if uref100Ac in accDict:
                 accDict[uref100Ac] = go
-            if uref90Ac in accDict:
-                accDict[uref90Ac] = go
+            
             if upkbAc in accDict:
                 accDict[upkbAc] = go
             if upiAc in accDict:
                 accDict[upiAc] = go
+            
+            # Add extra ID check
+            try:
+                uref90Ac = sl[8].split('_', maxsplit=1)[1]
+                if uref90Ac in accDict:
+                    accDict[uref90Ac] = go
+            except:
+                pass
     return accDict
 
 def main():
