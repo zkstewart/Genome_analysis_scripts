@@ -91,7 +91,8 @@ def setup_work_dir(args):
     if args.genomeFile != None:
         os.makedirs("genome", exist_ok=True)
         os.makedirs("star_map", exist_ok=True)
-        os.symlink(args.genomeFile, os.path.join("genome", os.path.basename(args.genomeFile)))
+        if not os.path.islink(os.path.join("genome", os.path.basename(args.genomeFile))):
+            os.symlink(args.genomeFile, os.path.join("genome", os.path.basename(args.genomeFile)))
         
         os.makedirs(os.path.join("transcriptomes", "scallop"), exist_ok=True)
         os.makedirs(os.path.join("transcriptomes", "trinity-gg"), exist_ok=True)
