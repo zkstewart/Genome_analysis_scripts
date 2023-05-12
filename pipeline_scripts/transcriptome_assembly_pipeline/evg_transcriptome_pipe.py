@@ -1530,7 +1530,6 @@ def main():
     if not args.skipStar:
         starScriptName = os.path.join(os.getcwd(), "star_map", "run_star_trimmed.sh")
         if args.genomeFile != None:
-            runningJobIDs.pop() # Trinity won't interfere with anything
             make_star_script(Container({
                 "outputFileName": starScriptName,
                 "workingDir": os.getcwd(),
