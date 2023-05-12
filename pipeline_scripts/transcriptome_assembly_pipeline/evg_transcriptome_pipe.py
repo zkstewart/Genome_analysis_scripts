@@ -1456,6 +1456,10 @@ def main():
     
     # Obtain reads files
     forwardReads, reverseReads = get_rnaseq_files(args.readsDir, args.readsSuffix, args.isSingleEnd)
+    if forwardReads == []:
+        print(f"Failed to find any reads in '{args.readsDir}' with suffix '{args.readsSuffix}'")
+        print("You should check that your input parameters are correct, and try again.")
+        quit()
     
     # Run Trimmomatic OR symbolic link the reads there
     if not args.skipTrim:
