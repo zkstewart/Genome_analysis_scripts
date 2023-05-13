@@ -927,7 +927,7 @@ def make_sort_script(argsContainer, MEM="50", CPUS="8"):
 """#!/bin/bash -l
 #PBS -N sort_{prefix}
 #PBS -l walltime=15:00:00
-#PBS -l mem={MEM}
+#PBS -l mem={MEM}G
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
