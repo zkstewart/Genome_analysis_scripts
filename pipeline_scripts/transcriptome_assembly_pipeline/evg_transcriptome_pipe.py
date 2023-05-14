@@ -940,7 +940,7 @@ MEM={MEM}
 
 ####
 
-SAMTOOLSTHREADMEM=$(echo "$(printf "%%.0f\n" $(echo "(${{MEM}}*0.50)/${{CPUS}}"|bc -l))")
+SAMTOOLSTHREADMEM=$(echo "$(printf "%.0f\n" $(echo "(${{MEM}}*0.50)/${{CPUS}}"|bc -l))")
 
 samtools sort -m ${{SAMTOOLSTHREADMEM}}G \\
     -@ ${{CPUS}} \\
