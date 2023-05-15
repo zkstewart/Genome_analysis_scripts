@@ -1000,7 +1000,7 @@ ${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
     --genome_guided_max_intron ${{MAXINTRON}} \\
     --full_cleanup 2>&1 >> ${{PREFIX}}_Trinity.log
 
-ln -s trinity-out_dir/Trinity-GG.fasta .
+ln -s trinity_out_dir.Trinity-GG.fasta Trinity-GG.fasta
 """.format(
     MEM=MEM,
     CPUS=CPUS,
