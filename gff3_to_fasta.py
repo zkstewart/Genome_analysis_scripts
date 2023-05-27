@@ -76,8 +76,10 @@ def longest_iso(mrnaFeatures):
         
         if hasattr(feature, "CDS"):
             featType = "CDS"
-        else:
+        elif hasattr(feature, "exon"):
             featType = "exon"
+        else:
+            continue # no CDS or exon means this feature cannot be used
         
         for subFeature in feature.__dict__[featType]:
             
@@ -188,12 +190,19 @@ def main():
             """
             if args.locusSeqs == 'main':
                 mrnaFeatures = longest_iso(mrnaFeatures)
+                
+                # If we failed to find an mRNA feature with CDS and exon attributes, we need to skip this feature
+                if mrnaFeatures == None:
+                    continue
             
             # Loop through mRNAs and produce relevant outputs
             for feature in mrnaFeatures:
                 # Get nucleotide sequence(s)
                 if args.seqType == "both" or args.seqType == "transcript":
-                    exon_FastASeq_obj, exon_featureType, exon_startingFrame = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "exon")
+                    if hasattr(feature, "exon"):
+                        exon_FastASeq_obj, exon_featureType, exon_startingFrame = GFF3_obj.retrieve_sequence_from_FASTA(genomeRecords, feature.ID, "exon")
+                    else: # a feature without even exon values cannot give us anything useful
+                        continue # if it did have CDS and not exon values, then its formatted incredibly poorly and we'll end up missing it...
                 
                 if args.seqType == "both" or args.seqType == "cds":
                     if hasattr(feature, "CDS"):
