@@ -13,27 +13,18 @@ from Various_scripts import Function_packages
 # Define functions for later use
 def validate_args(args):
         # Validate input file locations
-        if args.fasta == None:
-                print('No fasta argument was provided. Fix this and try again.')
-                quit()
         if not os.path.isfile(args.fasta):
                 print('I am unable to locate the genome fasta file (' + args.fasta + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
-                quit()
-        if args.gff3 == None:
-                print('No gff3 argument was provided. Fix this and try again.')
                 quit()
         if not os.path.isfile(args.gff3):
                 print('I am unable to locate the input gff3 gene annotation file (' + args.gff3 + ')')
                 print('Make sure you\'ve typed the file name or location correctly and try again.')
                 quit()
         # Validate behaviour arguments
-        if args.locusSeqs == None:
-                print('You need to specify the locusSeqs argument for this program to run.')
-                quit()
-        if args.seqType == None:
-                print('You need to specify the seqType argument for this program to run.')
-                quit()
+        if args.geneIDs == True and args.locusSeqs == "isoforms":
+            print('--gene_ids is only relevant to specify if you are outputting main sequences, not isoforms.')
+            quit()
         # Ensure that translationTable value is sensible
         if args.translationTable < 1:
                 print('translationTable value must be greater than 1. Fix this and try again.')
@@ -125,36 +116,56 @@ def main():
     """
     # Required
     p = argparse.ArgumentParser(description=usage)
-    p.add_argument("-i", "-input", dest="fasta", required=True,
-                help="Genome fasta file")
-    p.add_argument("-g", "-gff", dest="gff3", required=True,
-                help="GFF3 file")
-    p.add_argument("-l", "-locusSeqs", dest="locusSeqs", choices = ['main', 'isoforms'], required=True,
-                help="Type of transcripts to extract from each locus (main == just the longest isoform of each gene, isoforms == all isoforms)")
-    p.add_argument("-s", "-seqType", dest="seqType", choices = ['transcript', 'cds', 'both'], required=True,
-                help="""Type of sequence to output (transcripts == exon regions,
-                cds == coding regions)""")
-    p.add_argument("-o", "-output", dest="outputPrefix", required=True,
-                help="""Output prefix for fasta files (suffixes will be appended to this;
-                transcript suffix == .fasta, nucleotide cds == .nucl, amino acid cds == .aa)""")
+    p.add_argument("-i", "-input", dest="fasta",
+                   required=True,
+                   help="Genome fasta file")
+    p.add_argument("-g", "-gff", dest="gff3",
+                   required=True,
+                   help="GFF3 file")
+    p.add_argument("-l", "-locusSeqs", dest="locusSeqs",
+                   required=True,
+                   choices = ['main', 'isoforms'],
+                   help="Type of transcripts to extract from each locus (main == just the longest isoform of each gene, isoforms == all isoforms)")
+    p.add_argument("-s", "-seqType", dest="seqType",
+                   required=True,
+                   choices = ['transcript', 'cds', 'both'],
+                   help="""Type of sequence to output (transcripts == exon regions,
+                   cds == coding regions)""")
+    p.add_argument("-o", "-output", dest="outputPrefix",
+                   required=True,
+                   help="""Output prefix for fasta files (suffixes will be appended to this;
+                   transcript suffix == .fasta, nucleotide cds == .nucl, amino acid cds == .aa)""")
     # Optional
-    p.add_argument("-t", "-translation", dest="translationTable", type=int,  required=False,
-                help="""Optionally specify the NCBI numeric genetic code to utilise for CDS
-                translation (if relevant); this should be an integer from 1 to 31
-                (default == 1 i.e., Standard Code)""", default=1)
-    p.add_argument("-f", "-force", dest="force", action='store_true', required=False,
-                help="""By default this program will not overwrite existing files.
-                Specify this argument to allow this behaviour at your own risk.""",
-                default=False)
-    p.add_argument("--relaxed", dest="relaxedParsing", action='store_true', required=False,
-                help="""Optionally specify whether we should use relaxed GFF3 parsing.""",
-                default=False)
+    p.add_argument("-t", "-translation", dest="translationTable",
+                   required=False,
+                   type=int, 
+                   help="""Optionally specify the NCBI numeric genetic code to utilise for CDS
+                   translation (if relevant); this should be an integer from 1 to 31
+                   (default == 1 i.e., Standard Code)""", default=1)
+    p.add_argument("-f", "-force", dest="force",
+                   required=False,
+                   action='store_true',
+                   help="""By default this program will not overwrite existing files.
+                   Specify this argument to allow this behaviour at your own risk.""",
+                   default=False)
+    p.add_argument("--relaxed", dest="relaxedParsing",
+                   required=False,
+                   action='store_true',
+                   help="""Optionally specify whether we should use relaxed GFF3 parsing.""",
+                   default=False)
+    p.add_argument("--gene_ids", dest="geneIDs",
+                   required=False,
+                   action='store_true',
+                   help="""Optionally, if you're outputting main sequences only, specify this flag
+                   to write the representative sequence using the gene ID rather than the best
+                   mRNA ID.""",
+                   default=False)
     
     args = p.parse_args()
     mainOutputFileName, nuclOutputFileName, protOutputFileName = validate_args(args)
     
     # Load the fasta file and parse its contents
-    genomeRecords = SeqIO.to_dict(SeqIO.parse(open(args.fasta, 'r'), 'fasta'))
+    genomeRecords = SeqIO.to_dict(SeqIO.parse(args.fasta, 'fasta'))
     
     # Parse the gff3 file
     GFF3_obj = Function_packages.LinesGFF3(args.gff3, not args.relaxedParsing) # negate it for strict_parsing
@@ -169,6 +180,7 @@ def main():
                 mrnaFeatures = geneFeature.mRNA
             else:
                 mrnaFeatures = [geneFeature]
+            
             # Reduce our mrnas to only the representative entry if relevant
             """
             (representative == longest; note that this is with relation to CDS
@@ -201,11 +213,16 @@ def main():
                         prot, _, _ = cds_FastASeq_obj.get_translation(strand=1, frame=cds_startingFrame) # _, _ == strand, frame
                 
                 # Output relevant values to file
+                if args.geneIDs == True: # geneIDs being True necessitates that locusSeqs also == 'main'; enforced in validate_args()
+                    seqID = geneFeature.ID
+                else:
+                    seqID = feature.ID
+                
                 if args.seqType == 'both' or args.seqType == 'transcript':
-                    mainOut.write(">{0}\n{1}\n".format(feature.ID, exon_FastASeq_obj.seq))
+                    mainOut.write(">{0}\n{1}\n".format(seqID, exon_FastASeq_obj.seq))
                 if (args.seqType == 'both' or args.seqType == 'cds') and cds_FastASeq_obj != None: # as above, if we have no CDS attributes, we can't do this
-                    nuclOut.write(">{0}\n{1}\n".format(feature.ID, cds_FastASeq_obj.seq))
-                    protOut.write(">{0}\n{1}\n".format(feature.ID, prot))
+                    nuclOut.write(">{0}\n{1}\n".format(seqID, cds_FastASeq_obj.seq))
+                    protOut.write(">{0}\n{1}\n".format(seqID, prot))
     
     # Done!
     print('Program completed successfully!')
