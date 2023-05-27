@@ -162,6 +162,12 @@ def main():
                    to write the representative sequence using the gene ID rather than the best
                    mRNA ID.""",
                    default=False)
+    p.add_argument("--non_mrna", dest="nonMrnas",
+                   required=False,
+                   action='store_true',
+                   help="""Optionally, choose to output not just mRNAs / genes with mRNA features,
+                   but every sequence with an exon.""",
+                   default=False)
     
     args = p.parse_args()
     mainOutputFileName, nuclOutputFileName, protOutputFileName = validate_args(args)
@@ -177,11 +183,18 @@ def main():
     # Produce output files
     with datasink(mainOutputFileName, 'transcript', args.seqType) as mainOut, datasink(nuclOutputFileName, 'cds', args.seqType) as nuclOut, datasink(protOutputFileName, 'cds', args.seqType) as protOut: 
         for geneFeature in GFF3_obj.types["gene"]:
-            # Tolerantly accept genes that lack mRNA subfeatures
+            
+            # Figure out if we'll accept this gene feature for consideration
             if hasattr(geneFeature, "mRNA"):
                 mrnaFeatures = geneFeature.mRNA
+            elif args.nonMrnas == False:
+                continue
             else:
-                mrnaFeatures = [geneFeature]
+                # Figure out what our subfeature child is
+                if not hasattr(geneFeature, "exon"):
+                    mrnaFeatures = geneFeature.children
+                else: # if this occurs, this gene feature IS the subfeature
+                    mrnaFeatures = [geneFeature] # it's a sign of bad GFF3 formatting but there's a lot of crap GFF3s out there
             
             # Reduce our mrnas to only the representative entry if relevant
             """
