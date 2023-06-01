@@ -63,6 +63,9 @@ def parse_idmap(idmapFile, databaseTag):
             upkbAc = sl[0]
             idmapSet.add(upkbAc)
             
+            refseqAc = sl[3]
+            idmapSet.add(refseqAc)
+            
             upiAc = sl[10]
             idmapSet.add(upiAc)
             
@@ -136,23 +139,33 @@ def main():
 
     # Reqs
     p = argparse.ArgumentParser(description=usage)
-    p.add_argument("-inputBlast", "-ib", dest="blastTab", required=True,
-            help="Input BLAST-tab file name.")
-    p.add_argument("-inputID", "-id", dest="idFile", required=True,
-            help="Input ID list file name. This can be a simple list of all sequence IDs, or a tab-delimited list containing pairs of old\tnew IDs.")
-    p.add_argument("-idmappingFile", "-im", dest="idmappingFile", required=True,
-            help="Input idmapping_selected.tab file (this is available from the UniProtKB FTP site).")
-    p.add_argument("-outfile", "-o", dest="outputFileName", required=True,
-            help="Output BLAST-tab file name.")
-    p.add_argument("-evalue", "-e", dest="evalue", type=float, required=True,
-            help="E-value significance cut-off (i.e., hits with E-value less significant won't be reported).")
-    p.add_argument("-numhits", "-n", dest="numHits", type=int, required=True,
-            help="Number of hits for each sequence to report (only the most significant will have full alignment details reported).")
-    p.add_argument("-database", "-db", dest="databaseTag", required=True,
-            choices=["UniRef100", "UniRef90"],
-            help="Specify the name of the database being queried (i.e., UniRef100 or UniRef90).")
+    p.add_argument("-inputBlast", "-ib", dest="blastTab",
+                   required=True,
+                   help="Input BLAST-tab file name.")
+    p.add_argument("-inputID", "-id", dest="idFile",
+                   required=True,
+                   help="Input ID list file name. This can be a simple list of all sequence IDs, or a tab-delimited list containing pairs of old\tnew IDs.")
+    p.add_argument("-idmappingFile", "-im", dest="idmappingFile",
+                   required=True,
+                   help="Input idmapping_selected.tab file (this is available from the UniProtKB FTP site).")
+    p.add_argument("-outfile", "-o", dest="outputFileName",
+                   required=True,
+                   help="Output BLAST-tab file name.")
+    p.add_argument("-evalue", "-e", dest="evalue",
+                   required=True,
+                   type=float,
+                   help="E-value significance cut-off (i.e., hits with E-value less significant won't be reported).")
+    p.add_argument("-numhits", "-n", dest="numHits",
+                   required=True,
+                   type=int,
+                   help="Number of hits for each sequence to report (only the most significant will have full alignment details reported).")
+    p.add_argument("-database", "-db", dest="databaseTag",
+                   required=True,
+                   choices=["UniRef100", "UniRef90", "RefSeq"],
+                   help="Specify the name of the database being queried (i.e., UniRef100, UniRef90, or RefSeq).")
     p.add_argument("-s", "-skip", dest="skipFile",
-            help="Optionally provide a list of IDs to skip when obtaining hits from the BLAST-tab results")
+                   required=False,
+                   help="Optionally provide a list of IDs to skip when obtaining hits from the BLAST-tab results")
     args = p.parse_args()
     validate_args(args)
     
