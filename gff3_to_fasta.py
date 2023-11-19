@@ -8,7 +8,7 @@ import os, argparse, sys
 from Bio import SeqIO
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__))) # 2 dirs up is where we find dependencies
-from Various_scripts import Function_packages
+from Various_scripts.Function_packages import ZS_GFF3IO
 
 # Define functions for later use
 def validate_args(args):
@@ -176,7 +176,7 @@ def main():
     genomeRecords = SeqIO.to_dict(SeqIO.parse(args.fasta, 'fasta'))
     
     # Parse the gff3 file
-    GFF3_obj = Function_packages.LinesGFF3(args.gff3, not args.relaxedParsing) # negate it for strict_parsing
+    GFF3_obj = ZS_GFF3IO.LinesGFF3(args.gff3, not args.relaxedParsing) # negate it for strict_parsing
     GFF3_obj.add_comments()
     GFF3_obj.pasaprots_extract()
     
