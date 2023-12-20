@@ -61,6 +61,7 @@ def gff3_retrieve_remove_tofile(GFF3_obj, outputFileName, idList, mode, behaviou
                         for value in child.__dict__.values():
                             if value in idList:
                                 found.append(child.ID)
+                                outputList.append(child.ID)
                                 break
                 # If we find all subfeatures, make our found == True so we know we're looking at the whole gene obj
                 if type(found) == list and len(found) != 0:
