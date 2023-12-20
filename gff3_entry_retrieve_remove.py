@@ -42,6 +42,7 @@ def gff3_retrieve_remove_tofile(GFF3_obj, outputFileName, idList, mode, behaviou
         print('gff3_retrieve_remove_tofile: Input behaviour value is not "main" or "feature" but is instead "' + str(behaviour) + '".')
         print('Fix the code for this section.')
         quit()
+    outputList = []
     # Main function
     with open(outputFileName, 'w') as fileOut:
         # Iterate through features and determine if they are being written to file
@@ -52,6 +53,7 @@ def gff3_retrieve_remove_tofile(GFF3_obj, outputFileName, idList, mode, behaviou
                 for value in feature.__dict__.values():
                     if value in idList:
                         found = True
+                        outputList.append(value)
                 # Look through children for matches
                 if found == None:
                     found = []
@@ -117,6 +119,14 @@ def gff3_retrieve_remove_tofile(GFF3_obj, outputFileName, idList, mode, behaviou
                     fileOut.write(''.join(newHeader))
                     fileOut.write(''.join(newFeature))
                     fileOut.write(''.join(newFooter))
+    # Note any missing files
+    outputSet = set(outputList)
+    notFound = set(idList).difference(outputSet)
+    
+    if len(notFound) != 0:
+        print(f"Failed to find {len(notFound)} sequences. These are:")
+        for seqID in notFound:
+            print(seqID)
 
 ## General purpose
 def text_file_to_list(textFile):
