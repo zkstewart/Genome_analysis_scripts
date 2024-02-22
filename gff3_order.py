@@ -85,7 +85,7 @@ def main():
         
         # Loop through each contig again and format our non-gene output lines (interleaved)
         if not args.dropNonGenes:
-            iterList = []
+            iterDict = {} # use dict to prevent duplication
             for keyType in gff3.types.keys():
                 if keyType != "gene":
                     for feature in gff3.types[keyType]:
@@ -93,11 +93,11 @@ def main():
                         parentFeature = climb_parents(feature, gff3)
                         # Store it if it isn't a gene feature
                         if parentFeature.type != "gene":
-                            iterList.append(parentFeature)
+                            iterDict.setdefault(parentFeature.ID, parentFeature)
             
             for contig in gff3.contigs:
                 contigPairs = []
-                for parentFeature in iterList:
+                for featureID, parentFeature in iterDict.items():
                     if parentFeature.contig == contig:
                         contigPairs.append([parentFeature, parentFeature.coords])
                 # Sort contig pairs by starting base position
