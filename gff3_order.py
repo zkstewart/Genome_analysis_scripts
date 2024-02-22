@@ -56,7 +56,7 @@ def main():
     
     # Parse the gff3 file as lines
     gff3 = ZS_GFF3IO.LinesGFF3(args.gff3File,
-                               strict_parse = not args.relaxedParsing,
+                               args.relaxedParsing,
                                fix_duplicated_ids = args.fixDupeIDs)
     gff3.add_lines()
     
@@ -87,7 +87,7 @@ def main():
                     parentFeature = climb_parents(feature, gff3)
                     # Store it if it isn't a gene feature
                     if parentFeature.type != "gene":
-                        iterList.append(feature)
+                        iterList.append(parentFeature)
         
         for contig in gff3.contigs:
             contigPairs = []
