@@ -6,7 +6,7 @@
 import os, argparse, sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__))) # 2 dirs up is where we find dependencies
-from Various_scripts import Function_packages
+from Various_scripts.Function_packages import ZS_GFF3IO
 
 # Define functions for later use
 ## Validate arguments
@@ -145,7 +145,7 @@ def main():
     validate_args(args)
     
     # Parse annotation GFF3
-    GFF3_obj = Function_packages.LinesGFF3(args.gff3File, strict_parse=False)
+    GFF3_obj = ZS_GFF3IO.LinesGFF3(args.gff3File, strict_parse=False)
     GFF3_obj.add_lines()
     
     # Index with NCLS and locate genes
