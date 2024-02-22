@@ -56,7 +56,7 @@ def main():
     
     # Parse the gff3 file as lines
     gff3 = ZS_GFF3IO.LinesGFF3(args.gff3File,
-                               strict_parse = args.relaxedParsing,
+                               strict_parse = not args.relaxedParsing,
                                fix_duplicated_ids = args.fixDupeIDs)
     gff3.add_lines()
     
