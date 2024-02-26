@@ -59,54 +59,17 @@ def main():
     args = p.parse_args()
     validate_args(args)
     
-    # Parse the gff3 file as lines
-    gff3 = ZS_GFF3IO.LinesGFF3(args.gff3File,
-                               strict_parse = not args.relaxedParsing,
-                               fix_duplicated_ids = args.fixDupeIDs)
-    gff3.add_lines()
+    # Parse the gff3 file
+    gff3 = ZS_GFF3IO.GFF3(args.gff3File,
+                          strict_parse = not args.relaxedParsing,
+                          fix_duplicated_ids = args.fixDupeIDs)
     
-    # Get the sorted gff entries for each contig and put into the output file
-    with open(args.outputFileName, 'w') as fileOut:
-        # Loop through each contig and pull out a list of genes present on that feature including their starting position
-        for contig in gff3.contigs:
-            contigPairs = []
-            for geneFeature in gff3.types["gene"]:
-                if geneFeature.contig == contig:
-                    contigPairs.append([geneFeature, geneFeature.start])
-            
-            # Sort contig pairs by starting base position
-            contigPairs.sort(key = lambda x: x[1])
-            
-            # Write each gene's line to file
-            for pair in contigPairs:
-                fileOut.write(''.join(pair[0].lines[0]))
-                fileOut.write(''.join(pair[0].lines[1]))
-                fileOut.write(''.join(pair[0].lines[2]))
-        
-        # Loop through each contig again and format our non-gene output lines (interleaved)
-        if not args.dropNonGenes:
-            iterDict = {} # use dict to prevent duplication
-            for keyType in gff3.types.keys():
-                if keyType != "gene":
-                    for feature in gff3.types[keyType]:
-                        # Get the main parent
-                        parentFeature = climb_parents(feature, gff3)
-                        # Store it if it isn't a gene feature
-                        if parentFeature.type != "gene":
-                            iterDict.setdefault(parentFeature.ID, parentFeature)
-            
-            for contig in gff3.contigs:
-                contigPairs = []
-                for featureID, parentFeature in iterDict.items():
-                    if parentFeature.contig == contig:
-                        contigPairs.append([parentFeature, parentFeature.coords])
-                # Sort contig pairs by starting base position
-                contigPairs.sort(key = lambda x: x[1])
-                # Write each gene's line to file
-                for pair in contigPairs:
-                    fileOut.write(''.join(pair[0].lines[0]))
-                    fileOut.write(''.join(pair[0].lines[1]))
-                    fileOut.write(''.join(pair[0].lines[2]))
+    # Remove non-gene parent features if relevant
+    if args.dropNonGenes:
+        gff3.parentTypes = {"gene"} # hackily override object so write() iter doesn't find non-genes
+    
+    # Write the ordered and re-formatted file
+    gff3.write(args.outputFileName)
     
     # All done!
     print('Program completed successfully!')
