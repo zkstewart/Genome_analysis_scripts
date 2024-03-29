@@ -226,6 +226,11 @@ def main():
                    action='store_true',
                    help="""Optionally specify whether we should use relaxed GFF3 parsing.""",
                    default=False)
+    p.add_argument("--details", dest="printDetails",
+                   required=False,
+                   action='store_true',
+                   help="""Optionally obtain a list of genes for each merge/rejection/replacement.""",
+                   default=False)
     
     args = p.parse_args()
     validate_args(args)
@@ -369,10 +374,25 @@ def main():
                            fileOut)
     
     # Indicate how many isoforms were merged into the file
-    numIsoforms = int(sum(
-        [len(firstParentIsoformAdditions), len(secondParentIsoformAdditions)]
-    ) / 2) # divide by 2 because each isoform is back indexed
-    print(f"{numIsoforms} new models were added as isoforms of existing genes.")
+    firstIsos = set()
+    firstIsoMatches = {}
+    for k, v in firstParentIsoformAdditions.items():
+        if isinstance(v, set):
+            for iso in v:
+                firstIsos.add(iso)
+                firstIsoMatches[iso] = k
+    
+    secondIsos = set()
+    secondIsoMatches = {}
+    for k, v in secondParentIsoformAdditions.items():
+        if isinstance(v, set):
+            for iso in v:
+                secondIsos.add(iso)
+                secondIsoMatches[iso] = k
+    
+    numIsoforms = sum([len(firstIsos), len(secondIsos)])
+    numGenesWithIsoforms = len(set(firstIsoMatches.values()).union(set(secondIsoMatches.values())))
+    print(f"{numIsoforms} new models were added as isoforms to {numGenesWithIsoforms} existing genes.")
     
     # Indicate how many features of each type were added into the file
     for parentType in secondGFF3.parentTypes:
@@ -382,9 +402,67 @@ def main():
     
     # Indicate how many features were replaced/rejected
     if args.behaviour == "reject":
-        print(f"{len(secondParentExclusions) - numIsoforms} new features were not merged due to duplication cutoff.")
+        print(f"{len(secondParentExclusions) - numIsoforms} new features were rejected due to duplication cutoff.")
     else:
         print(f"{len(firstParentExclusions) - numIsoforms} original features were replaced due to duplication cutoff.")
+    
+    # Give more detailed information if relevant
+    if args.printDetails:
+        # Detail isoform information
+        if numIsoforms > 0:
+            print("# Isoforms merged include:")
+            for iso in firstIsos:
+                print(f"{iso} -> {firstIsoMatches[iso]}")
+            for iso in secondIsos:
+                print(f"{iso} -> {secondIsoMatches[iso]}")
+        
+        # Detail new features added
+        for parentType in secondGFF3.parentTypes:
+            parentIDs = set([ x.ID for x in secondGFF3.types[parentType] ])
+            newFeatures = parentIDs.difference(secondParentExclusions)
+            if len(newFeatures) > 0:
+                print(f"# '{parentType}' features added include:\n" + "\n".join(newFeatures))
+        
+        # Detail features excluded
+        if len(firstParentExclusions) > 0:
+            # Figure out if a feature was excluded because its isoform was merged
+            geneFeatures = [
+                parentFeature
+                for parentType in firstGFF3.parentTypes
+                for parentFeature in firstGFF3.types[parentType]
+                if parentFeature.ID in firstParentExclusions
+            ]
+            mergedFeatures = [
+                [gFeature.ID, cFeature.ID in secondParentIsoformAdditions]
+                for gFeature in geneFeatures
+                for cFeature in gFeature.children
+            ]
+            mergedFeatures.sort(key = lambda x: x[1]) # present duplicates first
+            
+            # Report outcome
+            print("# Features excluded from the first file include:")
+            for geneID, isIsoform in mergedFeatures:
+                print(geneID + (" (isoform)" if isIsoform else " (duplicate)"))
+        
+        if len(secondParentExclusions) > 0:
+            # Figure out if a feature was excluded because its isoform was merged
+            geneFeatures = [
+                parentFeature
+                for parentType in secondGFF3.parentTypes
+                for parentFeature in secondGFF3.types[parentType]
+                if parentFeature.ID in secondParentExclusions
+            ]
+            mergedFeatures = [
+                [gFeature.ID, cFeature.ID in firstParentIsoformAdditions]
+                for gFeature in geneFeatures
+                for cFeature in gFeature.children
+            ]
+            mergedFeatures.sort(key = lambda x: x[1])
+            
+            # Report outcome
+            print("# Features excluded from the second file include:")
+            for geneID, isIsoform in mergedFeatures:
+                print(geneID + (" (isoform)" if isIsoform else " (duplicate)"))
     
     # All done!
     print('Program completed successfully!')
