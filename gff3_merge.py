@@ -250,8 +250,6 @@ def main():
     # Update second GFF3 to have no duplicate IDs with the first GFF3
     for parentType in secondGFF3.parentTypes:
         for parentFeature in secondGFF3.types[parentType]:
-            #if parentFeature.ID == "gene-LOC102616620":
-            #    stophere
             thisFeatureIDs = set([ parentFeature.ID ])
             thisFeatureIDs.update([ child.ID for child in parentFeature.retrieve_all_children() ])
             thisIDsOverlap = thisFeatureIDs.intersection(firstIDs)

@@ -31,6 +31,7 @@ def main():
     rewrites the file to eliminate these issues. It also incidentally reorders the file as gff3_order.py
     would. If your GFF3 file has 'product' entry values, this script simply won't work for you.
     """
+    # Reqs
     p = argparse.ArgumentParser(description=usage)
     p.add_argument("-g", dest="gff3File",
                    required=True,
@@ -38,6 +39,7 @@ def main():
     p.add_argument("-o", dest="outputFileName",
                    required=True,
                    help="Output ordered GFF3 file name")
+    # Opts
     p.add_argument("--relaxed", dest="relaxedParsing",
                    required=False,
                    action='store_true',
@@ -79,7 +81,6 @@ def main():
     duplicatedIDs = [ k for k, v in idsDict.items() if v > 1 ]
     
     # Fix any duplicated IDs
-    fixingDict = { k:0 for k in idsDict.keys() }
     for parentType in gff3.parentTypes:
         for feature in gff3.types[parentType]:
             parentID = feature.ID
