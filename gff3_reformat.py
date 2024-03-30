@@ -45,6 +45,12 @@ def main():
                    action='store_true',
                    help="""Optionally specify whether we should use relaxed GFF3 parsing.""",
                    default=False)
+    p.add_argument("--dropLooseEnds", dest="dropLooseEnds",
+                   required=False,
+                   action='store_true',
+                   help="""Optionally specify whether we should remove parents lacking
+                   children ('loose end' features).""",
+                   default=False)
     
     args = p.parse_args()
     validate_args(args)
@@ -53,6 +59,17 @@ def main():
     gff3 = ZS_GFF3IO.GFF3(args.gff3File,
                           strict_parse = not args.relaxedParsing,
                           fix_duplicated_ids = True)
+    
+    # Drop any loose ends
+    if args.dropLooseEnds:
+        idsToDrop = []
+        for parentType in gff3.parentTypes:
+            for feature in gff3.types[parentType]:
+                if feature.children == []:
+                    idsToDrop.append(parentID)
+        
+        for idToDrop in idsToDrop:
+            del gff3[idToDrop]
     
     # Identify and fix any features lacking IDs
     for parentType in gff3.parentTypes:
