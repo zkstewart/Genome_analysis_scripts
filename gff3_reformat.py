@@ -66,7 +66,7 @@ def main():
         for parentType in gff3.parentTypes:
             for feature in gff3.types[parentType]:
                 if feature.children == []:
-                    idsToDrop.append(parentID)
+                    idsToDrop.append(feature.ID)
         
         for idToDrop in idsToDrop:
             del gff3[idToDrop]
