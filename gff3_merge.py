@@ -160,19 +160,32 @@ def write_gff3_to_file(gff3Obj, isoformAdditionsDict, featureAdditionsDict,
             if parentFeature.ID in exclusionsSet:
                 continue
             
-            # Write current feature to file
-            ZS_GFF3IO.GFF3._recursively_write_feature_details(parentFeature, fileOut)
-            
-            # Write any merged isoforms to file
+            # Get any isoform features being added to this parent
+            isoformFeatures = [] # default to empty list
             if parentFeature.ID in isoformAdditionsDict:
-                # Get the isoform features being added into this
                 isoformFeatures = [
                     isoformFeature
                     for mrnaID in isoformAdditionsDict[parentFeature.ID]
                     for isoformFeature in featureAdditionsDict[parentFeature.ID]
                     if isoformFeature.ID == mrnaID
                 ]
+            
+            # Update parent coordinates if isoform merging would change them
+            if isoformFeatures != []:
+                # Get the new coordinates
+                newStart = min([parentFeature.start] + [isoformFeature.start for isoformFeature in isoformFeatures])
+                newEnd = max([parentFeature.end] + [isoformFeature.end for isoformFeature in isoformFeatures])
                 
+                # Update the parent feature's coordinates
+                parentFeature.start = newStart
+                parentFeature.end = newEnd
+                parentFeature.coords = [newStart, newEnd]
+            
+            # Write current feature to file
+            ZS_GFF3IO.GFF3._recursively_write_feature_details(parentFeature, fileOut)
+            
+            # Write any merged isoforms to file
+            if isoformFeatures != []:
                 # Update isoform features to have appropriate parent IDs
                 for isoformFeature in isoformFeatures:
                     isoformFeature.Parent = parentFeature.ID
