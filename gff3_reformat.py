@@ -45,6 +45,12 @@ def main():
                    action='store_true',
                    help="""Optionally specify whether we should use relaxed GFF3 parsing.""",
                    default=False)
+    p.add_argument("--parentsToKeep", dest="parentsToKeep",
+                   required=False,
+                   nargs="+",
+                   help="""Optionally specify whether we should retain only certain parent types;
+                   multiple inputs can be provided here.""",
+                   default=[])
     p.add_argument("--dropLooseEnds", dest="dropLooseEnds",
                    required=False,
                    action='store_true',
@@ -62,14 +68,22 @@ def main():
     
     # Drop any loose ends
     if args.dropLooseEnds:
+        # Get the feature IDs to drop as loose ends
         idsToDrop = []
         for parentType in gff3.parentTypes:
             for feature in gff3.types[parentType]:
                 if feature.children == []:
                     idsToDrop.append(feature.ID)
         
+        # Drop loose ends
         for idToDrop in idsToDrop:
             del gff3[idToDrop]
+        
+        # Unindex any parent types that have had all of their children removed
+        _pTypes = list(gff3.parentTypes)[:] # shallow copy to allow iteration
+        for parentType in _pTypes:
+            if not parentType in gff3.types:
+                gff3.parentTypes.remove(parentType)
     
     # Identify and fix any features lacking IDs
     for parentType in gff3.parentTypes:
@@ -111,8 +125,14 @@ def main():
                 newID = f"{cFeature.Parent}.{cFeature.type}{index+1}"
                 cFeature.ID = newID
     
+    # Figure out if there are any parent features we should skip
+    if args.parentsToKeep != []:
+        parentTypesToSkip = [ parentType for parentType in gff3.parentTypes if parentType not in args.parentsToKeep ]
+    else:
+        parentTypesToSkip = []
+    
     # Write the ordered and re-formatted file
-    gff3.write(args.outputFileName)
+    gff3.write(args.outputFileName, parentTypesToSkip = parentTypesToSkip)
     
     # All done!
     print('Program completed successfully!')
