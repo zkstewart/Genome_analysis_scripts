@@ -226,13 +226,13 @@ def main():
                    required=False,
                    type=float,
                    help="""Specify the percentage overlap of two models before they are clustered
-                   as isoforms (default == 0.3; equivalent to 30%).""",
+                   as isoforms; default == 0.3, equivalent to 30 percent.""",
                    default=0.3)
     p.add_argument("--duplicatePercent", dest="duplicatePercent",
                    required=False,
                    type=float,
                    help="""Specify the percentage overlap of two models before they are considered
-                   as duplicates and hence rejected or replaced (default == 0.6; equivalent to 60%).""",
+                   as duplicates and hence rejected or replaced; default == 0.6; equivalent to 60 percent.""",
                    default=0.6)
     p.add_argument("--relaxed", dest="relaxedParsing",
                    required=False,
