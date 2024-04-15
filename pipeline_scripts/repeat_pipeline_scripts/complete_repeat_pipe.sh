@@ -13,22 +13,22 @@ module load matlab/2016b
 module load cd-hit/4.6.4-foss-2016a-2015-0603
 
 ## Setup: Manual specification of program directories
-MHDIR=/home/n8942188/various_programs/MITE-Hunter
-DMDIR=/home/n8942188/various_programs/detectMITE
-REPMODDIR=/home/n8942188/various_programs/RepeatModeler-open-1.0.11
-GTDIR=/home/n8942188/various_programs/genometools-1.5.10/bin
-MUSCLEDIR=/home/n8942188/various_programs/muscle
-LTRFINDDIR=/home/n8942188/various_programs/ltr-finder
-LTRRETDIR=/home/n8942188/various_programs/LTR_retriever
-REPMASKDIR=/home/n8942188/various_programs/RepeatMasker
+MHDIR=/home/stewarz2/various_programs/MITE-Hunter
+DMDIR=/home/stewarz2/various_programs/detectMITE
+REPMODDIR=/home/stewarz2/various_programs/RepeatModeler-2.0.3
+GTDIR=/home/stewarz2/various_programs/genometools-1.5.10/bin
+MUSCLEDIR=/home/stewarz2/various_programs/muscle
+LTRFINDDIR=/home/stewarz2/various_programs/ltr-finder
+LTRRETDIR=/home/stewarz2/various_programs/LTR_retriever-2.9.0
+REPMASKDIR=/home/stewarz2/various_programs/RepeatMasker
 
 ## Setup: Manual specification of ancillary files
-PROTEXCLDIR=/home/n8942188/genome_assembly/protein_exclusion/clean
+PROTEXCLDIR=/home/stewarz2/plant_group/glauca/repeats
 NONTEDB=reference_notransposons_curated.fasta
 TEMODELDB=Pfam-CD-transposons.hmm
 
 ## Setup: Manual specification of input files
-GENOMEDIR=/home/n8942188/scaffolded_act
+GENOMEDIR=/home/stewarz2/scaffolded_act
 GENOMENAME=PGA_assembly_rename.fasta
 
 ## Setup: Manual specification of file prefixes and HPC parameters
