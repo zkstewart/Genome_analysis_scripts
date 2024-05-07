@@ -112,7 +112,7 @@ with open(outputFileName, 'w') as output:
                                         frameSuf = frame + 1
                                 else:
                                         frameSuf = frame + 4    # +4 since we want the frameSuf to go from 1-6, and we need to offset the 0-index
-                                output.write('>' + record.id + '_' + str(frameSuf) + '\n' + frameProt)
+                                output.write('>' + record.id + '_' + str(frameSuf) + '\n' + frameProt + '\n')
 
 records.close()
 #### SCRIPT ALL DONE
