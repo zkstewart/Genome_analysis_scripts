@@ -83,11 +83,11 @@ if outputFileName != None:
                         os.remove(nuclOutName)
 
 # Load the fasta file as a generator object, get the total number of sequences in the file, then re-load it for the upcoming loop
-records = SeqIO.parse(open(fileName, 'rU'), 'fasta')
+records = SeqIO.parse(open(fileName, 'r'), 'fasta')
 totalCount = 0
 for record in records:
         totalCount += 1
-records = SeqIO.parse(open(fileName, 'rU'), 'fasta')
+records = SeqIO.parse(open(fileName, 'r'), 'fasta')
 
 ### CORE PROCESSING LOOP
 print('Extracting 6-frame translation...')

@@ -21,7 +21,7 @@ outName = args.output
 ##### CORE PROCESS
 
 # Read in fasta file
-seqFile = open(inName, 'rU')
+seqFile = open(inName, 'r')
 records = SeqIO.parse(seqFile, 'fasta')
 
 with open(outName, 'w') as outFile:
