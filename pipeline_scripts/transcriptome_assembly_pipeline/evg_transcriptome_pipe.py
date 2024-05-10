@@ -84,7 +84,6 @@ def setup_work_dir(args):
     os.makedirs(os.path.join("transcriptomes", "trinity-denovo"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "velvet-oases"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "spades"), exist_ok=True)
-    os.makedirs(os.path.join("transcriptomes", "transabyss"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "evidentialgene"), exist_ok=True)
     os.makedirs(os.path.join("transcriptomes", "evidentialgene", "concatenated"), exist_ok=True)
     
@@ -772,62 +771,6 @@ ${{SPADESDIR}}/spades.py --rna \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_abyss_script(argsContainer, MEM="260G", CPUS="18"):
-    scriptText = \
-"""#!/bin/bash -l
-#PBS -N abyss_{prefix}
-#PBS -l walltime=200:00:00
-#PBS -l mem={MEM}
-#PBS -l ncpus={CPUS}
-{afterokLine}
-
-cd {workingDir}/transcriptomes/transabyss
-
-####
-
-conda activate {condaEnv}
-
-ABYSSDIR={abyssDir}
-
-CPUS={CPUS}
-READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
-PREFIX={prefix}
-
-####
-
-for k in 23 31 47 63; do ${{ABYSSDIR}}/transabyss --kmer ${{k}} \\
-    --threads ${{CPUS}} \\
-    --mpi ${{CPUS}} \\
-    --outdir ${{PREFIX}}.${{k}} \\""".format(
-    MEM=MEM,
-    CPUS=CPUS,
-    workingDir=argsContainer.workingDir,
-    prefix=argsContainer.prefix,
-    abyssDir=argsContainer.abyssDir,
-    condaEnv=argsContainer.condaEnv,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
-)
-
-    # Run Trans-ABySS with single-end reads
-    if argsContainer.isSingleEnd:
-        scriptText += \
-"""
-    --se ${READSDIR}/single.norm.fq;
-done
-"""
-    
-    # Run Trans-ABySS with paired-end reads
-    else:
-        scriptText += \
-"""
-    --pe ${READSDIR}/left.norm.fq ${READSDIR}/right.norm.fq;
-done
-"""
-    
-    # Write script to file
-    with open(argsContainer.outputFileName, "w") as fileOut:
-        fileOut.write(scriptText)
-
 def make_config_script(argsContainer, MEM="5G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
@@ -1084,8 +1027,7 @@ MINSIZE={minSize}
 cat soapdenovo-trans/${{PREFIX}}.*.scafSeq \\
     trinity-denovo/trinity_out_dir.Trinity.fasta \\
     velvet-oases/${{PREFIX}}.*/transcripts.fa \\
-    spades/${{PREFIX}}/transcripts.fasta \\
-    transabyss/${{PREFIX}}.*/transabyss-final.fa > ${{PREFIX}}_denovo_transcriptome.fasta
+    spades/${{PREFIX}}/transcripts.fasta > ${{PREFIX}}_denovo_transcriptome.fasta
 
 python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_transcriptome.fasta -f cullbelow -n ${{MINSIZE}} -o ${{PREFIX}}_denovo_transcriptome_cull.fasta
 """.format(
@@ -1317,14 +1259,6 @@ def main():
                    required=False,
                    help="Specify the location of the SPAdes spades.py script (default=HPC location)",
                    default="/home/stewarz2/various_programs/SPAdes-3.15.5-Linux/bin")
-    p.add_argument("-transabyss", dest="transabyss",
-                   required=False,
-                   help="Specify the location of the Trans-ABySS executable (default=HPC location)",
-                   default="/home/stewarz2/various_programs/transabyss-2.0.1")
-    p.add_argument("-transabyssConda", dest="transabyssConda",
-                   required=False,
-                   help="Specify the name of the conda environment where Trans-ABySS is installed (default=HPC environment)",
-                   default="abyss")
     p.add_argument("-scallop", dest="scallop",
                    required=False,
                    help="Specify the location of the scallop executable (default=HPC location)",
@@ -1407,11 +1341,6 @@ def main():
                    required=False,
                    action="store_true",
                    help="Optionally skip SPAdes assembly; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipAbyss", dest="skipAbyss",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip Trans-ABySS assembly; assumed to already be complete if specified",
                    default=False)
     p.add_argument("--skipTringg", dest="skipTringg",
                    required=False,
@@ -1623,21 +1552,6 @@ def main():
         spadesJobID = qsub(spadesScriptName)
         runningJobIDs["spades"] = spadesJobID
     
-    # Run Trans-ABySS de novo assembly
-    if not args.skipAbyss:
-        abyssScriptName = os.path.join(os.getcwd(), "transcriptomes", "transabyss", "run_transabyss.sh")
-        make_abyss_script(Container({
-            "outputFileName": abyssScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "abyssDir": args.transabyss,
-            "condaEnv": args.transabyssConda,
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn"] if k in runningJobIDs]
-        }))
-        abyssJobID = qsub(abyssScriptName)
-        runningJobIDs["abyss"] = abyssJobID
-    
     # Run SOAPdenovo-Trans assembly
     if not args.skipSoap:
         configScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_config.sh")
@@ -1715,7 +1629,7 @@ def main():
             "prefix": args.outputPrefix,
             "varScriptDir": args.varscript,
             "genomeFile": args.genomeFile,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop", "spades", "abyss"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop", "spades"] if k in runningJobIDs]
         }))
         masterConcatJobID = qsub(masterConcatScriptName)
         runningJobIDs["master"] = masterConcatJobID
