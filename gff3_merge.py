@@ -328,13 +328,14 @@ def main():
                         firstPct, secondPct = calculate_coordinate_overlap(firstExonCoords, secondExonCoords)
                         overlapPct = max([firstPct, secondPct])
                         
-                        # See what we should do with this second child feature
-                        if overlapPct >= args.isoformPercent:
+                        # Prevent parents of duplicate or isoform-added genes from being added to results
+                        if overlapPct >= args.duplicatePercent or overlapPct >= args.isoformPercent:
                             if args.behaviour == "reject":
                                 secondParentExclusions.add(secondParentFeature.ID)
                             else:
                                 firstParentExclusions.add(firstParentFeature.ID)
                         
+                        # Merge in non-duplicate isoforms
                         if (overlapPct >= args.isoformPercent) and (overlapPct < args.duplicatePercent):
                             if args.behaviour == "reject":
                                 "If two child features are isoforms, and we are rejecting the second file ..."
