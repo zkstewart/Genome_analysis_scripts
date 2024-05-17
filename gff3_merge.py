@@ -68,6 +68,30 @@ def get_gff3_parent_ids(gff3):
             parentIDs.add(parentFeature.ID)
     return parentIDs
 
+def generate_deduplicated_id(feature, idSet1, idSet2):
+    '''
+    Takes a GFF3IO Feature object and attempts to find an ID that is not a duplicate,
+    returning it as a string.
+    
+    Parameters:
+        feature -- GFF3IO Feature object to fix the ID of.
+        idSet1 -- set of IDs from the first GFF3 to avoid duplicates of.
+        idSet2 -- set of IDs from the second GFF3 to also avoid duplicates of.
+    Returns:
+        newFeatureID -- a string representing the new ID for the feature that is not
+                        a duplicate of any in idSet1 or idSet2.
+    '''
+    fixed = False
+    for i in range(2, 1000): # surely we won't have 1000 duplicates...
+        newFeatureID = f"{feature.ID}_idDuplicate{str(i)}"
+        if (newFeatureID not in idSet1) and (newFeatureID not in idSet2):
+            fixed = True
+            idSet2.add(newFeatureID) # make sure we don't duplicate the new one!
+            break
+    if fixed == False:
+        raise ValueError(f"Could not fix duplicate ID for {feature.ID}")
+    return newFeatureID
+
 def fix_duplicate_ids(feature, idSet1, idSet2):
     '''
     Takes a GFF3IO Feature object and attempts to find an ID that is not a duplicate.
@@ -149,7 +173,7 @@ def write_gff3_to_file(gff3Obj, isoformAdditionsDict, featureAdditionsDict,
         gff3Obj -- a ZS_GFF3IO.GFF3 object to write to file.
         isoformAdditionsDict -- dictionary akin to 'firstParentIsoformAdditions'.
         featureAdditionsDict -- dictionary akin to 'featureAdditions'.
-        exclusionsSet -- a set akin to 'firstParentExclusions'.
+        exclusionsSet -- a set akin to 'g1Exclusions'.
         fileOut -- a file handle to write to.
         detailedMerges -- a boolean indicating whether to write detailed information
                           on merges and exclusions.
@@ -193,14 +217,6 @@ def write_gff3_to_file(gff3Obj, isoformAdditionsDict, featureAdditionsDict,
                     # And then write them to file
                     ZS_GFF3IO.GFF3._recursively_write_feature_details(isoformFeature, fileOut)
 
-def update_parent_id(feature, parentID):
-    '''
-    Recursively updates the Parent ID of a feature and its children.
-    '''
-    feature.Parent = parentID
-    for childFeature in feature.children:
-        update_parent_id(childFeature, feature.ID)
-
 def main():
     usage = """%(prog)s does the merging.
     """
@@ -212,15 +228,14 @@ def main():
     p.add_argument("-g2", dest="secondGff3File",
                    required=True,
                    help="Specify the second GFF3 file to merge into the first file.")
-    p.add_argument("-b", dest="behaviour",
-                   required=True,
-                   choices=['reject', 'replace'],
-                   help="""Specify program behaviour to either 'reject' entries from the second file
-                   that overlap the first file's models, or 'replace' the first file's models when
-                   overlaps occur.""")
     p.add_argument("-o", dest="outputFileName",
                    required=True,
                    help="Output merged GFF3 file name.")
+    p.add_argument("-b", dest="behaviour",
+                   required=True,
+                   choices=["reject", "replace"],
+                   help="""Specify program behaviour to either 'reject' g2 that overlap
+                   g1 features, or 'replace' g1 features with g2 features.""")
     # Opts
     p.add_argument("--isoformPercent", dest="isoformPercent",
                    required=False,
@@ -269,212 +284,147 @@ def main():
             
             # If there is an overlap, rename the feature(s)
             if len(thisIDsOverlap) > 0:
-                # Rename parent feature if necessary
+                # Obtain the new parent ID for this feature
                 if parentFeature.ID in thisIDsOverlap:
-                    newParentID = fix_duplicate_ids(parentFeature, firstIDs, secondIDs)
+                    newParentID = generate_deduplicated_id(parentFeature, firstIDs, secondIDs)
                 
-                # Rename child features if necessary
-                for childFeature in parentFeature.retrieve_all_children():
-                    if childFeature.ID in thisIDsOverlap:
-                        fix_duplicate_ids(childFeature, firstIDs, secondIDs)
-                
-                # Update parent IDs for children
-                for childFeature in parentFeature.children:
-                    update_parent_id(childFeature, newParentID)
+                # Modify the feature ID with reformatting procedure
+                secondGFF3.reformat_id(parentFeature, newParentID)
     
     # Add NCLS indexing to each GFF3
     firstGFF3.create_ncls_index(typeToIndex=firstGFF3.parentTypes)
     secondGFF3.create_ncls_index(typeToIndex=secondGFF3.parentTypes)
     
-    # Identify isoforms and incompatible overlaps
-    """The logic in this section gets wildly complicated. It would be much simpler to simply set the program
-    to replace the first file's features with the second file's features. This is a solution I might roll
-    back down the line because it's stupid."""
-    firstParentIsoformAdditions = {}
-    secondParentIsoformAdditions = {}
-    allIsoformAdditions = {}
-    featureAdditions = {}
-    firstParentExclusions = set()
-    secondParentExclusions = set()
+    # Establish data storage for knowing what changes have been made
+    isoformAdditions = {"g1": {}, "g2": {}}
+    g1Exclusions = {}
+    g2Additions = set()
     
+    # Identify feature additions/exclusions and isoform additions
     for parentType in secondGFF3.parentTypes:
-        for secondParentFeature in secondGFF3.types[parentType]:
-            # Exclude this second parent if it has no children
-            "This shouldn't happen, and if it does it indicates a poorly formatted GFF3"
-            if len(secondParentFeature.children) == 0:
-                secondParentExclusions.add(secondParentFeature.ID)
-                continue
-            
-            # Find parent-level overlaps
-            firstParentOverlaps = firstGFF3.ncls_finder(secondParentFeature.start, secondParentFeature.end,
-                                                        "contig", secondParentFeature.contig)
-            
-            # Find if any second parent features are isoforms or duplicates of a first parent feature
-            for firstParentFeature in firstParentOverlaps:
-                # Exclude this first parent if it has no children
-                if len(secondParentFeature.children) == 0:
-                    firstParentExclusions.add(secondParentFeature.ID)
+        for g2ParentFeature in secondGFF3.types[parentType]:
+            g2KillFlag = False
+            for g2ChildFeature in g2ParentFeature.children:
+                # Find parent-level overlaps
+                g1ParentOverlaps = firstGFF3.ncls_finder(g2ChildFeature.start, g2ChildFeature.end,
+                                                         "contig", g2ChildFeature.contig)
+                
+                # Continue if there are no overlaps
+                """Continuing means the second parent feature will end up added as a stand-alone feature if
+                no other child features contradict this action."""
+                if len(g1ParentOverlaps) == 0:
                     continue
                 
-                for firstChildFeature in firstParentFeature.children:
-                    # Get the exon coordinates for this first child feature
-                    firstExonCoords = [ exonFeature.coords for exonFeature in firstChildFeature.exon ]
-                    
-                    # Check for overlap against the second GFF3 features
-                    for secondChildFeature in secondParentFeature.children:
-                        secondExonCoords = [ exonFeature.coords for exonFeature in secondChildFeature.exon ]
+                # Iterate through parent overlaps
+                g2ExonCoords = [ ex.coords for ex in g2ChildFeature.exon ]
+                for g1ParentFeature in g1ParentOverlaps:
+                    for g1ChildFeature in g1ParentFeature.children:
+                        g1ExonCoords = [ ex.coords for ex in g1ChildFeature.exon ]
                         
                         # Calculate overlap percentage for these child features
-                        firstPct, secondPct = calculate_coordinate_overlap(firstExonCoords, secondExonCoords)
+                        firstPct, secondPct = calculate_coordinate_overlap(g1ExonCoords, g2ExonCoords)
                         overlapPct = max([firstPct, secondPct])
                         
-                        # Prevent parents of duplicate or isoform-added genes from being added to results
-                        if overlapPct >= args.duplicatePercent or overlapPct >= args.isoformPercent:
+                        # Handle duplicate threshold breaches
+                        if overlapPct >= args.duplicatePercent:
                             if args.behaviour == "reject":
-                                secondParentExclusions.add(secondParentFeature.ID)
+                                "If rejecting, we set a flag to kill the g2 parent later"
+                                g2KillFlag = True
                             else:
-                                firstParentExclusions.add(firstParentFeature.ID)
+                                "If replacing, we kill the g1 parent now"
+                                g1Exclusions[g1ParentFeature.ID] = g2ParentFeature.ID
                         
-                        # Merge in non-duplicate isoforms
-                        if (overlapPct >= args.isoformPercent) and (overlapPct < args.duplicatePercent):
-                            if args.behaviour == "reject":
-                                "If two child features are isoforms, and we are rejecting the second file ..."
-                                # Override behaviour if this feature would be added as isoform to multiple genes
-                                if secondParentFeature.ID in allIsoformAdditions and allIsoformAdditions[secondParentFeature.ID] != firstParentFeature.ID:
-                                    wipe_from_isoform_dict(secondParentFeature.ID, firstParentIsoformAdditions)
-                                
-                                # Normal behaviour otherwise
-                                else:
-                                    # Indicate which child features should be added in as isoforms
-                                    firstParentIsoformAdditions.setdefault(firstParentFeature.ID, set())
-                                    firstParentIsoformAdditions[firstParentFeature.ID].add(secondChildFeature.ID)
-                                    
-                                    # Backwards index and allow detection of multi-gene addition
-                                    firstParentIsoformAdditions[secondChildFeature.ID] = firstParentFeature.ID # backwards index
-                                    allIsoformAdditions[secondParentFeature.ID] = firstParentFeature.ID
-                                    
-                                    # Specifically allow quick discovery of features being added
-                                    featureAdditions.setdefault(firstParentFeature.ID, [])
-                                    featureAdditions[firstParentFeature.ID].append(secondChildFeature)
-                            else:
-                                "If two child features are isoforms, and we are replacing the first file ..."
-                                # Override behaviour if this feature would be added as isoform to multiple genes
-                                if firstParentFeature.ID in allIsoformAdditions and allIsoformAdditions[firstParentFeature.ID] != secondParentFeature.ID:
-                                    wipe_from_isoform_dict(firstParentFeature.ID, secondParentIsoformAdditions)
-                                
-                                # Normal behaviour otherwise
-                                else:
-                                    # Indicate which child features should be added in as isoforms
-                                    secondParentIsoformAdditions.setdefault(secondParentFeature.ID, set())
-                                    secondParentIsoformAdditions[secondParentFeature.ID].add(firstChildFeature.ID)
-                                    
-                                    # Backwards index and allow detection of multi-gene addition
-                                    secondParentIsoformAdditions[firstChildFeature.ID] = secondParentFeature.ID # backwards index
-                                    allIsoformAdditions[firstParentFeature.ID] = secondParentFeature.ID
-                                    
-                                    # Specifically allow quick discovery of features being added
-                                    featureAdditions.setdefault(secondParentFeature.ID, [])
-                                    featureAdditions[secondParentFeature.ID].append(firstChildFeature)
+                        # Handle isoform sweetspot
+                        elif overlapPct >= args.isoformPercent:
+                            isoformAdditions["g1"].setdefault(g1ParentFeature.ID, [])
+                            isoformAdditions["g1"][g1ParentFeature.ID].append(g2ChildFeature)
+                            
+                            isoformAdditions["g2"].setdefault(g2ChildFeature.ID, [])
+                            isoformAdditions["g2"][g2ChildFeature.ID].append(g1ParentFeature)
+                            
+                            "If this gene is being added as an isoform, we kill the g2 parent later"
+                            g2KillFlag = True
+            
+            # Handle g2 parents that weren't killed when looking at their children
+            "g2 flags are considered by negation as we only track g2 parents to ADD; default action is to REMOVE"
+            if not g2KillFlag:
+                g2Additions.add(g2ParentFeature.ID) 
+    
+    # Cull any isoforms that would merge into multiple g1 features
+    "It's difficult to know which parent to merge into if there are multiple options"
+    doNotMerge = set()
+    for g2ID, g1Features in isoformAdditions["g2"].items():
+        uniqueG1IDs = set([ g1Feature.ID for g1Feature in g1Features ])
+        if len(uniqueG1IDs) > 1:
+            doNotMerge.add(g2ID)
+    
+    # Merge isoforms into g1 GFF3 object
+    isoformStatistics = {}
+    for g1ID, g2Features in isoformAdditions["g1"].items():
+        g1Feature = firstGFF3[g1ID]
+        
+        # Drop any g2Features that are in the doNotMerge set
+        g2Features = [ g2Feature for g2Feature in g2Features if g2Feature.ID not in doNotMerge ]
+        if g2Features == []:
+            continue # skip if there are no isoforms to merge
+        
+        # Update the g1Feature with the new children
+        for g2Feature in g2Features:
+            g2Feature.Parent = g1Feature.ID
+            g1Feature.add_child(g2Feature)
+            
+            # Update parent coordinates if isoform merging would change them
+            g1Feature.start = min(g1Feature.start, g2Feature.start)
+            g1Feature.end = max(g1Feature.end, g2Feature.end)
+            
+            # Log information for later reporting
+            isoformStatistics.setdefault(g1Feature.ID, set())
+            isoformStatistics[g1Feature.ID].add(g2Feature.ID)
     
     # Merge isoforms as we write to file
     with open(args.outputFileName, "w") as fileOut:
-        write_gff3_to_file(firstGFF3, firstParentIsoformAdditions,
-                           featureAdditions, firstParentExclusions,
-                           fileOut)
-        write_gff3_to_file(secondGFF3, secondParentIsoformAdditions,
-                           featureAdditions, secondParentExclusions,
-                           fileOut)
-    
-    # Indicate how many isoforms were merged into the file
-    firstIsos = set()
-    firstIsoMatches = {}
-    for k, v in firstParentIsoformAdditions.items():
-        if isinstance(v, set):
-            for iso in v:
-                firstIsos.add(iso)
-                firstIsoMatches[iso] = k
-    
-    secondIsos = set()
-    secondIsoMatches = {}
-    for k, v in secondParentIsoformAdditions.items():
-        if isinstance(v, set):
-            for iso in v:
-                secondIsos.add(iso)
-                secondIsoMatches[iso] = k
-    
-    numIsoforms = sum([len(firstIsos), len(secondIsos)])
-    numGenesWithIsoforms = len(set(firstIsoMatches.values()).union(set(secondIsoMatches.values())))
-    print(f"{numIsoforms} new models were added as isoforms to {numGenesWithIsoforms} existing genes.")
-    
-    # Indicate how many features of each type were added into the file
-    for parentType in secondGFF3.parentTypes:
-        parentIDs = set([ x.ID for x in secondGFF3.types[parentType] ])
-        numNewFeatures = len(parentIDs) - len(parentIDs.intersection(secondParentExclusions))
-        print(f"{numNewFeatures} new '{parentType}' features were added as stand-alone features.")
-    
-    # Indicate how many features were replaced/rejected
-    if args.behaviour == "reject":
-        print(f"{len(secondParentExclusions) - numIsoforms} new features were rejected due to duplication cutoff.")
-    else:
-        print(f"{len(firstParentExclusions) - numIsoforms} original features were replaced due to duplication cutoff.")
-    
-    # Give more detailed information if relevant
-    if args.printDetails:
-        # Detail isoform information
-        if numIsoforms > 0:
-            print("# Isoforms merged include:")
-            for iso in firstIsos:
-                print(f"{iso} -> {firstIsoMatches[iso]}")
-            for iso in secondIsos:
-                print(f"{iso} -> {secondIsoMatches[iso]}")
+        # Write the first GFF3 to file
+        for parentType in firstGFF3.parentTypes:
+            for parentFeature in firstGFF3.types[parentType]:
+                # Skip over excluded features
+                if parentFeature.ID in g1Exclusions:
+                    continue
+                
+                # Write current feature to file
+                ZS_GFF3IO.GFF3._recursively_write_feature_details(parentFeature, fileOut)
         
-        # Detail new features added
+        # Write the second GFF3 to file
         for parentType in secondGFF3.parentTypes:
-            parentIDs = set([ x.ID for x in secondGFF3.types[parentType] ])
-            newFeatures = parentIDs.difference(secondParentExclusions)
-            if len(newFeatures) > 0:
-                print(f"# '{parentType}' features added include:\n" + "\n".join(newFeatures))
-        
-        # Detail features excluded
-        if len(firstParentExclusions) > 0:
-            # Figure out if a feature was excluded because its isoform was merged
-            geneFeatures = [
-                parentFeature
-                for parentType in firstGFF3.parentTypes
-                for parentFeature in firstGFF3.types[parentType]
-                if parentFeature.ID in firstParentExclusions
-            ]
-            mergedFeatures = [
-                [gFeature.ID, cFeature.ID in secondParentIsoformAdditions]
-                for gFeature in geneFeatures
-                for cFeature in gFeature.children
-            ]
-            mergedFeatures.sort(key = lambda x: x[1]) # present duplicates first
-            
-            # Report outcome
-            print("# Features excluded from the first file include:")
-            for geneID, isIsoform in mergedFeatures:
-                print(geneID + (" (isoform)" if isIsoform else " (duplicate)"))
-        
-        if len(secondParentExclusions) > 0:
-            # Figure out if a feature was excluded because its isoform was merged
-            geneFeatures = [
-                parentFeature
-                for parentType in secondGFF3.parentTypes
-                for parentFeature in secondGFF3.types[parentType]
-                if parentFeature.ID in secondParentExclusions
-            ]
-            mergedFeatures = [
-                [gFeature.ID, cFeature.ID in firstParentIsoformAdditions]
-                for gFeature in geneFeatures
-                for cFeature in gFeature.children
-            ]
-            mergedFeatures.sort(key = lambda x: x[1])
-            
-            # Report outcome
-            print("# Features excluded from the second file include:")
-            for geneID, isIsoform in mergedFeatures:
-                print(geneID + (" (isoform)" if isIsoform else " (duplicate)"))
+            for parentFeature in secondGFF3.types[parentType]:
+                # Skip over excluded features
+                if parentFeature.ID not in g2Additions:
+                    continue
+                
+                # Write current feature to file
+                ZS_GFF3IO.GFF3._recursively_write_feature_details(parentFeature, fileOut)
+    
+    # Produce basic output statistics
+    print("# gff3_merge.py output statistics:")
+    print(f"# > {len(g1Exclusions)} genes were excluded from the first file")
+    print(f"# > {len(g2Additions)} genes were added from the second file")
+    print(f"# > Making for {len(g2Additions) - len(g1Exclusions)} new genes being part of the merged file")
+    print(f"# > {sum([len(v) for v in isoformStatistics.values()])} isoforms were merged into {len(isoformStatistics)} genes")
+    
+    # Produce detailed output statistics
+    if args.printDetails:
+        print("# Since you've asked me to --printDetails, here's some more information:")
+        if len(g1Exclusions) != 0:
+            print("# > Genes excluded from the first file include:")
+            for g1ID, excludedBy in g1Exclusions.items():
+                print(f"# >> {g1ID} was replaced by {excludedBy}")
+        if len(g2Additions) != 0:
+            print("# > Genes added from the second file include:")
+            for g2ID in g2Additions:
+                print(f"# >> {g2ID}")
+        if len(isoformStatistics) != 0:
+            print("# > Isoforms merged include:")
+            for g1ID, g2IDs in isoformStatistics.items():
+                print(f"# >> {g1ID} <- {', '.join(g2IDs)}")
     
     # All done!
     print('Program completed successfully!')
