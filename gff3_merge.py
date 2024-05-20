@@ -218,7 +218,19 @@ def write_gff3_to_file(gff3Obj, isoformAdditionsDict, featureAdditionsDict,
                     ZS_GFF3IO.GFF3._recursively_write_feature_details(isoformFeature, fileOut)
 
 def main():
-    usage = """%(prog)s does the merging.
+    usage = """%(prog)s merges two GFF3s together ensuring that IDs are not duplicated.
+    Features from -g2 which overlap -g1 features at >duplicatePercent can be set to
+    either be rejected, or replace the -g1 features if behaviour is set to 'replace'.
+    Features from -g2 which instead overlap >=isoformPercent but less than duplicatePercent
+    will instead merge into the -g1 feature as isoforms. Some tips:
+    1) If you want to do a simple merge of -g2 into -g1 excluding all overlaps, set
+    '-b reject --duplicatePercent 0'; no isoform merging will occur, and anything that
+    has 0 exonic overlap will be rejected.
+    2) If you want to merge isoforms in, make sure there's a sweet spot inbetween
+    --isoformPercent (lower bound) and --duplicatePercent (upper bound); anything
+    in that range will merge in as an isoform.
+    3) Note that isoforms are always merged from -g2 into -g1 regardless of whether
+    the behaviour is to 'reject' or 'replace'.
     """
     # Reqs
     p = argparse.ArgumentParser(description=usage)
@@ -326,7 +338,7 @@ def main():
                         overlapPct = max([firstPct, secondPct])
                         
                         # Handle duplicate threshold breaches
-                        if overlapPct >= args.duplicatePercent:
+                        if overlapPct > args.duplicatePercent:
                             if args.behaviour == "reject":
                                 "If rejecting, we set a flag to kill the g2 parent later"
                                 g2KillFlag = True
@@ -348,7 +360,7 @@ def main():
             # Handle g2 parents that weren't killed when looking at their children
             "g2 flags are considered by negation as we only track g2 parents to ADD; default action is to REMOVE"
             if not g2KillFlag:
-                g2Additions.add(g2ParentFeature.ID) 
+                g2Additions.add(g2ParentFeature.ID)
     
     # Cull any isoforms that would merge into multiple g1 features
     "It's difficult to know which parent to merge into if there are multiple options"
@@ -381,7 +393,7 @@ def main():
             isoformStatistics.setdefault(g1Feature.ID, set())
             isoformStatistics[g1Feature.ID].add(g2Feature.ID)
     
-    # Merge isoforms as we write to file
+    # Write to file
     with open(args.outputFileName, "w") as fileOut:
         # Write the first GFF3 to file
         for parentType in firstGFF3.parentTypes:
