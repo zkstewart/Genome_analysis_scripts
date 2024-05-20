@@ -231,6 +231,8 @@ def main():
     in that range will merge in as an isoform.
     3) Note that isoforms are always merged from -g2 into -g1 regardless of whether
     the behaviour is to 'reject' or 'replace'.
+    4) --mergeLiftoff will prevent features marked with valid_ORFs=0 from being
+    considered for merging from -g2.
     """
     # Reqs
     p = argparse.ArgumentParser(description=usage)
@@ -248,7 +250,14 @@ def main():
                    choices=["reject", "replace"],
                    help="""Specify program behaviour to either 'reject' g2 that overlap
                    g1 features, or 'replace' g1 features with g2 features.""")
-    # Opts
+    # Opts (input-specific behaviour)
+    p.add_argument("--mergeLiftoff", dest="mergeLiftoff",
+                   required=False,
+                   action='store_true',
+                   help="""Optionally specify whether -g2 is a liftoff file and you'd like to
+                   prevent invalid ORFs from being merged into -g1.""",
+                   default=False)
+    # Opts (algorithmic)
     p.add_argument("--isoformPercent", dest="isoformPercent",
                    required=False,
                    type=float,
@@ -261,6 +270,7 @@ def main():
                    help="""Specify the percentage overlap of two models before they are considered
                    as duplicates and hence rejected or replaced; default == 0.6; equivalent to 60 percent.""",
                    default=0.6)
+    # Opts (minor behavioural mods)
     p.add_argument("--relaxed", dest="relaxedParsing",
                    required=False,
                    action='store_true',
@@ -311,11 +321,19 @@ def main():
     isoformAdditions = {"g1": {}, "g2": {}}
     g1Exclusions = {}
     g2Additions = set()
+    liftoffExclusions = 0
     
     # Identify feature additions/exclusions and isoform additions
     for parentType in secondGFF3.parentTypes:
         for g2ParentFeature in secondGFF3.types[parentType]:
-            g2KillFlag = False
+            # Handle liftoff merging behaviour modifier
+            if args.mergeLiftoff and hasattr(g2ParentFeature, "valid_ORFs"):
+                if g2ParentFeature.valid_ORFs == "0":
+                    liftoffExclusions += 1
+                    continue
+            
+            # Continue with normal behaviour
+            g2KillFlag = False # indicates whether we'll add a g2 feature or 'kill' it
             for g2ChildFeature in g2ParentFeature.children:
                 # Find parent-level overlaps
                 g1ParentOverlaps = firstGFF3.ncls_finder(g2ChildFeature.start, g2ChildFeature.end,
@@ -421,6 +439,8 @@ def main():
     print(f"# > {len(g2Additions)} genes were added from the second file")
     print(f"# > Making for {len(g2Additions) - len(g1Exclusions)} new genes being part of the merged file")
     print(f"# > {sum([len(v) for v in isoformStatistics.values()])} isoforms were merged into {len(isoformStatistics)} genes")
+    if args.mergeLiftoff:
+        print(f"# > --mergeLiftoff excluded {liftoffExclusions} features from consideration")
     
     # Produce detailed output statistics
     if args.printDetails:
