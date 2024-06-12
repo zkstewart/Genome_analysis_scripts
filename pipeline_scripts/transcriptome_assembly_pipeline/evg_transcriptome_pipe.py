@@ -526,7 +526,7 @@ cd {workingDir}/rnaseq_details
 
 ####
 
-module load atg/picard/2.2.2
+module load picard/2.1.1-java-1.8.0_112
 module load samtools/1.9-foss-2016a
 
 SAMFILE={workingDir}/star_map/Aligned.out.sam
@@ -545,7 +545,7 @@ head -n ${{SUBSETSIZE}} ${{SAMFILE}} > ${{PREFIX}}.subset${{SUBSETSIZE}}.sam
 samtools sort -m ${{MEM}} -@ 1 -o ${{PREFIX}}.subset${{SUBSETSIZE}}.bam -O bam ${{PREFIX}}.subset${{SUBSETSIZE}}.sam
 
 # Run picard to derive statistics
-picard CollectInsertSizeMetrics H=${{PREFIX}}.subset${{SUBSETSIZE}}.histo I=${{PREFIX}}.subset${{SUBSETSIZE}}.bam O=${{PREFIX}}.subset${{SUBSETSIZE}}.imetrics
+java -jar $EBROOTPICARD/picard.jar CollectInsertSizeMetrics H=${{PREFIX}}.subset${{SUBSETSIZE}}.histo I=${{PREFIX}}.subset${{SUBSETSIZE}}.bam O=${{PREFIX}}.subset${{SUBSETSIZE}}.imetrics
 
 # Run imetrics parsing and extract insert size from output file
 python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/imetrics_rnaseq_densepeak.py -i ${{PREFIX}}.subset${{SUBSETSIZE}}.imetrics -o ${{PREFIX}}.subset${{SUBSETSIZE}}.insert_size
