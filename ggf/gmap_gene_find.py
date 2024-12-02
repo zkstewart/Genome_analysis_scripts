@@ -862,7 +862,8 @@ def gff3_parse_ncls_mrna(gff3File):                             # This function 
                                 if details[i] == '':
                                         continue
                                 splitDetail = details[i].split('=')
-                                detailDict[splitDetail[0]] = splitDetail[1]
+                                if "=" in details[i]:
+                                        detailDict[splitDetail[0]] = splitDetail[1]
                         # Add to our NCLS
                         starts.append(contigStart)
                         ends.append(contigStop+1)       # NCLS indexes 0-based like a range (up to but not including end), so +1 to make this more logically compliant with gff3 1-based system.
