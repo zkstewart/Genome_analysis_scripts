@@ -19,8 +19,16 @@ def validate_args(args):
             quit()
     
     # Validate program locations
-    if not os.path.isfile(args.trimmomatic):
-        print(f"I am unable to locate the Trimmomatic JAR file ({args.trimmomatic})")
+    if not os.path.isfile(os.path.join(args.bbmap, "bbmerge.sh")):
+        print(f"I am unable to locate the bbmerge.sh file ({os.path.join(args.bbmap, 'bbmerge.sh')})")
+        print("Make sure you've typed the location correctly and try again.")
+        quit()
+    if not os.path.isfile(os.path.join(args.cdhit, "cd-hit")):
+        print(f"I am unable to locate the cd-hit file ({os.path.join(args.cdhit, 'cd-hit')})")
+        print("Make sure you've typed the location correctly and try again.")
+        quit()
+    if not os.path.isfile(os.path.join(args.tophat, "gtf_to_fasta")):
+        print(f"I am unable to locate the gtf_to_fasta file ({os.path.join(args.tophat, 'gtf_to_fasta')})")
         print("Make sure you've typed the location correctly and try again.")
         quit()
     if not os.path.isfile(os.path.join(args.star, "STAR")):
@@ -1167,7 +1175,7 @@ def main():
                    e.g., 'P.fq.gz' for trimmomatic reads""")
     p.add_argument("-o", dest="outputDirectory",
                    required=True,
-                   help="Specified the prefix for output files")
+                   help="Specify the output directory for all results")
     # Optional (behavioural)
     p.add_argument("--prefix", dest="jobPrefix",
                    required=False,
