@@ -17,6 +17,7 @@ def validate_args(args):
             print(f"I am unable to locate the genome FASTA file ({args.genomeFile})")
             print("Make sure you've typed the file name or location correctly and try again.")
             quit()
+    
     # Validate program locations
     if not os.path.isfile(args.trimmomatic):
         print(f"I am unable to locate the Trimmomatic JAR file ({args.trimmomatic})")
@@ -74,49 +75,67 @@ def validate_args(args):
         print(f"I am unable to locate the Various_scripts dir ({args.varscript})")
         print("Make sure you've typed the location correctly and try again.")
         quit()
+    
+    # Validate output file location
+    args.outputDirectory = os.path.abspath(args.outputDirectory)
+    if os.path.isdir(args.outputDirectory) and os.listdir(args.outputDirectory) != []:
+        print(f"Output directory '{args.outputDirectory}' already exists; I'll write output files here.")
+        print("But, I won't overwrite any existing files, so beware that if a previous run had issues, " +
+              "you may need to delete/move files first.")
+    if not os.path.isdir(args.outputDirectory):
+        os.makedirs(args.outputDirectory)
+        print(f"Output directory '{args.outputDirectory}' has been created as part of argument validation.")
+    
+    # Format job prefix
+    if args.jobPrefix != "":
+        args.jobPrefix = args.jobPrefix.strip("_") + "_"
 
 def setup_work_dir(args):
-    os.makedirs("trimmomatic", exist_ok=True)
-    os.makedirs("prepared_reads", exist_ok=True)
-    os.makedirs("rnaseq_details", exist_ok=True)
-    os.makedirs("transcriptomes", exist_ok=True)
-    os.makedirs(os.path.join("transcriptomes", "soapdenovo-trans"), exist_ok=True)
-    os.makedirs(os.path.join("transcriptomes", "trinity-denovo"), exist_ok=True)
-    os.makedirs(os.path.join("transcriptomes", "velvet-oases"), exist_ok=True)
-    os.makedirs(os.path.join("transcriptomes", "spades"), exist_ok=True)
-    os.makedirs(os.path.join("transcriptomes", "evidentialgene"), exist_ok=True)
-    os.makedirs(os.path.join("transcriptomes", "evidentialgene", "concatenated"), exist_ok=True)
+    # Establish file and directory locations
+    locations = {
+        "readsDir": os.path.join(args.outputDirectory, "reads"),
+        "normReadsDir": os.path.join(args.outputDirectory, "normalised_reads"),
+        "detailsDir": os.path.join(args.outputDirectory, "rnaseq_details"),
+        "txomesDir": os.path.join(args.outputDirectory, "transcriptomes"),
+        "soapDir": os.path.join(txomesDir, "soapdenovo-trans"),
+        "tndnDir": os.path.join(txomesDir, "trinity-denovo"),
+        "voDir": os.path.join(txomesDir, "velvet-oases"),
+        "spDir": os.path.join(txomesDir, "spades"),
+        "evgDir": os.path.join(txomesDir, "evidentialgene"),
+        "concatDir": os.path.join(evgDir, "concatenated"),
+    }
     
+    # Make required directories if they don't exist
+    for key, value in locations.items():
+        os.makedirs(value, exist_ok=True)
+    
+    # Locate reads files
+    forwardReads, reverseReads = get_rnaseq_files(args.readsDir, args.readsSuffix, args.isSingleEnd)
+    if forwardReads == []:
+        raise FileNotFoundError(f"Failed to find any reads in '{args.readsDir}' with suffix '{args.readsSuffix}'")
+    locations["fwdReads"] = forwardReads
+    locations["rvsReads"] = reverseReads
+    
+    # Symbolic link reads files to working directory
+    symlink_reads(locations["readsDir"], forwardReads, reverseReads)
+    
+    # Add and make file and directory locations relevant for genome-guided assembly
     if args.genomeFile != None:
-        os.makedirs("genome", exist_ok=True)
-        os.makedirs("star_map", exist_ok=True)
-        if not os.path.islink(os.path.join("genome", os.path.basename(args.genomeFile))):
-            os.symlink(args.genomeFile, os.path.join("genome", os.path.basename(args.genomeFile)))
+        locations["genomeDir"] = os.path.join(args.outputDirectory, "genome")
+        os.makedirs(locations["genomeDir"], exist_ok=True)
         
-        os.makedirs(os.path.join("transcriptomes", "scallop"), exist_ok=True)
-        os.makedirs(os.path.join("transcriptomes", "trinity-gg"), exist_ok=True)
-
-def qsub(scriptFileName):
-    qsubProcess = subprocess.Popen(f"qsub {scriptFileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-    jobID, stderr = qsubProcess.communicate()
-    jobID, stderr = jobID.decode(), stderr.decode()
-    if stderr == "":
-        return jobID.strip(" \r\n")
-    else:
-        raise Exception(f"qsub died with stderr == {stderr}")
-
-def gunzip(fileName):
-    assert fileName.endswith(".gz"), \
-        "gunzip function expects the file to end in .gz"
-    
-    with gzip.open(fileName, "rb") as fileIn:
-        with open(fileName.rsplit(".", maxsplit=1)[0], "wb") as fileOut:
-            shutil.copyfileobj(fileIn, fileOut)
-
-class Container:
-    def __init__(self, paramsDict):
-        for key, value in paramsDict.items():
-            self.__dict__[key] = value
+        locations["genomeFile"] = os.path.join(locations["genomeDir"], "genome.fasta")
+        os.symlink(os.path.abspath(args.genomeFile), locations["genomeFile"])
+        
+        locations["starDir"] = os.path.join(args.outputDirectory, "star_map")
+        os.makedirs(locations["starDir"], exist_ok=True)
+        
+        locations["scallopDir"] = os.path.join(locations["txomesDir"], "scallop")
+        os.makedirs(locations["scallopDir"], exist_ok=True)
+        
+        locations["tnggDir"] = os.path.join(locations["txomesDir"], "trinity-gg")
+        os.makedirs(locations["tnggDir"], exist_ok=True)
+    return locations
 
 def get_rnaseq_files(readsDir, readsSuffix, isSingleEnd):
     # Locate files from the directory
@@ -150,317 +169,222 @@ def get_rnaseq_files(readsDir, readsSuffix, isSingleEnd):
     # Return files
     return forwardReads, reverseReads if reverseReads != [] else None
 
-def concat_files(fileList, outputFileName):  
-    with open(outputFileName, "w") as fileOut:
-        for fileName in fileList:
-            with open(fileName, "r") as fileIn:
-                for line in fileIn:
-                    fileOut.write(line.rstrip("\r\n") + "\n")
+def symlink_reads(outputDir, forwardReads, reverseReads=None):
+    for i in range(len(forwardReads)):
+        if reverseReads == None:
+            newReadName = os.path.join(outputDir, f"{i+1}.trimmed.fq")
+            newReadName += ".gz" if forwardReads[i].endswith(".gz") else ""
+            if not os.path.exists(newReadName):
+                os.symlink(forwardReads[i], newReadName)
+        else:
+            newFwdReadName = os.path.join(outputDir, f"{i+1}.trimmed_1P.fq")
+            newFwdReadName += ".gz" if forwardReads[i].endswith(".gz") else ""
+            if not os.path.exists(newFwdReadName):
+                os.symlink(forwardReads[i], newFwdReadName)
+            
+            newRvsReadName = os.path.join(outputDir, f"{i+1}.trimmed_2P.fq")
+            newRvsReadName += ".gz" if reverseReads[i].endswith(".gz") else ""  
+            if not os.path.exists(newRvsReadName):
+                os.symlink(reverseReads[i], newRvsReadName)
+
+def qsub(scriptFileName):
+    qsubProcess = subprocess.Popen(f"qsub {scriptFileName}", stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    jobID, stderr = qsubProcess.communicate()
+    jobID, stderr = jobID.decode(), stderr.decode()
+    if stderr == "":
+        return jobID.strip(" \r\n")
+    else:
+        raise Exception(f"qsub died with stderr == {stderr}")
+
+class Container:
+    def __init__(self, paramsDict):
+        for key, value in paramsDict.items():
+            self.__dict__[key] = value
 
 ## Script file generators
-def make_trimmomatic_script(argsContainer, MEM="30G", CPUS="2"):
-    if argsContainer.reverseFiles != None:
-        filePrefixes = [os.path.commonprefix([os.path.basename(argsContainer.forwardFiles[i]), os.path.basename(argsContainer.reverseFiles[i])]) for i in range(len(argsContainer.forwardFiles))]
+def make_insilico_script(argsContainer, MEM="500G", CPUS="1"):
+    # Format conda env
+    envText = ""
+    if argsContainer.condaEnv != None:
+        envText = f"conda activate {argsContainer.condaEnv}\n"
+    
+    # Format single or paired-end read command
+    if argsContainer.reverseReads != None:
+        inputText = f"--left {','.join(argsContainer.forwardReads)} " + \
+                    f"--right {','.join(argsContainer.reverseReads)} " + \
+                    "--pairs_together --PARALLEL_STATS"
     else:
-        filePrefixes = [os.path.basename(argsContainer.forwardFiles[i]).replace(argsContainer.readsSuffix, "") for i in range(len(argsContainer.forwardFiles))]
+        inputText = f"--single {','.join(argsContainer.forwardReads)}"
     
     scriptText = \
 """#!/bin/bash -l
-#PBS -N trim_{prefix}
-#PBS -l walltime=24:00:00
+#PBS -N {prefix}norm
+#PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
-#PBS -J 1-{fileNum}
 
-cd {workingDir}/trimmomatic
+cd {workingDir}
+
+module load Java/17.0.6
+{envText}
+####
+
+TRINITYDIR={trinityDir}
+CPUS={CPUS}
+MEM={MEM}
 
 ####
 
-## SETUP: Load modules
-module load java/1.8.0_92
-
-## SETUP: Specify trimmomatic location
-TRIMDIR={trimDir}
-TRIMJAR={trimJar}
-
-## SETUP: Specify Trimmomatic parameters
-CPUS=2
-COMMAND="ILLUMINACLIP:${{TRIMDIR}}/adapters/QUT_TruSeq-PE.fa:2:30:10 SLIDINGWINDOW:4:5 LEADING:5 TRAILING:5 MINLEN:25"
-
-## SETUP: Specify RNAseq file details
-RNADIR={readsDir}
-SUFFIX={suffix}
-
-## SETUP: Specify RNAseq read prefixes
-declare -a PREFIXES=( {filePrefixes} )
-
-####
-
-# STEP 1: Get job details
-ARRAY_INDEX=$((${{PBS_ARRAY_INDEX}}-1))
-FILEPREFIX=${{PREFIXES[${{ARRAY_INDEX}}]}}
-BASEPREFIX=$(echo "${{FILEPREFIX%%_R}}")
+${{TRINITYDIR}}/util/insilico_read_normalization.pl --seqType fq --max_cov 30 \\
+    --JM ${{MEM}} --CPU ${{CPUS}} \\
+    {inputText} \\
+    2>&1 >> Trinity.log
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     prefix=argsContainer.prefix,
-    suffix=argsContainer.readsSuffix,
-    fileNum=len(argsContainer.forwardFiles),
     workingDir=argsContainer.workingDir,
-    readsDir=argsContainer.readsDir,
-    trimDir=os.path.dirname(argsContainer.trimJar),
-    trimJar=os.path.basename(argsContainer.trimJar),
-    filePrefixes=" ".join(filePrefixes)
+    envText=envText,
+    trinityDir=argsContainer.trinityDir,
+    inputText=inputText
 )
     
-    # Add lines to enable paired-end operation
-    if argsContainer.reverseFiles != None:
-        scriptText += \
-"""# STEP 2: Run Trimmomatic
-java -jar ${TRIMDIR}/${TRIMJAR} PE -threads ${CPUS} -trimlog ${BASEPREFIX}.logfile ${RNADIR}/${FILEPREFIX}1${SUFFIX} ${RNADIR}/${FILEPREFIX}2${SUFFIX} -baseout ${BASEPREFIX}.trimmed.fq.gz ${COMMAND}
-
-# STEP 3: Unzip files
-gunzip ${BASEPREFIX}.trimmed_1P.fq.gz ${BASEPREFIX}.trimmed_2P.fq.gz
-"""
-
-    # Add lines for single-end operation
-    else:
-        scriptText += \
-"""# STEP 2: Run Trimmomatic
-java -jar ${TRIMDIR}/${TRIMJAR} SE -threads ${CPUS} -trimlog ${BASEPREFIX}.logfile ${RNADIR}/${FILEPREFIX}${SUFFIX} ${BASEPREFIX}.trimmed.fq.gz ${COMMAND}
-
-# STEP 3: Unzip file
-gunzip ${BASEPREFIX}.trimmed.fq.gz
-"""
-
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def symlink_for_trimmomatic(forwardReads, reverseReads=None):
-    for i in range(len(forwardReads)):
-        if reverseReads == None:
-            newReadName = os.path.join(os.getcwd(), "trimmomatic", f"{i+1}.trimmed.fq")
-            newReadName += ".gz" if forwardReads[i].endswith(".gz") else ""
-            if not os.path.isfile(newReadName):
-                os.symlink(forwardReads[i], newReadName)
-            
-            if newReadName.endswith(".gz") and not os.path.isfile(newReadName[:-3]):
-                gunzip(newReadName)
-        else:
-            newFwdReadName = os.path.join(os.getcwd(), "trimmomatic", f"{i+1}.trimmed_1P.fq")
-            newFwdReadName += ".gz" if forwardReads[i].endswith(".gz") else ""
-            if not os.path.isfile(newFwdReadName):
-                os.symlink(forwardReads[i], newFwdReadName)
-            
-            newRvsReadName = os.path.join(os.getcwd(), "trimmomatic", f"{i+1}.trimmed_2P.fq")
-            newRvsReadName += ".gz" if reverseReads[i].endswith(".gz") else ""  
-            if not os.path.isfile(newRvsReadName):
-                os.symlink(reverseReads[i], newRvsReadName)
-            
-            if newFwdReadName.endswith(".gz") and not os.path.isfile(newFwdReadName[:-3]):
-                gunzip(newFwdReadName)
-            if newRvsReadName.endswith(".gz") and not os.path.isfile(newRvsReadName[:-3]):
-                gunzip(newRvsReadName)
-
-def make_trim_concat_script(argsContainer, MEM="5G", CPUS="1"):
+def make_trin_dn_script(argsContainer, MEM="700G", CPUS="32"):
+    # Format conda env
+    envText = ""
+    if argsContainer.condaEnv != None:
+        envText = f"conda activate {argsContainer.condaEnv}\n"
+    
+    # Format single or paired-end read command
+    if argsContainer.reverseFile != None:
+        inputText = f"--left {argsContainer.forwardFile} " + \
+                    f"--right {argsContainer.reverseFile} " + \
+                    "--SS_lib_type RF"
+    else:
+        inputText = f"--single {argsContainer.forwardFile}"
+    
     scriptText = \
 """#!/bin/bash -l
-#PBS -N prep_{prefix}
+#PBS -N {prefix}trindn
+#PBS -l walltime=48:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}
+
+module load Java/17.0.6
+{envText}
+####
+
+TRINITYDIR={trinityDir}
+CPUS={CPUS}
+MEM={MEM}
+
+####
+
+${{TRINITYDIR}}/Trinity --seqType fq \\
+    --CPU ${{CPUS}} --max_memory ${{MEM}} \\
+    --min_kmer_cov 2 \\
+    --monitoring \\
+    {inputText} \\
+    2>&1 >> Trinity.log""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    prefix=argsContainer.prefix,
+    workingDir=argsContainer.workingDir,
+    envText=envText,
+    trinityDir=argsContainer.trinityDir,
+    inputText=inputText,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+    
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_star_index_script(argsContainer, MEM="80G", CPUS="8"):
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N {prefix}index
 #PBS -l walltime=12:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {trimmedReadsDirectory}
-""".format(
-    MEM=MEM,
-    CPUS=CPUS,
-    prefix=argsContainer.prefix,
-    trimmedReadsDirectory=argsContainer.trimmedReadsDirectory,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
-)
-    
-    # Concatenate depending on whether we're working with single or paired reads
-    if argsContainer.isSingleEnd is True:
-        scriptText += "cat *.trimmed.fq > {outputDirectory}/{prefix}.fq".format(
-            prefix=argsContainer.prefix,
-            outputDirectory=argsContainer.outputDirectory
-        )
-    else:
-        scriptText += \
-"""cat *.trimmed_1P.fq > {outputDirectory}/{prefix}_1.fq
-cat *.trimmed_2P.fq > {outputDirectory}/{prefix}_2.fq
-""".format(
-    prefix=argsContainer.prefix,
-    outputDirectory=argsContainer.outputDirectory
-)
-    # Write script to file
-    with open(argsContainer.outputFileName, "w") as fileOut:
-        fileOut.write(scriptText)
-
-def make_trin_dn_script(argsContainer, MEM="670G", CPUS="12"):    
-    scriptText = \
-"""#!/bin/bash -l
-#PBS -N trindn_{prefix}
-#PBS -l walltime=120:00:00
-#PBS -l mem={MEM}
-#PBS -l ncpus={CPUS}
-{afterokLine}
-
-cd {workingDir}/transcriptomes/trinity-denovo
-
-####
-
-module load jellyfish/2.2.6-foss-2016a
-module load java/1.8.0_92
-
-TRINITYDIR={trinityDir}
-CPUS={CPUS}
-MEM={MEM}
-READSDIR={workingDir}/prepared_reads
-READSPREFIX={prefix}
-
-####
-
-${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
-    --max_memory ${{MEM}} \\
-    --SS_lib_type RF \\
-    --min_kmer_cov 2 \\
-    --monitoring \\
-    --seqType fq \\""".format(
-    MEM=MEM,
-    CPUS=CPUS,
-    workingDir=argsContainer.workingDir,
-    prefix=argsContainer.prefix,
-    trinityDir=argsContainer.trinityDir,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
-)
-
-    # Run Trinity de novo with single-end reads
-    if argsContainer.isSingleEnd:
-        scriptText += \
-"""
-    --single ${READSDIR}/${READSPREFIX}.fq 2>&1 >> ${READSPREFIX}_Trinity.log
-"""
-    
-    # Run Trinity de novo with paired-end reads
-    else:
-        scriptText += \
-"""
-    --left ${READSDIR}/${READSPREFIX}_1.fq \\
-    --right ${READSDIR}/${READSPREFIX}_2.fq 2>&1 >> ${READSPREFIX}_Trinity.log
-"""
-    
-    # Write script to file
-    with open(argsContainer.outputFileName, "w") as fileOut:
-        fileOut.write(scriptText)
-
-def make_star_script(argsContainer, MEM="150G", CPUS="12"):
-    scriptText = \
-"""#!/bin/bash -l
-#PBS -N star_{prefix}
-#PBS -l walltime=120:00:00
-#PBS -l mem={MEM}
-#PBS -l ncpus={CPUS}
-{afterokLine}
-
-cd {workingDir}/star_map
+cd {workingDir}
 
 ####
 
 STARDIR={starDir}
-CPUS=8
+CPUS={CPUS}
 GENDIR={genomeDir}
 GENFILE={genomeFile}
 
 ####
 
-# STEP 1: Copy genome/transcriptome here
-cp ${{GENDIR}}/${{GENFILE}} target.fasta
-
-# STEP 2: Generate index
 ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     --runMode genomeGenerate \\
-    --genomeDir {workingDir}/star_map \\
-    --genomeFastaFiles {workingDir}/star_map/target.fasta
+    --genomeDir ${{GENDIR}} \\
+    --genomeFastaFiles ${{GENDIR}}/${{GENFILE}}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     starDir=argsContainer.starDir,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
-    genomeFile=os.path.basename(argsContainer.genomeFile),
-    genomeDir=os.path.dirname(argsContainer.genomeFile),
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
-)
-
-    # Run STAR with single-end reads
-    if argsContainer.isSingleEnd:
-        scriptText += \
-"""# Run 2-pass procedure
-${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
-    --genomeDir {workingDir}/star_map \\
-    --readFilesIn {forwardFile} \\
-    --twopassMode Basic
-""".format(
-    workingDir=argsContainer.workingDir,
-    forwardFile=argsContainer.forwardFile
-)
-    
-    # Run STAR with paired-end reads
-    else:
-        scriptText += \
-"""# Run 2-pass procedure
-${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
-    --genomeDir {workingDir}/star_map \\
-    --readFilesIn {forwardFile} {reverseFile} \\
-    --twopassMode Basic
-""".format(
-    workingDir=argsContainer.workingDir,
-    forwardFile=argsContainer.forwardFile,
-    reverseFile=argsContainer.reverseFile
+    genomeDir=argsContainer.genomeDir,
+    genomeFile=argsContainer.genomeFile,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_subset_script(argsContainer, MEM="10G", CPUS="1"):
+def make_star_map_script(argsContainer, MEM="200G", CPUS="24"):
+    # Format single or paired-end read command
+    if argsContainer.reverseFile != None:
+        inputText = f"{argsContainer.forwardFile} {argsContainer.reverseFile}"
+    else:
+        inputText = f"{argsContainer.forwardFile}"
+    
     scriptText = \
 """#!/bin/bash -l
-#PBS -N subset_{prefix}
-#PBS -l walltime=01:00:00
+#PBS -N {prefix}map
+#PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/star_map
+cd {workingDir}
 
 ####
 
-GENSCRIPTDIR={genScriptDir}
-TRANSCRIPTOME={transcriptomeFile}
-NUMSEQS=500
+STARDIR={starDir}
+CPUS={CPUS}
+GENDIR={genomeDir}
 
 ####
-
-# STEP 1: Reduce size of the target transcriptome
-python ${{GENSCRIPTDIR}}/fasta_extractSubset.py -i ${{TRANSCRIPTOME}} \\
-    -n ${{NUMSEQS}} \\
-    -t longest \\
-    -o trinity_dn_subset.fasta
-
+${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
+    --genomeDir ${{GENDIR}} \\
+    --readFilesIn {inputText} \\
+    --twopassMode Basic
 """.format(
     MEM=MEM,
     CPUS=CPUS,
-    prefix=argsContainer.prefix,
+    starDir=argsContainer.starDir,
     workingDir=argsContainer.workingDir,
-    genScriptDir=argsContainer.genScriptDir,
-    transcriptomeFile=argsContainer.transcriptomeFile,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    prefix=argsContainer.prefix,
+    genomeDir=argsContainer.genomeDir,
+    inputText=inputText,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
-
+    
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
@@ -468,138 +392,139 @@ python ${{GENSCRIPTDIR}}/fasta_extractSubset.py -i ${{TRANSCRIPTOME}} \\
 def make_denovo_details_script(argsContainer, MEM="10G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N details_{prefix}
+#PBS -N {prefix}details
 #PBS -l walltime=01:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/rnaseq_details
+cd {workingDir}
 
 ####
 
-module load bbmap/37.50-foss-2017a
-
-READSDIR={workingDir}/prepared_reads
-NUMREADS=5000
-PREFIX={prefix}
+BBMAPDIR={bbmapDir}
+GENSCRIPTDIR={genScriptDir}
+FWDREAD={forwardFile}
+RVSREAD={reverseFile}
+SUBSETSIZE=5000
 
 ####
 
 # STEP 1: Subset the reads
-head -n $(( 4*${{NUMREADS}} )) ${{READSDIR}}/${{PREFIX}}_1.fq > ${{PREFIX}}_1.subset.fq
-head -n $(( 4*${{NUMREADS}} )) ${{READSDIR}}/${{PREFIX}}_2.fq > ${{PREFIX}}_2.subset.fq
+head -n $(( 4*${{SUBSETSIZE}} )) ${{FWDREAD}} > forward.subset.fq
+head -n $(( 4*${{SUBSETSIZE}} )) ${{RVSREAD}} > reverse.subset.fq
 
 # STEP 2: Run bbmerge to derive the insert size
-bbmerge.sh in1=${{PREFIX}}_1.subset.fq in2=${{PREFIX}}_2.subset.fq ihist=ihist_merge.txt loose
+${{BBMAPDIR}}/bbmerge.sh in1=forward.subset.fq in2=reverse.subset.fq ihist=ihist_merge.txt loose
 INSERTSIZE=$(cat ihist_merge.txt | head -n 2 | tail -n 1 | awk '{{print $2;}}')
 
 # STEP 3: Obtain maximum read length from file
-python {genScriptDir}/genome_stats.py -i ${{PREFIX}}_1.subset.fq -o ${{PREFIX}}_1.subset.stats
-MAXREADLEN=$(cat ${{PREFIX}}_1.subset.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
+python ${{GENSCRIPTDIR}}/genome_stats.py -i forward.subset.fq -o forward.subset.stats
+MAXREADLEN=$(cat forward.subset.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
 
 # STEP 4: Format details for parsing by downstream programs
-echo "INSERT_SIZE: ${{INSERTSIZE}} ; MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
+echo "INSERT_SIZE: ${{INSERTSIZE}} ; MAXREADLEN: ${{MAXREADLEN}}" > rnaseq_details.txt
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     prefix=argsContainer.prefix,
+    bbmapDir=argsContainer.bbmapDir,
     workingDir=argsContainer.workingDir,
+    forwardFile=argsContainer.forwardFile,
+    reverseFile=argsContainer.reverseFile,
     genScriptDir=argsContainer.genScriptDir,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_picard_script(argsContainer, MEM="5G", CPUS="1"):
+def make_picard_script(argsContainer, MEM="15G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N picard_{prefix}
+#PBS -N {prefix}picard
 #PBS -l walltime=04:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/rnaseq_details
+cd {workingDir}
+
+module load picard/3.0.0-Java-17
 
 ####
 
-module load picard/2.1.1-java-1.8.0_112
-module load samtools/1.9-foss-2016a
-
-SAMFILE={workingDir}/star_map/Aligned.out.sam
+GENSCRIPTDIR={genScriptDir}
+SAMFILE={samFile}
 FQFILE={forwardFile}
+MEM={MEM}
 SUBSETSIZE=100000
-
-PREFIX={prefix}
-MEM=5G
 
 ####
 
 # Obtain subset of alignments from STAR SAM file
-head -n ${{SUBSETSIZE}} ${{SAMFILE}} > ${{PREFIX}}.subset${{SUBSETSIZE}}.sam
+head -n ${{SUBSETSIZE}} ${{SAMFILE}} > subset${{SUBSETSIZE}}.sam
 
 # Sort into BAM
-samtools sort -m ${{MEM}} -@ 1 -o ${{PREFIX}}.subset${{SUBSETSIZE}}.bam -O bam ${{PREFIX}}.subset${{SUBSETSIZE}}.sam
+samtools sort -m ${{MEM}} -@ 1 -o subset${{SUBSETSIZE}}.bam -O bam subset${{SUBSETSIZE}}.sam
 
 # Run picard to derive statistics
-java -jar $EBROOTPICARD/picard.jar CollectInsertSizeMetrics H=${{PREFIX}}.subset${{SUBSETSIZE}}.histo I=${{PREFIX}}.subset${{SUBSETSIZE}}.bam O=${{PREFIX}}.subset${{SUBSETSIZE}}.imetrics
+java -jar $EBROOTPICARD/picard.jar CollectInsertSizeMetrics H=subset${{SUBSETSIZE}}.histo I=subset${{SUBSETSIZE}}.bam O=subset${{SUBSETSIZE}}.imetrics
 
 # Run imetrics parsing and extract insert size from output file
-python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/imetrics_rnaseq_densepeak.py -i ${{PREFIX}}.subset${{SUBSETSIZE}}.imetrics -o ${{PREFIX}}.subset${{SUBSETSIZE}}.insert_size
-INSERTSIZE=$(cat ${{PREFIX}}.subset${{SUBSETSIZE}}.insert_size)
+python ${{GENSCRIPTDIR}}/pipeline_scripts/transcriptome_assembly_pipeline/imetrics_rnaseq_densepeak.py -i subset${{SUBSETSIZE}}.imetrics -o subset${{SUBSETSIZE}}.insert_size
+INSERTSIZE=$(cat subset${{SUBSETSIZE}}.insert_size)
 
 # Obtain maximum read length from file
-head -n 10000 ${{FQFILE}} > ${{PREFIX}}.subset10000.fq
-python {genScriptDir}/genome_stats.py -i ${{PREFIX}}.subset10000.fq -o ${{PREFIX}}.subset10000.stats
-MAXREADLEN=$(cat ${{PREFIX}}.subset10000.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
+head -n ${{SUBSETSIZE}} ${{FQFILE}} > subset${{SUBSETSIZE}}.fq
+python ${{GENSCRIPTDIR}}/genome_stats.py -i subset${{SUBSETSIZE}}.fq -o subset${{SUBSETSIZE}}.stats
+MAXREADLEN=$(cat subset${{SUBSETSIZE}}.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
 
 # Generate summary file of these two relevant statistics
-echo "INSERT_SIZE: ${{INSERTSIZE}} ; MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
+echo "INSERT_SIZE: ${{INSERTSIZE}} ; MAXREADLEN: ${{MAXREADLEN}}" > rnaseq_details.txt
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
+    samFile=argsContainer.samFile,
     genScriptDir=argsContainer.genScriptDir,
     forwardFile=argsContainer.forwardFile,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_readsize_script(argsContainer, MEM="5G", CPUS="1"):
+def make_readsize_script(argsContainer, MEM="15G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N readSz_{prefix}
+#PBS -N {prefix}readSz
 #PBS -l walltime=04:00:00
 #PBS -l mem=5G
 #PBS -l ncpus=1
 {afterokLine}
 
-cd {workingDir}/rnaseq_details
+cd {workingDir}
 
 ####
 
+GENSCRIPTDIR={genScriptDir}
 FQFILE={forwardFile}
+MEM={MEM}
 SUBSETSIZE=100000
-
-PREFIX={prefix}
-MEM=5G
 
 ####
 
 # Obtain maximum read length from file
-head -n 10000 ${{FQFILE}} > ${{PREFIX}}.subset10000.fq
-python {genScriptDir}/genome_stats.py -i ${{PREFIX}}.subset10000.fq -o ${{PREFIX}}.subset10000.stats
-MAXREADLEN=$(cat ${{PREFIX}}.subset10000.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
+head -n ${{SUBSETSIZE}} ${{FQFILE}} > subset${{SUBSETSIZE}}.fq
+python ${{GENSCRIPTDIR}}/genome_stats.py -i subset${{SUBSETSIZE}}.fq -o subset${{SUBSETSIZE}}.stats
+MAXREADLEN=$(cat subset${{SUBSETSIZE}}.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
 
 # Generate summary file of these two relevant statistics
-echo "MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
+echo "MAXREADLEN: ${{MAXREADLEN}}" > rnaseq_details.txt
 """.format(
     MEM=MEM,
     CPUS=CPUS,
@@ -607,242 +532,272 @@ echo "MAXREADLEN: ${{MAXREADLEN}}" > ${{PREFIX}}.rnaseq_details.txt
     prefix=argsContainer.prefix,
     genScriptDir=argsContainer.genScriptDir,
     forwardFile=argsContainer.forwardFile,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_oases_script(argsContainer, MEM="600G", CPUS="12"):
+def make_velveth_script(argsContainer, MEM="700G", CPUS="24"):
+    # Format single or paired-end read command
+    if argsContainer.reverseFile != None:
+        inputText = f"-shortPaired -separate {argsContainer.forwardFile} {argsContainer.reverseFile}"
+    else:
+        inputText = f"-short {argsContainer.forwardFile}"
+    
     scriptText = \
 """#!/bin/bash -l
-#PBS -N oasvel_{prefix}
-#PBS -l walltime=60:00:00
+#PBS -N {prefix}velh
+#PBS -l walltime=32:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/velvet-oases
+cd {workingDir}
 
 ####
 
 VELVETDIR={velvetDir}
-OASESDIR={oasesDir}
-
 CPUS={CPUS}
-READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
-PREFIX={prefix}
+
+####
+
+export OMP_NUM_THREADS=${{CPUS}}
+
+# Run velveth
+for k in 23 25 31 39 47 55 63; do ${{VELVETDIR}}/velveth ${{k}} \\
+    ${{k}} \\
+    -fastq \\
+    -strand_specific \\
+    {inputText};
+done
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    velvetDir=argsContainer.velvetDir,
+    inputText=inputText,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
+
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_velvetg_script(argsContainer, MEM="700G", CPUS="24"):
+    # Format single or paired-end read command
+    if argsContainer.isSingleEnd != None:
+        insertSizeLine = f"INSERT_SIZE=$(cat {argsContainer.detailsFile} | awk '{{print $2;}}')"
+        insertText = f" -ins_length ${{INSERT_SIZE}}"
+    else:
+        insertSizeLine = ""
+        insertText = ""
+    
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N {prefix}velg
+#PBS -l walltime=32:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
+
+cd {workingDir}
+
+####
+
+VELVETDIR={velvetDir}
+CPUS={CPUS}
 
 ####
 
 export OMP_NUM_THREADS=${{CPUS}}
 {insertSizeLine}
 
-for k in 23 25 31 39 47 55 63; do ${{VELVETDIR}}/velveth ${{PREFIX}}.${{k}} \\
-    ${{k}} \\
-    -fastq \\
-    -strand_specific \\""".format(
+# Run velvetg
+for k in 23 25 31 39 47 55 63; do ${{VELVETDIR}}/velvetg ${{k}} \\
+    -read_trkg yes \\
+    -cov_cutoff 10{insertText};
+done
+""".format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     velvetDir=argsContainer.velvetDir,
-    oasesDir=argsContainer.oasesDir,
-    insertSizeLine="" if argsContainer.isSingleEnd else \
-        f"INSERT_SIZE=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    insertSizeLine=insertSizeLine,
+    insertText=insertText,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
-    # Run velveth with single-end reads
-    if argsContainer.isSingleEnd:
-        scriptText += \
-"""
-    -short \\
-    ${READSDIR}/single.norm.fq;
-done
-echo "velveth done"
-"""
+    # Write script to file
+    with open(argsContainer.outputFileName, "w") as fileOut:
+        fileOut.write(scriptText)
+
+def make_oases_script(argsContainer, MEM="700G", CPUS="24"):
+    # Format single or paired-end read command
+    if argsContainer.isSingleEnd != None:
+        insertSizeLine = f"INSERT_SIZE=$(cat {argsContainer.detailsFile} | awk '{{print $2;}}')"
+        insertText = f" -ins_length ${{INSERT_SIZE}}"
+    else:
+        insertSizeLine = ""
+        insertText = ""
     
-    # Run velveth with paired-end reads
-    else:
-        scriptText += \
-"""
-    -shortPaired \\
-    -separate ${READSDIR}/left.norm.fq ${READSDIR}/right.norm.fq;
-done
-echo "velveth done"
-"""
+    scriptText = \
+"""#!/bin/bash -l
+#PBS -N {prefix}oases
+#PBS -l walltime=32:00:00
+#PBS -l mem={MEM}
+#PBS -l ncpus={CPUS}
+{afterokLine}
 
-    # Run velvetg with single-end reads
-    if argsContainer.isSingleEnd:
-        scriptText += \
-"""for k in 23 25 31 39 47 55 63; do ${VELVETDIR}/velvetg ${PREFIX}.${k} \\
-    -read_trkg yes \\
-    -cov_cutoff 10;
-done
-echo "velvetg done"
-"""
-    # Run velvetg with paired-end reads
-    else:
-        scriptText += \
-"""for k in 23 25 31 39 47 55 63; do ${VELVETDIR}/velvetg ${PREFIX}.${k} \\
-    -read_trkg yes \\
-    -cov_cutoff 10 \\
-    -ins_length ${INSERT_SIZE};
-done
-echo "velvetg done"
-"""
+cd {workingDir}
 
-    # Run oases with single-end reads
-    if argsContainer.isSingleEnd:
-        scriptText += \
-"""for k in 23 25 31 39 47 55 63; do ${OASESDIR}/oases ${PREFIX}.${k} \\
+####
+
+OASESDIR={oasesDir}
+CPUS={CPUS}
+
+####
+
+export OMP_NUM_THREADS=${{CPUS}}
+{insertSizeLine}
+
+# Run oases
+for k in 23 25 31 39 47 55 63; do ${{OASESDIR}}/oases ${{k}} \\
     -cov_cutoff 10 \\
     -min_pair_count 5 \\
-    -min_trans_lgth 350;
+    -min_trans_lgth 350{insertText};
 done
-echo "oases done"
-"""
-    # Run oases with paired-end reads
-    else:
-        scriptText += \
-"""for k in 23 25 31 39 47 55 63; do ${OASESDIR}/oases ${PREFIX}.${k} \\
-    -cov_cutoff 10 \\
-    -min_pair_count 5 \\
-    -min_trans_lgth 350 \\
-    -ins_length ${INSERT_SIZE};
-done
-echo "oases done"
-"""
+""".format(
+    MEM=MEM,
+    CPUS=CPUS,
+    workingDir=argsContainer.workingDir,
+    prefix=argsContainer.prefix,
+    oasesDir=argsContainer.oasesDir,
+    insertSizeLine=insertSizeLine,
+    insertText=insertText,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+)
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_spades_script(argsContainer, MEM="260G", CPUS="12"):
+def make_spades_script(argsContainer, MEM="150G", CPUS="12"):
+    # Format single or paired-end read command
+    if argsContainer.reverseFile != None:
+        inputText = f"-1 {argsContainer.forwardFile} -2 {argsContainer.reverseFile}"
+    else:
+        inputText = f"-s {argsContainer.forwardFile}"
+    
     scriptText = \
 """#!/bin/bash -l
-#PBS -N spades_{prefix}
+#PBS -N {prefix}spades
 #PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/spades
+cd {workingDir}
 ####
 
 SPADESDIR={spadesDir}
-
 CPUS={CPUS}
-READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
-PREFIX={prefix}
 
 ####
 
-
 ${{SPADESDIR}}/spades.py --rna \\
     -t ${{CPUS}} \\
-    -o ${{PREFIX}} \\""".format(
+    -o assembly \\
+    {inputText}""".format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     spadesDir=argsContainer.spadesDir,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    inputText=inputText,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
-
-    # Run SPAdes with single-end reads
-    if argsContainer.isSingleEnd:
-        scriptText += \
-"""
-    -s ${READSDIR}/single.norm.fq
-"""
-    
-    # Run SPAdes with paired-end reads
-    else:
-        scriptText += \
-"""
-    -1 ${READSDIR}/left.norm.fq \\
-    -2 ${READSDIR}/right.norm.fq
-"""
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
 def make_config_script(argsContainer, MEM="5G", CPUS="1"):
+    # Format single or paired-end read command
+    if argsContainer.reverseFile != None:
+        insertSizeLine = f"INSERT_SIZE=$(cat {argsContainer.detailsFile} | awk '{{print $2;}}')"
+        maxReadLenLine = f"MAXREADLEN=$(cat {argsContainer.detailsFile} | awk '{{print $5;}}')"
+        inputText = f"{argsContainer.forwardFile} {argsContainer.reverseFile}"
+        insertText = f" --insert ${{INSERT_SIZE}}"
+    else:
+        insertSizeLine = ""
+        maxReadLenLine = f"MAXREADLEN=$(cat {argsContainer.detailsFile} | awk '{{print $2;}}')"
+        inputText = f"{argsContainer.forwardFile}"
+        insertText = ""
+    
     scriptText = \
 """#!/bin/bash -l
-#PBS -N cfg_{prefix}
+#PBS -N {prefix}cfg
 #PBS -l walltime=00:10:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/soapdenovo-trans
+cd {workingDir}
 
 ####
 
-READSDIR={workingDir}/transcriptomes/trinity-denovo/trinity_out_dir/insilico_read_normalization
-PREFIX={prefix}
-
+GENSCRIPTDIR={genScriptDir}
 {insertSizeLine}
 {maxReadLenLine}
 
 ####
 
-python {genScriptDir}/pipeline_scripts/transcriptome_assembly_pipeline/create_soapdn_config.py \\
-    -i {fileInput} \\
-    -o ${{PREFIX}}.config \\
-    --max ${{MAXREADLEN}} {lineContinue}
-    {insertSizeParam}
+python ${{GENSCRIPTDIR}}/pipeline_scripts/transcriptome_assembly_pipeline/create_soapdn_config.py \\
+    -i {inputText} \\
+    -o config.txt \\
+    --max ${{MAXREADLEN}}{insertText}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     genScriptDir=argsContainer.genScriptDir,
-    insertSizeLine="" if argsContainer.isSingleEnd else \
-        f"INSERT_SIZE=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
-    maxReadLenLine=f"MAXREADLEN=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $5;}}')" if not argsContainer.isSingleEnd \
-        else f"MAXREADLEN=$(cat {argsContainer.workingDir}/rnaseq_details/${{PREFIX}}.rnaseq_details.txt | awk '{{print $2;}}')",
-    fileInput="${READSDIR}/single.norm.fq" if argsContainer.isSingleEnd else \
-        "${READSDIR}/left.norm.fq ${READSDIR}/right.norm.fq",
-    lineContinue="" if argsContainer.isSingleEnd else \
-        "\\",
-    insertSizeParam="" if argsContainer.isSingleEnd else \
-        "--insert ${INSERT_SIZE}",
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    insertSizeLine=insertSizeLine,
+    maxReadLenLine=maxReadLenLine,
+    inputText=inputText,
+    insertText=insertText,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_soap_script(argsContainer, MEM="450G", CPUS="18"):
+def make_soap_script(argsContainer, MEM="600G", CPUS="24"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N soap_{prefix}
-#PBS -l walltime=80:00:00
+#PBS -N {prefix}soap
+#PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/soapdenovo-trans
+cd {workingDir}
 
 ####
 
 SOAPDIR={soapDir}
-
 CPUS={CPUS}
-PREFIX={prefix}
 
 ####
 
 for k in 23 25 31 39 47 55 63 71; do ${{SOAPDIR}}/SOAPdenovo-Trans-127mer all \\
-    -s ${{PREFIX}}.config \\
-    -o ${{PREFIX}}.${{k}} \\
+    -s config.txt \\
+    -o ${{k}} \\
     -K ${{k}} \\
     -p ${{CPUS}} \\
     -f -F;
@@ -853,14 +808,14 @@ done
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     soapDir=argsContainer.soapDir,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_sort_script(argsContainer, MEM="50", CPUS="8"):
+def make_sort_script(argsContainer, MEM="80", CPUS="8"):
     '''
     Mem is intentionally left without the G because we want to use the number in
     a calculation which the shell can compute.
@@ -868,7 +823,7 @@ def make_sort_script(argsContainer, MEM="50", CPUS="8"):
     
     scriptText = \
 """#!/bin/bash -l
-#PBS -N sort_{prefix}
+#PBS -N {prefix}sort
 #PBS -l walltime=15:00:00
 #PBS -l mem={MEM}G
 #PBS -l ncpus={CPUS}
@@ -897,14 +852,14 @@ samtools index Aligned.out.sorted.bam
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_trin_gg_script(argsContainer, MEM="180G", CPUS="12", MAXINTRON="21000"):
+def make_trin_gg_script(argsContainer, MEM="250G", CPUS="24", MAXINTRON="21000"):
     '''
     MAXINTRON set to 21kb is a generous upper limit for most genes; we can leave
     Trinity de novo to get anything that is genuinely longer than that.
@@ -912,24 +867,23 @@ def make_trin_gg_script(argsContainer, MEM="180G", CPUS="12", MAXINTRON="21000")
     
     scriptText = \
 """#!/bin/bash -l
-#PBS -N tringg_{prefix}
-#PBS -l walltime=150:00:00
+#PBS -N {prefix}tringg
+#PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/trinity-gg
+cd {workingDir}
 
+module load Java/17.0.6
+{envText}
 ####
-
-module load jellyfish/2.2.6-foss-2016a
-module load java/1.8.0_92
 
 TRINITYDIR={trinityDir}
 CPUS={CPUS}
 MEM={MEM}
 MAXINTRON={MAXINTRON}
-BAMDIR={workingDir}/star_map
+BAMFILE={bamFile}
 PREFIX={prefix}
 
 ####
@@ -939,9 +893,9 @@ ${{TRINITYDIR}}/Trinity --CPU ${{CPUS}} \\
     --SS_lib_type FR \\
     --min_kmer_cov 2 \\
     --monitoring \\
-    --genome_guided_bam ${{BAMDIR}}/Aligned.out.sorted.bam \\
+    --genome_guided_bam ${{BAMFILE}} \\
     --genome_guided_max_intron ${{MAXINTRON}} \\
-    --full_cleanup 2>&1 >> ${{PREFIX}}_Trinity.log
+    --full_cleanup 2>&1 >> Trinity.log
 
 ln -s trinity_out_dir.Trinity-GG.fasta Trinity-GG.fasta
 """.format(
@@ -950,55 +904,55 @@ ln -s trinity_out_dir.Trinity-GG.fasta Trinity-GG.fasta
     MAXINTRON=MAXINTRON,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
+    envText=envText,
     trinityDir=argsContainer.trinityDir,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    bamFile=argsContainer.bamFile,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_scallop_script(argsContainer, MEM="50G", CPUS="1"):
+def make_scallop_script(argsContainer, MEM="80G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N scal_{prefix}
-#PBS -l walltime=80:00:00
+#PBS -N {prefix}scal
+#PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/scallop
+cd {workingDir}
 
 ####
 
-module load tophat/2.1.1-foss-2016a
-
 SCALLOPDIR={scallopDir}
-BAMDIR={workingDir}/star_map
-
+TOPHATDIR={tophatDir}
+BAMFILE={bamFile}
 GENFILE={genomeFile}
-
-PREFIX={prefix}
 MINTCOV=1
 
 ####
 
-${{SCALLOPDIR}}/scallop -i ${{BAMDIR}}/Aligned.out.sorted.bam \\
+${{SCALLOPDIR}}/scallop -i ${{BAMFILE}} \\
     --library_type first \\
-    -o ${{PREFIX}}.gtf \\
+    -o scallop.gtf \\
     --min_transcript_coverage ${{MINTCOV}}
 
-gtf_to_fasta ${{PREFIX}}.gtf \\
+${{TOPHATDIR}}/gtf_to_fasta scallop.gtf \\
     ${{GENFILE}} \\
-    ${{PREFIX}}_scallop.fasta
+    scallop.fasta
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     scallopDir=argsContainer.scallopDir,
+    tophatDir=argsContainer.tophatDir,
     genomeFile=argsContainer.genomeFile,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    bamFile=argsContainer.bamFile,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
     # Write script to file
@@ -1008,100 +962,100 @@ gtf_to_fasta ${{PREFIX}}.gtf \\
 def make_master_concat_script(argsContainer, MEM="10G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N mcat_{prefix}
+#PBS -N {prefix}mcat
 #PBS -l walltime=02:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes
+cd {workingDir}
 
 ####
 
 VARSCRIPTDIR={varScriptDir}
-PREFIX={prefix}
 MINSIZE={minSize}
 
 ####
 
-cat soapdenovo-trans/${{PREFIX}}.*.scafSeq \\
+cat soapdenovo-trans/*.scafSeq \\
     trinity-denovo/trinity_out_dir.Trinity.fasta \\
-    velvet-oases/${{PREFIX}}.*/transcripts.fa \\
-    spades/${{PREFIX}}/transcripts.fasta > ${{PREFIX}}_denovo_transcriptome.fasta
+    velvet-oases/*/transcripts.fa \\
+    spades/assembly/transcripts.fasta > denovo_transcriptome.fasta
 
-python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -i ${{PREFIX}}_denovo_transcriptome.fasta -f cullbelow -n ${{MINSIZE}} -o ${{PREFIX}}_denovo_transcriptome_cull.fasta
+python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py \\
+    -i denovo_transcriptome.fasta -f cullbelow -n ${{MINSIZE}} \\
+    -o denovo_transcriptome_cull.fasta
+
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
     varScriptDir=argsContainer.varScriptDir,
-    minSize="350" if argsContainer.genomeFile != None else \
-        "250",
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    minSize="350" if argsContainer.genomeFile != None else "250",
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
     # Additionally concat GG assemblies if relevant
     if argsContainer.genomeFile != None:
-        scriptText += "cat ${PREFIX}_denovo_transcriptome_cull.fasta scallop/${PREFIX}_scallop.fasta trinity-gg/Trinity-GG.fasta > ${PREFIX}_master_transcriptome.fasta"
+        scriptText += "cat denovo_transcriptome_cull.fasta scallop/scallop.fasta trinity-gg/Trinity-GG.fasta > master_transcriptome.fasta"
     
     # Otherwise, just symbolic link for file name consistency
     else:
-        scriptText += "ln -s ${PREFIX}_denovo_transcriptome_cull.fasta ${PREFIX}_master_transcriptome.fasta"
+        scriptText += "ln -s denovo_transcriptome_cull.fasta master_transcriptome.fasta"
     
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_evg_script(argsContainer, MEM="90G", CPUS="8"):
+def make_evg_script(argsContainer, MEM="120G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N evg_{prefix}
-#PBS -l walltime=90:00:00
+#PBS -N {prefix}evg
+#PBS -l walltime=48:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/evidentialgene
+cd {workingDir}
 
 ####
 
-module load exonerate/2.4.0-foss-2016a
-module load cd-hit/4.6.4-foss-2016a-2015-0603
-
+CDHITDIR={cdhitDir}
 VARSCRIPTDIR={varScriptDir}
 EVGSCRIPTSDIR={evgDir}
-PREFIX={prefix}
-MASTERTRANSCRIPTOME={workingDir}/transcriptomes/${{PREFIX}}_master_transcriptome.fasta
-
+MASTERTRANSCRIPTOME={masterTranscriptome}
 CPUS={CPUS}
 
 ####
 
+export PATH="${{CDHITDIR}}:$PATH"
+
 # STEP 1: Create outputs directory and enter it
-mkdir -p ${{PREFIX}}_evgrun
-cd ${{PREFIX}}_evgrun
+mkdir -p evgrun
+cd evgrun
 
 # STEP 2: Make transcript names suitable for EvidentialGene
 python ${{VARSCRIPTDIR}}/fasta_handling_master_code.py -f rename \\
     -i ${{MASTERTRANSCRIPTOME}} \\
-    -s ${{PREFIX}}_ \\
-    -o ${{PREFIX}}_master_transcriptome.fasta
+    -s tx \\
+    -o master_transcriptome.fasta
 
 # STEP 3: Run EvidentialGene
 ${{EVGSCRIPTSDIR}}/prot/tr2aacds.pl -debug \\
     -NCPU ${{CPUS}} \\
     -MAXMEM 150000 \\
     -log \\
-    -cdnaseq {workingDir}/transcriptomes/evidentialgene/${{PREFIX}}_evgrun/${{PREFIX}}_master_transcriptome.fasta
+    -cdnaseq {workingDir}/evgrun/master_transcriptome.fasta
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
+    cdhitDir=argsContainer.cdhitDir,
     varScriptDir=argsContainer.varScriptDir,
     evgDir=argsContainer.evgDir,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
     # Write script to file
@@ -1111,59 +1065,59 @@ ${{EVGSCRIPTSDIR}}/prot/tr2aacds.pl -debug \\
 def make_okalt_script(argsContainer, MEM="10G", CPUS="1"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N okalt_{prefix}
+#PBS -N {prefix}okalt
 #PBS -l walltime=01:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/evidentialgene/concatenated
+cd {workingDir}
 
 ####
 
 PREFIX={prefix}
-EVGRESULTSDIR={workingDir}/transcriptomes/evidentialgene/${{PREFIX}}_evgrun
+EVGRESULTSDIR={evgRunDir}
 
 ####
 
-cat ${{EVGRESULTSDIR}}/okayset/*.okay.aa ${{EVGRESULTSDIR}}/okayset/*.okalt.aa > ${{PREFIX}}_okay-okalt.aa
-cat ${{EVGRESULTSDIR}}/okayset/*.okay.tr ${{EVGRESULTSDIR}}/okayset/*.okalt.tr > ${{PREFIX}}_okay-okalt.fasta
-cat ${{EVGRESULTSDIR}}/okayset/*.okay.cds ${{EVGRESULTSDIR}}/okayset/*.okalt.cds > ${{PREFIX}}_okay-okalt.cds
+cat ${{EVGRESULTSDIR}}/okayset/*.okay.aa ${{EVGRESULTSDIR}}/okayset/*.okalt.aa > okay-okalt.aa
+cat ${{EVGRESULTSDIR}}/okayset/*.okay.tr ${{EVGRESULTSDIR}}/okayset/*.okalt.tr > okay-okalt.fasta
+cat ${{EVGRESULTSDIR}}/okayset/*.okay.cds ${{EVGRESULTSDIR}}/okayset/*.okalt.cds > okay-okalt.cds
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    evgRunDir=argsContainer.evgRunDir,
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_busco_script(argsContainer, MEM="55G", CPUS="8"):
-    assert len(argsContainer.fastaFiles) == len(argsContainer.modes), \
-        "fastaFiles and modes lengths must be equal"
-    
+def make_busco_script(argsContainer, MEM="70G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
-#PBS -N busco_{prefix}
+#PBS -N {prefix}busco
 #PBS -l walltime=08:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/transcriptomes/evidentialgene/concatenated
+cd {workingDir}
+
+module load OpenMPI/4.1.5
+module load BLAST+/2.14.1
 
 ####
-
-module load blast+/2.3.0-foss-2016a-python-2.7.11
 
 BUSCODIR={buscoDir}
 BUSCOCONFIG={buscoConfig}
 BUSCOLINEAGE={buscoLineage}
-
 CPUS={CPUS}
+
+FASTA={fastaFile}
 
 ####
 
@@ -1172,34 +1126,24 @@ export BUSCO_CONFIG_FILE=${{BUSCOCONFIG}}
 mkdir -p busco_results
 cd busco_results
 
-# STEP 2: Run BUSCO for each FASTA file
+# STEP 2: Run BUSCO for protein FASTA file
+python3 ${{BUSCODIR}}/busco -i ${{FASTA}} \\
+    -o results \\
+    -l ${{BUSCOLINEAGE}} \\
+    -m prot \\
+    -c ${{CPUS}}
 """.format(
     MEM=MEM,
     CPUS=CPUS,
     workingDir=argsContainer.workingDir,
     prefix=argsContainer.prefix,
+    fastaFile=argsContainer.fastaFile,
     buscoDir=argsContainer.buscoDir,
     buscoConfig=argsContainer.buscoConfig,
     buscoLineage=argsContainer.buscoLineage,
-    afterokLine = "#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
+    afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
-    # Append BUSCO commands for each file to be run
-    for i in range(len(argsContainer.fastaFiles)):
-        fasta = argsContainer.fastaFiles[i]
-        mode = argsContainer.modes[i]
-        scriptText += \
-"""python3 ${{BUSCODIR}}/busco -i {fasta} \\
-    -o {baseFasta} \\
-    -l ${{BUSCOLINEAGE}} \\
-    -m {mode} \\
-    -c ${{CPUS}}
-""".format(
-    fasta=fasta,
-    baseFasta=os.path.basename(fasta),
-    mode=mode
-)
-    
     # Write script to file
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
@@ -1207,17 +1151,28 @@ cd busco_results
 def main():
     ##### USER INPUT SECTION
     usage = """%(prog)s pipelines the process of building a transcriptome
-    using the EvidentialGene process of combining multiple assemblies.
+    using the EvidentialGene process of combining multiple assemblies. For any steps that you
+    know have been completed successfully, write a file called "is.okay" in the relevant
+    directory. This will skip the step in the pipeline and move on to the next one.
+    Note that exonerate is expected to be in your PATH in order for EvidentialGene to work.
     """
     p = argparse.ArgumentParser(description=usage)
-    ## File inputs
-    p.add_argument("-rd", dest="readsDir",
+    # Required
+    p.add_argument("-i", dest="readsDir",
                    required=True,
                    help="Location containing all reads files")
-    p.add_argument("-rs", dest="readsSuffix",
+    p.add_argument("-s", dest="readsSuffix",
                    required=True,
                    help="""Suffix which uniquely identifies all relevant read files
                    e.g., 'P.fq.gz' for trimmomatic reads""")
+    p.add_argument("-o", dest="outputDirectory",
+                   required=True,
+                   help="Specified the prefix for output files")
+    # Optional (behavioural)
+    p.add_argument("--prefix", dest="jobPrefix",
+                   required=False,
+                   help="Optionally specify a prefix to append to submitted job names",
+                   default="")
     p.add_argument("--singleEnd", dest="isSingleEnd",
                    required=False,
                    action="store_true",
@@ -1226,457 +1181,390 @@ def main():
     p.add_argument("--genomeFile", dest="genomeFile",
                    required=False,
                    help="Optionally specify a genome FASTA to enable genome-guided assembly")
-    ## Output details
-    p.add_argument("-o", dest="outputPrefix",
-                   required=True,
-                   help="Specified the prefix for output files")
-    ## Program locations
-    p.add_argument("-trimmomatic", dest="trimmomatic",
-                   required=False,
-                   help="Specify the full path to the Trimmomatic JAR file (default=HPC location)",
-                   default="/home/stewarz2/various_programs/Trimmomatic-0.36/trimmomatic-0.36.jar")
-    p.add_argument("-cdhit", dest="cdhit",
-                   required=False,
-                   help="Specify the location of the CD-HIT bin dir (default=HPC location)",
-                   default="/pkg/suse12/software/cd-hit/4.6.4-foss-2016a-2015-0603/bin")
-    p.add_argument("-star", dest="star",
-                   required=False,
-                   help="Specify the location of the STAR executable (default=HPC location)",
-                   default="/home/stewarz2/various_programs/STAR-2.7.10a/bin/Linux_x86_64_static")
-    p.add_argument("-soap", dest="soap",
-                   required=False,
-                   help="Specify the location of the SOAPdenovo-Trans executables (default=HPC location)",
-                   default="/home/stewarz2/various_programs/SOAPdenovo-Trans-bin-v1.03")
-    p.add_argument("-oases", dest="oases",
-                   required=False,
-                   help="Specify the location of the oases executable (default=HPC location)",
-                   default="/home/stewarz2/various_programs/oases")
-    p.add_argument("-velvet", dest="velvet",
-                   required=False,
-                   help="Specify the location of the velvet executables (default=HPC location)",
-                   default="/home/stewarz2/various_programs/oases/velvet")
-    p.add_argument("-spades", dest="spades",
-                   required=False,
-                   help="Specify the location of the SPAdes spades.py script (default=HPC location)",
-                   default="/home/stewarz2/various_programs/SPAdes-3.15.5-Linux/bin")
-    p.add_argument("-scallop", dest="scallop",
-                   required=False,
-                   help="Specify the location of the scallop executable (default=HPC location)",
-                   default="/home/stewarz2/various_programs/scallop-0.10.5/src")
-    p.add_argument("-trinity", dest="trinity",
-                   required=False,
-                   help="Specify the location of the Trinity executable (default=HPC location)",
-                   default="/home/stewarz2/various_programs/trinityrnaseq-v2.14.0")
-    p.add_argument("-evg", dest="evg",
-                   required=False,
-                   help="Specify the location of the EvidentialGene scripts dir (default=HPC location)",
-                   default="/home/stewarz2/various_programs/evigene/scripts")
-    p.add_argument("-busco", dest="busco",
-                   required=False,
-                   help="Specify the location of the BUSCO bin dir (default=HPC location)",
-                   default="/home/stewarz2/various_programs/busco-5.2.1/bin")
-    p.add_argument("-buscoConfig", dest="buscoConfig",
-                   required=False,
-                   help="Specify the full path of the BUSCO config file (default=HPC location)",
-                   default="/home/stewarz2/various_programs/busco-5.2.1/config/config.ini")
-    p.add_argument("-buscoLineage", dest="buscoLineage",
-                   required=False,
-                   help="Specify the location of the BUSCO lineage dir (default=HPC location)",
-                   default="/home/stewarz2/various_programs/busco-5.2.1/lineage/metazoa_odb10")
-    p.add_argument("-genscript", dest="genscript",
-                   required=False,
-                   help="Specify the location of the Genome_analysis_scripts folder (default=HPC location)",
-                   default="/home/stewarz2/scripts/Genome_analysis_scripts")
-    p.add_argument("-varscript", dest="varscript",
-                   required=False,
-                   help="Specify the location of the Various_scripts folder (default=HPC location)",
-                   default="/home/stewarz2/scripts/Various_scripts")
-    ## Behaviour modifiers
-    p.add_argument("--skipTrim", dest="skipTrim",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip trimming",
-                   default=False)
-    p.add_argument("--pretrimmedReads", dest="pretrimmedReads",
-                   required=False,
-                   action="store_true",
-                   help="If you skip trimming, indicate whether the provided reads are pre-trimmed or not",
-                   default=False)
-    p.add_argument("--skipConcat", dest="skipConcat",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip trimmed read concatenation; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipTrindn", dest="skipTrindn",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip Trinity de novo assembly; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipStar", dest="skipStar",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip STAR read alignment; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipSort", dest="skipSort",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip STAR SAM sorting; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipDetails", dest="skipDetails",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip RNAseq detail getting; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipSoap", dest="skipSoap",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip SOAPdenovo assembly; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipOases", dest="skipOases",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip velvet-oases assembly; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipSpades", dest="skipSpades",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip SPAdes assembly; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipTringg", dest="skipTringg",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip Trinity GG assembly; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipScallop", dest="skipScallop",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip scallop GG assembly; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipMaster", dest="skipMaster",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip master transcriptome concatenation; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipEvg", dest="skipEvg",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip EvidentialGene; assumed to already be complete if specified",
-                   default=False)
-    p.add_argument("--skipOkalt", dest="skipOkalt",
-                   required=False,
-                   action="store_true",
-                   help="Optionally skip okay-okalt concatenation; assumed to already be complete if specified",
-                   default=False)
     p.add_argument("--onlySetup", dest="onlySetup",
                    required=False,
                    action="store_true",
-                   help="Optionally end program after setting up the working directory",
+                   help="Optionally end program after setting up the working directory and job scripts",
                    default=False)
+    # Optional (conda environments)
+    p.add_argument("--trinEnv", dest="trinEnv",
+                   required=False,
+                   help="Specify the conda environment to use for Trinity (default=perl5)",
+                   default="perl5")
+    # Optional (program locations)
+    p.add_argument("--bbmap", dest="bbmap",
+                   required=False,
+                   help="Specify the location of the bbmap scripts directory (default=HPC location)",
+                   default="/home/stewarz2/various_programs/bbmap")
+    p.add_argument("--cdhit", dest="cdhit",
+                   required=False,
+                   help="Specify the location of the cd-hit executables (default=HPC location)",
+                   default="/home/stewarz2/various_programs/cdhit-4.8.1")
+    p.add_argument("--star", dest="star",
+                   required=False,
+                   help="Specify the location of the STAR executable (default=HPC location)",
+                   default="/home/stewarz2/various_programs/STAR-2.7.10a/bin/Linux_x86_64_static")
+    p.add_argument("--soap", dest="soap",
+                   required=False,
+                   help="Specify the location of the SOAPdenovo-Trans executables (default=HPC location)",
+                   default="/home/stewarz2/various_programs/SOAPdenovo-Trans-bin-v1.03")
+    p.add_argument("--oases", dest="oases",
+                   required=False,
+                   help="Specify the location of the oases executable (default=HPC location)",
+                   default="/home/stewarz2/various_programs/oases")
+    p.add_argument("--velvet", dest="velvet",
+                   required=False,
+                   help="Specify the location of the velvet executables (default=HPC location)",
+                   default="/home/stewarz2/various_programs/oases/velvet")
+    p.add_argument("--spades", dest="spades",
+                   required=False,
+                   help="Specify the location of the SPAdes spades.py script (default=HPC location)",
+                   default="/home/stewarz2/various_programs/SPAdes-3.15.5-Linux/bin")
+    p.add_argument("--scallop", dest="scallop",
+                   required=False,
+                   help="Specify the location of the scallop executable (default=HPC location)",
+                   default="/home/stewarz2/various_programs/scallop-0.10.5/src")
+    p.add_argument("--tophat", dest="tophat",
+                   required=False,
+                   help="Specify the location of the tophat directory containing gtf_to_fasta (default=HPC location)",
+                   default="/home/stewarz2/various_programs/tophat-2.1.1.Linux_x86_64")
+    p.add_argument("--trinity", dest="trinity",
+                   required=False,
+                   help="Specify the location of the Trinity executable (default=HPC location)",
+                   default="/home/stewarz2/various_programs/trinityrnaseq-v2.15.1")
+    p.add_argument("--evg", dest="evg",
+                   required=False,
+                   help="Specify the location of the EvidentialGene scripts dir (default=HPC location)",
+                   default="/home/stewarz2/various_programs/evigene/scripts")
+    p.add_argument("--busco", dest="busco",
+                   required=False,
+                   help="Specify the location of the BUSCO bin dir (default=HPC location)",
+                   default="/home/stewarz2/various_programs/busco-5.2.1/bin")
+    p.add_argument("--buscoConfig", dest="buscoConfig",
+                   required=False,
+                   help="Specify the full path of the BUSCO config file (default=HPC location)",
+                   default="/home/stewarz2/various_programs/busco-5.2.1/config/config.ini")
+    p.add_argument("--buscoLineage", dest="buscoLineage",
+                   required=False,
+                   help="Specify the location of the BUSCO lineage dir (default=HPC location)",
+                   default="/home/stewarz2/various_programs/busco-5.2.1/lineage/metazoa_odb10")
+    p.add_argument("--genscript", dest="genscript",
+                   required=False,
+                   help="Specify the location of the Genome_analysis_scripts folder (default=HPC location)",
+                   default="/home/stewarz2/scripts/Genome_analysis_scripts")
+    p.add_argument("--varscript", dest="varscript",
+                   required=False,
+                   help="Specify the location of the Various_scripts folder (default=HPC location)",
+                   default="/home/stewarz2/scripts/Various_scripts")
     
     args = p.parse_args()
     validate_args(args)
-    
-    # Create the working directory
-    setup_work_dir(args)
-    if args.onlySetup:
-        print("Program exitting after setting up work directory")
-        quit()
     runningJobIDs = {}
     
-    # Obtain reads files
-    forwardReads, reverseReads = get_rnaseq_files(args.readsDir, args.readsSuffix, args.isSingleEnd)
-    if forwardReads == []:
-        print(f"Failed to find any reads in '{args.readsDir}' with suffix '{args.readsSuffix}'")
-        print("You should check that your input parameters are correct, and try again.")
-        quit()
+    # Set up the working directory
+    locations = setup_work_dir(outputDirectory, genomeFile)
     
-    # Run Trimmomatic OR symbolic link the reads there
-    if not args.skipTrim:
-        trimScriptName = os.path.join(os.getcwd(), "trimmomatic", "run_trimmomatic.sh")
-        make_trimmomatic_script(Container({
-            "outputFileName": trimScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "trimJar": args.trimmomatic,
-            "readsDir": args.readsDir,
-            "readsSuffix": args.readsSuffix,
-            "forwardFiles": forwardReads,
-            "reverseFiles": reverseReads
-        }))
-        trimJobID = qsub(trimScriptName)
-        runningJobIDs["trim"] = trimJobID
-    elif args.pretrimmedReads:
-        symlink_for_trimmomatic(forwardReads, reverseReads)
-    else:
-        trimDir = os.path.join(os.getcwd(), "trimmomatic")
-        print("Trimmomatic is being skipped, and pretrimmedReads is not set")
-        print(f"The assumption is that trimmomatic has been run, and results are in '{trimDir}'")
-        
-        # If the trimmomatic dir is empty, raise an error
-        if os.listdir(trimDir) == []:
-            print(f"Error: assumption is violated since '{trimDir}' is empty")
-            quit()
-        # Otherwise, just raise a warning
-        else:
-            if args.isSingleEnd:
-                _forwardTrimReads, _reverseTrimReads = get_rnaseq_files(trimDir, ".fq", args.isSingleEnd)
-                
-                print(f"This assumption appears to be true, with {len(_forwardTrimReads)} single end read files found;"
-                      " if this doesn't sound right, qdel the jobs and figure it out now!")
-            else:
-                _forwardTrimReads, _reverseTrimReads = get_rnaseq_files(trimDir, "P.fq", args.isSingleEnd)
-                
-                print(f"This assumption appears to be true, with {len(_forwardTrimReads)} paired end read files found;"
-                      " if this doesn't sound right, qdel the jobs and figure it out now!")
-    
-    # Prepare read files by concatenation into one file for fwd / rvs
-    if not args.skipConcat:
-        concatScriptName = os.path.join(os.getcwd(), "prepared_reads", "run_read_prep.sh")
-        make_trim_concat_script(Container({
+    # Run Trinity insilico read normalization
+    flagFile = os.path.join(locations["normReadsDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        concatScriptName = os.path.join(locations["normReadsDir"], "run_insilico_normalisation.sh")
+        make_insilico_script(Container({
             "outputFileName": concatScriptName,
-            "prefix": args.outputPrefix,
-            "trimmedReadsDirectory": os.path.join(os.getcwd(), "trimmomatic"),
-            "outputDirectory": os.path.join(os.getcwd(), "prepared_reads"),
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trim"] if k in runningJobIDs]
+            "workingDir": locations["normReadsDir"],
+            "prefix": args.jobPrefix,
+            "condaEnv": args.trinEnv,
+            "forwardReads": locations["fwdReads"],
+            "reverseReads": locations["rvsReads"]
         }))
-        concatJobID = qsub(concatScriptName)
-        runningJobIDs["concat"] = concatJobID
-    
+        normJobID = qsub(concatScriptName)
+        runningJobIDs["norm"] = normJobID
+        
     # Run Trinity de novo assembler
-    if not args.skipTrindn:
-        trindnScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-denovo", "run_trin_denovo.sh")
+    flagFile = os.path.join(locations["tndnDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        trindnScriptName = os.path.join(locations["tndnDir"], "run_trin_denovo.sh")
         make_trin_dn_script(Container({
             "outputFileName": trindnScriptName,
-            "workingDir": os.getcwd(),
+            "workingDir": locations["tndnDir"],
+            "prefix": args.jobPrefix,
+            "condaEnv": args.trinEnv,
             "trinityDir": args.trinity,
-            "prefix": args.outputPrefix,
-            "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-            "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
+            "forwardFile": FIGURETHISOUT if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "left.norm.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "right.norm.fq"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["norm"] if k in runningJobIDs]
         }))
         trindnJobID = qsub(trindnScriptName)
         runningJobIDs["trindn"] = trindnJobID
     
-    # If genome-guided (GG) assembly: Run STAR alignment against genome
-    if not args.skipStar:
-        starScriptName = os.path.join(os.getcwd(), "star_map", "run_star_trimmed.sh")
-        if args.genomeFile != None:
-            make_star_script(Container({
-                "outputFileName": starScriptName,
-                "workingDir": os.getcwd(),
-                "prefix": args.outputPrefix,
+    # If genome-guided (GG) assembly
+    if args.genomeFile != None:
+        # Run STAR genome index creation
+        flagFile = os.path.join(locations["starDir"], "is.okay")
+        if not os.path.exists(flagFile):
+            indexScriptName = os.path.join(locations["starDir"], "run_star_index.sh")
+            make_star_index_script(Container({
+                "outputFileName": indexScriptName,
+                "workingDir": locations["starDir"],
+                "prefix": args.jobPrefix,
                 "starDir": args.star,
-                "genomeFile": args.genomeFile,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq") \
-                    if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-                "reverseFile": None if args.isSingleEnd is True else os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-                "isSingleEnd": args.isSingleEnd,
-                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
+                "genomeDir": locations["genomeDir"],
+                "genomeFile": locations["genomeFile"],
+                "runningJobIDs": [runningJobIDs[k] for k in ["norm"] if k in runningJobIDs]
+            }))
+            indexJobID = qsub(indexScriptName)
+            runningJobIDs["starindex"] = indexJobID
+            
+            # Run STAR alignment against genome
+            starScriptName = os.path.join(locations["starDir"], "run_star_map.sh")
+            make_star_map_script(Container({
+                "outputFileName": starScriptName,
+                "workingDir": locations["starDir"],
+                "prefix": args.jobPrefix,
+                "starDir": args.star,
+                "genomeDir": locations["genomeDir"],
+                "forwardFile": os.path.join(locations["normReadsDir"], "single.norm.fq") if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "left.norm.fq"),
+                "reverseFile": None if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "right.norm.fq"),
+                "runningJobIDs": [runningJobIDs[k] for k in ["norm", "starindex"] if k in runningJobIDs]
             }))
             starJobID = qsub(starScriptName)
             runningJobIDs["stargg"] = starJobID
-    
-    # Get RNAseq read statistics
-    if not args.skipDetails:
-        if not args.isSingleEnd: # i.e., if paired
-            # Get RNAseq details for GG assembly
-            if args.genomeFile != None:
-                picardScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_picard.sh")
-                make_picard_script(Container({
-                    "outputFileName": picardScriptName,
-                    "workingDir": os.getcwd(),
-                    "prefix": args.outputPrefix,
-                    "genScriptDir": args.genscript,
-                    "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-                    "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat", "stargg"] if k in runningJobIDs]
-                }))
-                picardJobID = qsub(picardScriptName)
-                runningJobIDs["picard"] = picardJobID
-            # Get RNAseq details de novo
-            else:
-                detailsScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_details.sh")
-                make_denovo_details_script(Container({
-                    "outputFileName": detailsScriptName,
-                    "workingDir": os.getcwd(),
-                    "prefix": args.outputPrefix,
-                    "genScriptDir": args.genscript,
-                    "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_1.fq"),
-                    "reverseFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}_2.fq"),
-                    "isSingleEnd": args.isSingleEnd,
-                    "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
-                }))
-                detailsJobID = qsub(detailsScriptName)
-                runningJobIDs["details"] = detailsJobID
-        else:
-            readsizeScriptName = os.path.join(os.getcwd(), "rnaseq_details", "run_readsize.sh")
-            make_readsize_script(Container({
-                "outputFileName": readsizeScriptName,
-                "workingDir": os.getcwd(),
-                "prefix": args.outputPrefix,
-                "genScriptDir": args.genscript,
-                "forwardFile": os.path.join(os.getcwd(), "prepared_reads", f"{args.outputPrefix}.fq"),
-                "runningJobIDs": [runningJobIDs[k] for k in ["trim", "concat"] if k in runningJobIDs]
-            }))
-            readsizeJobID = qsub(readsizeScriptName)
-            runningJobIDs["readsize"] = readsizeJobID
-    
-    # Run oases-velvet de novo assembly
-    if not args.skipOases:
-        oasesScriptName = os.path.join(os.getcwd(), "transcriptomes", "velvet-oases", "run_oasvel.sh")
-        make_oases_script(Container({
-            "outputFileName": oasesScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "velvetDir": args.velvet,
-            "oasesDir": args.oases,
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "readsize", "picard", "details"] if k in runningJobIDs]
-        }))
-        oasesJobID = qsub(oasesScriptName)
-        runningJobIDs["oases"] = oasesJobID
-    
-    # Run SPAdes de novo assembly
-    if not args.skipSpades:
-        spadesScriptName = os.path.join(os.getcwd(), "transcriptomes", "spades", "run_spades.sh")
-        make_spades_script(Container({
-            "outputFileName": spadesScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "spadesDir": args.spades,
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn"] if k in runningJobIDs]
-        }))
-        spadesJobID = qsub(spadesScriptName)
-        runningJobIDs["spades"] = spadesJobID
-    
-    # Run SOAPdenovo-Trans assembly
-    if not args.skipSoap:
-        configScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_config.sh")
-        make_config_script(Container({
-            "outputFileName": configScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "genScriptDir": args.genscript,
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard", "details"] if k in runningJobIDs]
-        }))
-        configJobID = qsub(configScriptName)
-        runningJobIDs["config"] = configJobID
-    
-        soapScriptName = os.path.join(os.getcwd(), "transcriptomes", "soapdenovo-trans", "run_soap_denovo.sh")
-        make_soap_script(Container({
-            "outputFileName": soapScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
-            "soapDir": args.soap,
-            "isSingleEnd": args.isSingleEnd,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "config"] if k in runningJobIDs]
-        }))
-        soapJobID = qsub(soapScriptName)
-        runningJobIDs["soap"] = soapJobID
-    
-    # If GG assembly; Run sort on STAR results
-    if not args.skipSort:
-        if args.genomeFile != None:
-            sortScriptName = os.path.join(os.getcwd(), "star_map", "run_sam2bamsort.sh")
+            
+            # Run sort on STAR output
+            sortScriptName = os.path.join(locations["starDir"], "run_sam2bamsort.sh")
             make_sort_script(Container({
                 "outputFileName": sortScriptName,
                 "workingDir": os.getcwd(),
-                "prefix": args.outputPrefix,
+                "prefix": args.jobPrefix,
                 "runningJobIDs": [runningJobIDs[k] for k in ["stargg"] if k in runningJobIDs]
             }))
             sortJobID = qsub(sortScriptName)
             runningJobIDs["sort"] = sortJobID
     
+    # Get RNAseq read statistics
+    flagFile = os.path.join(locations["detailsDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        if not args.isSingleEnd: # i.e., if paired
+            # Get RNAseq details for GG assembly
+            if args.genomeFile != None:
+                picardScriptName = os.path.join(locations["detailsDir"], "run_picard.sh")
+                make_picard_script(Container({
+                    "outputFileName": picardScriptName,
+                    "workingDir": locations["detailsDir"],
+                    "prefix": args.jobPrefix,
+                    "genScriptDir": args.genscript,
+                    "samFile": os.path.join(locations["starDir"], "Aligned.out.sam"),
+                    "forwardFile": os.path.join(locations["normReadsDir"], "left.norm.fq"),
+                    "runningJobIDs": [runningJobIDs[k] for k in ["norm", "stargg"] if k in runningJobIDs]
+                }))
+                picardJobID = qsub(picardScriptName)
+                runningJobIDs["picard"] = picardJobID
+            # Get RNAseq details de novo
+            else:
+                detailsScriptName = os.path.join(locations["detailsDir"], "run_details.sh")
+                make_denovo_details_script(Container({
+                    "outputFileName": detailsScriptName,
+                    "workingDir": locations["detailsDir"],
+                    "prefix": args.jobPrefix,
+                    "bbmapDir": args.bbmap,
+                    "genScriptDir": args.genscript,
+                    "forwardFile": os.path.join(locations["normReadsDir"], "left.norm.fq"),
+                    "reverseFile": os.path.join(locations["normReadsDir"], "right.norm.fq"),
+                    "runningJobIDs": [runningJobIDs[k] for k in ["norm"] if k in runningJobIDs]
+                }))
+                detailsJobID = qsub(detailsScriptName)
+                runningJobIDs["details"] = detailsJobID
+        else:
+            readsizeScriptName = os.path.join(locations["detailsDir"], "run_readsize.sh")
+            make_readsize_script(Container({
+                "outputFileName": readsizeScriptName,
+                "workingDir": locations["detailsDir"],
+                "prefix": args.jobPrefix,
+                "genScriptDir": args.genscript,
+                "forwardFile": os.path.join(locations["normReadsDir"], "single.norm.fq"),
+                "runningJobIDs": [runningJobIDs[k] for k in ["norm"] if k in runningJobIDs]
+            }))
+            readsizeJobID = qsub(readsizeScriptName)
+            runningJobIDs["readsize"] = readsizeJobID
+    
+    # Run oases-velvet de novo assembly
+    flagFile = os.path.join(locations["voDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        velvethScriptName = os.path.join(locations["voDir"], "run_velveth.sh")
+        make_velveth_script(Container({
+            "outputFileName": velvethScriptName,
+            "workingDir": locations["voDir"],
+            "prefix": args.jobPrefix,
+            "velvetDir": args.velvet,
+            "forwardFile": os.path.join(locations["normReadsDir"], "single.norm.fq") if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "left.norm.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "right.norm.fq"),
+            "detailsFile": os.path.join(locations["detailsDir"], "rnaseq_details.txt"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["norm", "readsize", "picard", "details"] if k in runningJobIDs]
+        }))
+        velvethJobID = qsub(velvethScriptName)
+        runningJobIDs["velveth"] = velvethJobID
+        
+        velvetgScriptName = os.path.join(locations["voDir"], "run_velvetg.sh")
+        make_velvetg_script(Container({
+            "outputFileName": velvetgScriptName,
+            "workingDir": locations["voDir"],
+            "prefix": args.jobPrefix,
+            "velvetDir": args.velvet,
+            "isSingleEnd": args.isSingleEnd,
+            "detailsFile": os.path.join(locations["detailsDir"], "rnaseq_details.txt"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["norm", "readsize", "picard", "details", "velveth"] if k in runningJobIDs]
+        }))
+        velvetgJobID = qsub(velvetgScriptName)
+        runningJobIDs["velvetg"] = velvetgJobID
+        
+        oasesScriptName = os.path.join(locations["voDir"], "run_oases.sh")
+        make_oases_script(Container({
+            "outputFileName": oasesScriptName,
+            "workingDir": locations["voDir"],
+            "prefix": args.jobPrefix,
+            "oasesDir": args.oases,
+            "isSingleEnd": args.isSingleEnd,
+            "detailsFile": os.path.join(locations["detailsDir"], "rnaseq_details.txt"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["norm", "readsize", "picard", "details", "velveth", "velvetg"] if k in runningJobIDs]
+        }))
+        oasesJobID = qsub(oasesScriptName)
+        runningJobIDs["oases"] = oasesJobID
+    
+    # Run SPAdes de novo assembly
+    flagFile = os.path.join(locations["spDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        spadesScriptName = os.path.join(locations["spDir"], "run_spades.sh")
+        make_spades_script(Container({
+            "outputFileName": spadesScriptName,
+            "workingDir": locations["spDir"],
+            "prefix": args.jobPrefix,
+            "spadesDir": args.spades,
+            "forwardFile": os.path.join(locations["normReadsDir"], "single.norm.fq") if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "left.norm.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "right.norm.fq"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["norm"] if k in runningJobIDs]
+        }))
+        spadesJobID = qsub(spadesScriptName)
+        runningJobIDs["spades"] = spadesJobID
+    
+    # Run SOAPdenovo-Trans assembly
+    flagFile = os.path.join(locations["soapDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        configScriptName = os.path.join(locations["soapDir"], "run_soap_config.sh")
+        make_config_script(Container({
+            "outputFileName": configScriptName,
+            "workingDir": locations["soapDir"],
+            "prefix": args.jobPrefix,
+            "genScriptDir": args.genscript,
+            "forwardFile": os.path.join(locations["normReadsDir"], "single.norm.fq") if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "left.norm.fq"),
+            "reverseFile": None if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "right.norm.fq"),
+            "detailsFile": os.path.join(locations["detailsDir"], "rnaseq_details.txt"),
+            "runningJobIDs": [runningJobIDs[k] for k in ["readsize", "picard", "details"] if k in runningJobIDs]
+        }))
+        configJobID = qsub(configScriptName)
+        runningJobIDs["config"] = configJobID
+        
+        soapScriptName = os.path.join(locations["soapDir"], "run_soap_denovo.sh")
+        make_soap_script(Container({
+            "outputFileName": soapScriptName,
+            "workingDir": locations["soapDir"],
+            "prefix": args.jobPrefix,
+            "soapDir": args.soap,
+            "isSingleEnd": args.isSingleEnd,
+            "runningJobIDs": [runningJobIDs[k] for k in ["norm", "config"] if k in runningJobIDs]
+        }))
+        soapJobID = qsub(soapScriptName)
+        runningJobIDs["soap"] = soapJobID
+    
     # If GG assembly; Run Trinity GG
-    if not args.skipTringg:
-        if args.genomeFile != None:
-            tringgScriptName = os.path.join(os.getcwd(), "transcriptomes", "trinity-gg", "run_trin_gg.sh")
+    if args.genomeFile != None:
+        flagFile = os.path.join(locations["tnggDir"], "is.okay")
+        if not os.path.exists(flagFile):
+            tringgScriptName = os.path.join(locations["tnggDir"], "run_trin_gg.sh")
             make_trin_gg_script(Container({
                 "outputFileName": tringgScriptName,
-                "workingDir": os.getcwd(),
+                "workingDir": locations["tnggDir"],
                 "trinityDir": args.trinity,
-                "prefix": args.outputPrefix,
+                "prefix": args.jobPrefix,
+                "condaEnv": args.trinEnv,
+                "bamFile": os.path.join(locations["starDir"], "Aligned.out.sorted.bam"),
                 "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
             }))
             tringgJobID = qsub(tringgScriptName)
             runningJobIDs["tringg"] = tringgJobID
     
     # If GG assembly; Run scallop
-    if not args.skipScallop:
-        if args.genomeFile != None:
-            scallopScriptName = os.path.join(os.getcwd(), "transcriptomes", "scallop", "run_scallop.sh")
+    if args.genomeFile != None:
+        flagFile = os.path.join(locations["scallopDir"], "is.okay")
+        if not os.path.exists(flagFile):
+            scallopScriptName = os.path.join(locations["scallopDir"], "run_scallop.sh")
             make_scallop_script(Container({
                 "outputFileName": scallopScriptName,
-                "workingDir": os.getcwd(),
+                "workingDir": locations["scallopDir"],
                 "scallopDir": args.scallop,
-                "prefix": args.outputPrefix,
-                "genomeFile": args.genomeFile,
+                "tophatDir": args.tophat,
+                "prefix": args.jobPrefix,
+                "genomeFile": locations["genomeFile"],
+                "bamFile": os.path.join(locations["starDir"], "Aligned.out.sorted.bam"),
                 "runningJobIDs": [runningJobIDs[k] for k in ["sort"] if k in runningJobIDs]
             }))
             scallopJobID = qsub(scallopScriptName)
             runningJobIDs["scallop"] = scallopJobID
     
     # Master transcriptome concatenation
-    if not args.skipMaster:
-        masterConcatScriptName = os.path.join(os.getcwd(), "transcriptomes", "cat_transcriptomes.sh")
+    flagFile = os.path.join(locations["txomesDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        masterConcatScriptName = os.path.join(locations["txomesDir"], "cat_transcriptomes.sh")
         make_master_concat_script(Container({
             "outputFileName": masterConcatScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
+            "workingDir": locations["txomesDir"],
+            "prefix": args.jobPrefix,
             "varScriptDir": args.varscript,
             "genomeFile": args.genomeFile,
-            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "oases", "soap", "tringg", "scallop", "spades"] if k in runningJobIDs]
+            "runningJobIDs": [runningJobIDs[k] for k in ["trindn", "velveth", "velvetg", "oases", "soap", "tringg", "scallop", "spades"] if k in runningJobIDs]
         }))
         masterConcatJobID = qsub(masterConcatScriptName)
         runningJobIDs["master"] = masterConcatJobID
     
     # Run EvidentialGene
-    if not args.skipEvg:
-        evgScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene", "run_evidentialgene.sh")
+    flagFile = os.path.join(locations["evgDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        evgScriptName = os.path.join(locations["evgDir"], "run_evidentialgene.sh")
         make_evg_script(Container({
             "outputFileName": evgScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
+            "workingDir": locations["evgDir"],
+            "prefix": args.jobPrefix,
             "varScriptDir": args.varscript,
             "evgDir": args.evg,
+            "cdhitDir": args.cdhit,
+            "masterTranscriptome": os.path.join(locations["txomesDir"], "master_transcriptome.fasta"),
             "runningJobIDs": [runningJobIDs[k] for k in ["master"] if k in runningJobIDs]
         }))
         evgJobID = qsub(evgScriptName)
         runningJobIDs["evg"] = evgJobID
     
     # Concatenate okay-okalt files
-    if not args.skipOkalt:
-        okaltScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene",
-                                    "concatenated", "okay_okalt_concat.sh")
+    flagFile = os.path.join(locations["concatDir"], "is.okay")
+    if not os.path.exists(flagFile):
+        okaltScriptName = os.path.join(locations["concatDir"], "okay_okalt_concat.sh")
         make_okalt_script(Container({
             "outputFileName": okaltScriptName,
-            "workingDir": os.getcwd(),
-            "prefix": args.outputPrefix,
+            "workingDir": locations["concatDir"],
+            "prefix": args.jobPrefix,
+            "evgRunDir": os.path.join(locations["evgDir"], "evgrun"),
             "runningJobIDs": [runningJobIDs[k] for k in ["evg"] if k in runningJobIDs]
         }))
         okaltJobID = qsub(okaltScriptName)
         runningJobIDs["okalt"] = okaltJobID
     
     # Run BUSCO to validate assembly
-    buscoScriptName = os.path.join(os.getcwd(), "transcriptomes", "evidentialgene", 
-                                   "concatenated", "run_busco.sh")
+    buscoScriptName = os.path.join(locations["concatDir"], "run_busco.sh")
     make_busco_script(Container({
         "outputFileName": buscoScriptName,
-        "workingDir": os.getcwd(),
-        "prefix": args.outputPrefix,
+        "workingDir": locations["concatDir"],
+        "prefix": args.jobPrefix,
         "buscoDir": args.busco,
         "buscoConfig": args.buscoConfig,
         "buscoLineage": args.buscoLineage,
-        "fastaFiles": [
-            os.path.join(os.path.dirname(buscoScriptName), f"{args.outputPrefix}_okay-okalt.aa"),
-            os.path.join(os.path.dirname(buscoScriptName), f"{args.outputPrefix}_okay-okalt.fasta"),
-            os.path.join(os.path.dirname(buscoScriptName), f"{args.outputPrefix}_okay-okalt.cds")
-        ],
-        "modes": ["prot", "tran", "tran"],
+        "fastaFile": os.path.join(locations["concatDir"], "okay-okalt.aa"),
         "runningJobIDs": [runningJobIDs[k] for k in ["okalt"] if k in runningJobIDs]
     }))
     buscoJobID = qsub(buscoScriptName)
