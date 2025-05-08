@@ -1270,7 +1270,7 @@ def main():
     runningJobIDs = {}
     
     # Set up the working directory
-    locations = setup_work_dir(outputDirectory, genomeFile)
+    locations = setup_work_dir(args)
     
     # Run Trinity insilico read normalization
     flagFile = os.path.join(locations["normReadsDir"], "is.okay")
