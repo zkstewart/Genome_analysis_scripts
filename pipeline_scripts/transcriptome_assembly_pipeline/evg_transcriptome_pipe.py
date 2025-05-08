@@ -872,6 +872,10 @@ def make_trin_gg_script(argsContainer, MEM="250G", CPUS="24", MAXINTRON="21000")
     MAXINTRON set to 21kb is a generous upper limit for most genes; we can leave
     Trinity de novo to get anything that is genuinely longer than that.
     '''
+    # Format conda env
+    envText = ""
+    if argsContainer.condaEnv != None:
+        envText = f"conda activate {argsContainer.condaEnv}\n"
     
     scriptText = \
 """#!/bin/bash -l
