@@ -1281,6 +1281,7 @@ def main():
             "workingDir": locations["normReadsDir"],
             "prefix": args.jobPrefix,
             "condaEnv": args.trinEnv,
+            "trinityDir": args.trinity,
             "forwardReads": locations["fwdReads"],
             "reverseReads": locations["rvsReads"]
         }))
