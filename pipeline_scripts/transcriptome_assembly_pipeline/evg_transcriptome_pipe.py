@@ -1067,6 +1067,7 @@ ${{EVGSCRIPTSDIR}}/prot/tr2aacds.pl -debug \\
     cdhitDir=argsContainer.cdhitDir,
     varScriptDir=argsContainer.varScriptDir,
     evgDir=argsContainer.evgDir,
+    masterTranscriptome=argsContainer.masterTranscriptome,
     afterokLine="#PBS -W depend=afterok:{0}".format(":".join(argsContainer.runningJobIDs)) if argsContainer.runningJobIDs != [] else ""
 )
 
