@@ -105,12 +105,12 @@ def setup_work_dir(args):
         "normReadsDir": os.path.join(args.outputDirectory, "normalised_reads"),
         "detailsDir": os.path.join(args.outputDirectory, "rnaseq_details"),
         "txomesDir": os.path.join(args.outputDirectory, "transcriptomes"),
-        "soapDir": os.path.join(txomesDir, "soapdenovo-trans"),
-        "tndnDir": os.path.join(txomesDir, "trinity-denovo"),
-        "voDir": os.path.join(txomesDir, "velvet-oases"),
-        "spDir": os.path.join(txomesDir, "spades"),
-        "evgDir": os.path.join(txomesDir, "evidentialgene"),
-        "concatDir": os.path.join(evgDir, "concatenated"),
+        "soapDir": os.path.join(args.outputDirectory, "transcriptomes", "soapdenovo-trans"),
+        "tndnDir": os.path.join(args.outputDirectory, "transcriptomes", "trinity-denovo"),
+        "voDir": os.path.join(args.outputDirectory, "transcriptomes", "velvet-oases"),
+        "spDir": os.path.join(args.outputDirectory, "transcriptomes", "spades"),
+        "evgDir": os.path.join(args.outputDirectory, "transcriptomes", "evidentialgene"),
+        "concatDir": os.path.join(args.outputDirectory, "transcriptomes", "evidentialgene", "concatenated"),
     }
     
     # Make required directories if they don't exist
