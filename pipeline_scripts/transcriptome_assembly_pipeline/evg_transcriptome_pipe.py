@@ -210,7 +210,7 @@ class Container:
             self.__dict__[key] = value
 
 ## Script file generators
-def make_insilico_script(argsContainer, MEM="500G", CPUS="1"):
+def make_insilico_script(argsContainer, MEM="500G", CPUS="16"):
     # Format conda env
     envText = ""
     if argsContainer.condaEnv != None:
@@ -354,7 +354,7 @@ ${{STARDIR}}/STAR --runThreadN ${{CPUS}} \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_star_map_script(argsContainer, MEM="200G", CPUS="24"):
+def make_star_map_script(argsContainer, MEM="250G", CPUS="24"):
     # Format single or paired-end read command
     if argsContainer.reverseFile != None:
         inputText = f"{argsContainer.forwardFile} {argsContainer.reverseFile}"
