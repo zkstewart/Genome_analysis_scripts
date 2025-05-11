@@ -133,7 +133,8 @@ def setup_work_dir(args):
         os.makedirs(locations["genomeDir"], exist_ok=True)
         
         locations["genomeFile"] = os.path.join(locations["genomeDir"], "genome.fasta")
-        os.symlink(os.path.abspath(args.genomeFile), locations["genomeFile"])
+        if not os.path.exists(locations["genomeFile"]):
+            os.symlink(os.path.abspath(args.genomeFile), locations["genomeFile"])
         
         locations["starDir"] = os.path.join(args.outputDirectory, "star_map")
         os.makedirs(locations["starDir"], exist_ok=True)
@@ -1292,7 +1293,7 @@ def main():
         }))
         normJobID = qsub(concatScriptName)
         runningJobIDs["norm"] = normJobID
-        
+    
     # Run Trinity de novo assembler
     flagFile = os.path.join(locations["tndnDir"], "is.okay")
     if not os.path.exists(flagFile):
@@ -1303,7 +1304,7 @@ def main():
             "prefix": args.jobPrefix,
             "condaEnv": args.trinEnv,
             "trinityDir": args.trinity,
-            "forwardFile": FIGURETHISOUT if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "left.norm.fq"),
+            "forwardFile": os.path.join(locations["normReadsDir"], "single.norm.fq") if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "left.norm.fq"),
             "reverseFile": None if args.isSingleEnd is True else os.path.join(locations["normReadsDir"], "right.norm.fq"),
             "runningJobIDs": [runningJobIDs[k] for k in ["norm"] if k in runningJobIDs]
         }))
