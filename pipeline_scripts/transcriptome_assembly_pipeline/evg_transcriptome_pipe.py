@@ -1323,7 +1323,7 @@ def main():
                 "prefix": args.jobPrefix,
                 "starDir": args.star,
                 "genomeDir": locations["genomeDir"],
-                "genomeFile": locations["genomeFile"],
+                "genomeFile": "genome.fasta",
                 "runningJobIDs": [runningJobIDs[k] for k in ["norm"] if k in runningJobIDs]
             }))
             indexJobID = qsub(indexScriptName)
