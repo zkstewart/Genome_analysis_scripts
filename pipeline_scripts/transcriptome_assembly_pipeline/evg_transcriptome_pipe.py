@@ -1233,7 +1233,7 @@ def main():
     p.add_argument("--spades", dest="spades",
                    required=False,
                    help="Specify the location of the SPAdes spades.py script (default=HPC location)",
-                   default="/home/stewarz2/various_programs/SPAdes-3.15.5-Linux/bin")
+                   default="/home/stewarz2/various_programs/SPAdes-4.2.0-Linux/bin")
     p.add_argument("--scallop", dest="scallop",
                    required=False,
                    help="Specify the location of the scallop executable (default=HPC location)",
