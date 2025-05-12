@@ -296,7 +296,7 @@ MEM={MEM}
 
 ####
 
-${{TRINITYDIR}}/Trinity --seqType fq \\
+${{TRINITYDIR}}/Trinity --seqType fq --no_normalize_reads \\
     --CPU ${{CPUS}} --max_memory ${{MEM}} \\
     --min_kmer_cov 2 \\
     --monitoring \\
@@ -694,7 +694,7 @@ done
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_spades_script(argsContainer, MEM="150G", CPUS="12"):
+def make_spades_script(argsContainer, MEM="220G", CPUS="12"):
     # Format single or paired-end read command
     if argsContainer.reverseFile != None:
         inputText = f"-1 {argsContainer.forwardFile} -2 {argsContainer.reverseFile}"
@@ -704,7 +704,7 @@ def make_spades_script(argsContainer, MEM="150G", CPUS="12"):
     scriptText = \
 """#!/bin/bash -l
 #PBS -N {prefix}spades
-#PBS -l walltime=48:00:00
+#PBS -l walltime=24:00:00
 #PBS -l mem={MEM}
 #PBS -l ncpus={CPUS}
 {afterokLine}
