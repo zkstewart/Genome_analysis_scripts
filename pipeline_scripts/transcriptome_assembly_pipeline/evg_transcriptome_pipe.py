@@ -482,11 +482,17 @@ samtools sort -m ${{MEM}} -@ 1 -o subset${{SUBSETSIZE}}.bam -O bam subset${{SUBS
 java -jar $EBROOTPICARD/picard.jar CollectInsertSizeMetrics H=subset${{SUBSETSIZE}}.histo I=subset${{SUBSETSIZE}}.bam O=subset${{SUBSETSIZE}}.imetrics
 
 # Run imetrics parsing and extract insert size from output file
+if [[ -f subset${{SUBSETSIZE}}.insert_size ]]; then
+    rm subset${{SUBSETSIZE}}.insert_size;
+fi
 python ${{GENSCRIPTDIR}}/pipeline_scripts/transcriptome_assembly_pipeline/imetrics_rnaseq_densepeak.py -i subset${{SUBSETSIZE}}.imetrics -o subset${{SUBSETSIZE}}.insert_size
 INSERTSIZE=$(cat subset${{SUBSETSIZE}}.insert_size)
 
 # Obtain maximum read length from file
 head -n ${{SUBSETSIZE}} ${{FQFILE}} > subset${{SUBSETSIZE}}.fq
+if [[ -f subset${{SUBSETSIZE}}.stats ]]; then
+    rm subset${{SUBSETSIZE}}.stats;
+fi
 python ${{GENSCRIPTDIR}}/genome_stats.py -i subset${{SUBSETSIZE}}.fq -o subset${{SUBSETSIZE}}.stats
 MAXREADLEN=$(cat subset${{SUBSETSIZE}}.stats | head -n 4 | tail -n 1 | awk '{{print $3;}}')
 
