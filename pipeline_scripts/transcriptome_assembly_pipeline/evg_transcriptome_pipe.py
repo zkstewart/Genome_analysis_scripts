@@ -463,6 +463,7 @@ cd {workingDir}
 module load picard/3.0.0-Java-17
 module load GCC/13.2.0
 module load R/4.4.1
+module load SAMtools/1.19.2
 
 ####
 
