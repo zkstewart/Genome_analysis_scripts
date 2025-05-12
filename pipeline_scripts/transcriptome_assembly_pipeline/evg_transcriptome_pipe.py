@@ -461,6 +461,8 @@ def make_picard_script(argsContainer, MEM="15G", CPUS="1"):
 cd {workingDir}
 
 module load picard/3.0.0-Java-17
+module load GCC/13.2.0
+module load R/4.4.1
 
 ####
 
