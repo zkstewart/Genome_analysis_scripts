@@ -838,7 +838,7 @@ def make_sort_script(argsContainer, MEM="80", CPUS="8"):
 #PBS -l ncpus={CPUS}
 {afterokLine}
 
-cd {workingDir}/star_map
+cd {workingDir}
 
 ####
 
