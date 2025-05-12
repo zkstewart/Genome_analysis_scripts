@@ -1348,7 +1348,7 @@ def main():
             sortScriptName = os.path.join(locations["starDir"], "run_sam2bamsort.sh")
             make_sort_script(Container({
                 "outputFileName": sortScriptName,
-                "workingDir": os.getcwd(),
+                "workingDir": locations["starDir"],
                 "prefix": args.jobPrefix,
                 "runningJobIDs": [runningJobIDs[k] for k in ["stargg"] if k in runningJobIDs]
             }))
