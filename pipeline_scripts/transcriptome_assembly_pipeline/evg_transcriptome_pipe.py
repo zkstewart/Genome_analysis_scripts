@@ -262,7 +262,7 @@ ${{TRINITYDIR}}/util/insilico_read_normalization.pl --seqType fq --max_cov 30 \\
     with open(argsContainer.outputFileName, "w") as fileOut:
         fileOut.write(scriptText)
 
-def make_trin_dn_script(argsContainer, MEM="700G", CPUS="32"):
+def make_trin_dn_script(argsContainer, MEM="450G", CPUS="18"):
     # Format conda env
     envText = ""
     if argsContainer.condaEnv != None:
