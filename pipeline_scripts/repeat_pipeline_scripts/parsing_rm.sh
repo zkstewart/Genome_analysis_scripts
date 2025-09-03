@@ -1,26 +1,37 @@
 #!/bin/bash -l
- 
 #PBS -N parseRM
 #PBS -l ncpus=1
-#PBS -l walltime=02:00:00
-#PBS -l mem=5G
+#PBS -l walltime=03:30:00
+#PBS -l mem=10G
 
 cd $PBS_O_WORKDIR
 
-# Module loads
-module load bioperl/1.6.924-foss-2016a-perl-5.22.1
+conda activate perl5
 
-# Manual setup
-## Program file locations
-PARSERMDIR=/home/n8942188/various_programs/Parsing-RepeatMasker-Outputs
+PERL5BASE=$(dirname $(dirname $(which perl)))
+PERL5LIB="${PERL5BASE}/lib/perl5/site_perl:${PERL5BASE}/lib/perl5/vendor_perl:${PERL5BASE}/lib/perl5/core_perl:$PERL5LIB"
 
-## Input file locations
-REPLIBDIR=/home/n8942188/telmatactis/repeat_annotation/smart
-GENDIR=/home/n8942188/telmatactis/gene_models/most_recent_versions
-GENNAME=telmatactis_HGAP.arr4.pil2.noredun.fasta
+####
 
-# STEP 1: Fix RM out file
-python repeatmasker_outfile_extraclass.py -i ${GENNAME}.out -o ${GENNAME}.rmfix.out
+# Specify Genome_analysis_scripts directory
+GENSCRIPTDIR=/home/stewarz2/scripts/Genome_analysis_scripts
+
+# Specify Parsing-RM-Outputs location
+PARSERMDIR=/home/stewarz2/various_programs/Parsing-RepeatMasker-Outputs
+
+# Specify input file locations
+MASKOUTFILE=/home/stewarz2/plant_group/juel/repeats/reticulata_softmask/reticulata.fasta.out
+REPLIB=Citrus_repeatedSequences_library_v1.fasta
+GENOME=/home/stewarz2/plant_group/juel/genome/reticulata.fasta
+
+# Specify output prefix
+PREFIX=reticulata_rmparse
+
+####
+
+# STEP 0 (OPTIONAL): Fix RM out file
+#python ${GENSCRIPTDIR}/pipeline_scripts/repeat_pipeline_scripts/repeatmasker_outfile_extraclass.py -i ${MASKOUTFILE} -o ${PREFIX}.rmfix.out # if fixing for custom MITE predictions
+ln -s ${MASKOUTFILE} ${PREFIX}.rmfix.out # if not fixing
 
 # STEP 2: Run parseRM
-$PARSERMDIR/parseRM.pl -i ${GENNAME}.rmfix.out -p -g $GENDIR/$GENNAME -r $REPLIBDIR/*.finalcurated.repeats.lib -s all
+${PARSERMDIR}/parseRM.pl -i ${PREFIX}.rmfix.out -p -g ${GENOME} -r ${REPLIB} -s all
