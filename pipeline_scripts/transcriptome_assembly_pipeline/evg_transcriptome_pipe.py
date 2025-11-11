@@ -293,19 +293,26 @@ module load Java/17.0.6
 TRINITYDIR={trinityDir}
 CPUS={CPUS}
 MEM={MEM}
+SCRATCHDIR={scratchDir}
 
 ####
 
+# Run Trinity in a scratch space
+cd ${{SCRATCHDIR}}
 ${{TRINITYDIR}}/Trinity --seqType fq --no_normalize_reads \\
     --CPU ${{CPUS}} --max_memory ${{MEM}} \\
     --min_kmer_cov 2 \\
-    --monitoring \\
+    --monitoring --full_cleanup \\
     {inputText} \\
-    2>&1 >> Trinity.log""".format(
+    2>&1 >> Trinity.log
+
+# Move results back to original job dir
+## TBD""".format(
     MEM=MEM,
     CPUS=CPUS,
     prefix=argsContainer.prefix,
     workingDir=argsContainer.workingDir,
+    scratchDir=argsContainer.scratchDir,
     envText=envText,
     trinityDir=argsContainer.trinityDir,
     inputText=inputText,
@@ -1098,7 +1105,6 @@ cd {workingDir}
 
 ####
 
-PREFIX={prefix}
 EVGRESULTSDIR={evgRunDir}
 
 ####
@@ -1192,6 +1198,11 @@ def main():
                    required=True,
                    help="Specify the output directory for all results")
     # Optional (behavioural)
+    p.add_argument("--scratch", dest="scratchDir",
+                   required=False,
+                   help="""Optionally specify a scratch directory to run Trinity within
+                   (default=/scratch/stewarz2)""",
+                   default="/scratch/stewarz2")
     p.add_argument("--prefix", dest="jobPrefix",
                    required=False,
                    help="Optionally specify a prefix to append to submitted job names",
@@ -1310,6 +1321,7 @@ def main():
         make_trin_dn_script(Container({
             "outputFileName": trindnScriptName,
             "workingDir": locations["tndnDir"],
+            "scratchDir": args.scratchDir,
             "prefix": args.jobPrefix,
             "condaEnv": args.trinEnv,
             "trinityDir": args.trinity,
