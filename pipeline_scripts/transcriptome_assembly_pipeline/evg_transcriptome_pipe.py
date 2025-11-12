@@ -307,7 +307,7 @@ ${{TRINITYDIR}}/Trinity --seqType fq --no_normalize_reads \\
     2>&1 >> Trinity.log
 
 # Move results back to original job dir
-## TBD""".format(
+mv Trinity.log trinity_out_dir.Trinity.fasta trinity_out_dir.Trinity.fasta.gene_trans_map {workingDir}""".format(
     MEM=MEM,
     CPUS=CPUS,
     prefix=argsContainer.prefix,
@@ -1201,7 +1201,8 @@ def main():
     p.add_argument("--scratch", dest="scratchDir",
                    required=False,
                    help="""Optionally specify a scratch directory to run Trinity within
-                   (default=/scratch/stewarz2)""",
+                   (default=/scratch/stewarz2); make sure this doesn't conflict with any
+                   other transcriptome assembly jobs you might run concurrently""",
                    default="/scratch/stewarz2")
     p.add_argument("--prefix", dest="jobPrefix",
                    required=False,
